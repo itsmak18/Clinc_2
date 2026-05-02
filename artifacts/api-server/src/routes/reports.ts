@@ -2,10 +2,11 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { appointmentsTable, invoicesTable, usersTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte, desc } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth";
+import { requireAuth, requireRole } from "../middlewares/auth";
 
 const router = Router();
 router.use(requireAuth);
+router.use("/reports", requireRole("super_admin", "admin", "doctor"));
 
 router.get("/reports/appointments", async (req, res) => {
   const { dateFrom, dateTo } = req.query;

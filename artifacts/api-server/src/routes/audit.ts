@@ -5,7 +5,8 @@ import { eq, gte, lte, and, desc } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 
 const router = Router();
-router.use(requireAuth, requireRole("super_admin"));
+router.use(requireAuth);
+router.use("/audit-logs", requireRole("super_admin"));
 
 router.get("/audit-logs", async (req, res) => {
   const { dateFrom, dateTo, action, userId, entityType, limit = "100", offset = "0" } = req.query;
