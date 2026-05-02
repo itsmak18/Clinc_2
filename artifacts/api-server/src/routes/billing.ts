@@ -7,6 +7,7 @@ import { logAudit } from "../lib/audit";
 
 const router = Router();
 router.use(requireAuth);
+router.use("/billing", requireRole("super_admin", "admin", "front_desk"));
 
 function generateInvoiceNumber(): string {
   const d = new Date();

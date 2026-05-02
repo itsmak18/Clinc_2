@@ -5,7 +5,7 @@ import {
   labTestsTable, invoicesTable, usersTable
 } from "@workspace/db";
 import { eq, isNull, ilike, or, sql, desc, sum } from "drizzle-orm";
-import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
 const router = Router();
@@ -35,7 +35,7 @@ router.get("/patients", async (req: AuthRequest, res) => {
   res.json({ patients, total: Number(count) });
 });
 
-router.post("/patients", async (req: AuthRequest, res) => {
+router.post("/patients", requireRole("super_admin", "admin", "nurse", "front_desk"), async (req: AuthRequest, res) => {
   const { fullName, fullNameAr, dateOfBirth, gender, phone, address, bloodType, allergies, emergencyContact } = req.body;
   if (!fullName || !dateOfBirth || !gender || !phone) {
     res.status(400).json({ error: "Missing required fields" });
@@ -55,7 +55,7 @@ router.get("/patients/:patientId", async (req, res) => {
   res.json(patient);
 });
 
-router.patch("/patients/:patientId", async (req: AuthRequest, res) => {
+router.patch("/patients/:patientId", requireRole("super_admin", "admin", "nurse", "front_desk"), async (req: AuthRequest, res) => {
   const { fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive } = req.body;
   const [patient] = await db.update(patientsTable)
     .set({ fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, updatedAt: new Date() })
@@ -65,7 +65,7 @@ router.patch("/patients/:patientId", async (req: AuthRequest, res) => {
   res.json(patient);
 });
 
-router.delete("/patients/:patientId", async (req: AuthRequest, res) => {
+router.delete("/patients/:patientId", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   await db.update(patientsTable).set({ deletedAt: new Date() }).where(eq(patientsTable.id, parseInt(req.params.patientId)));
   await logAudit(req, "DELETE", "patient", parseInt(req.params.patientId));
   res.json({ success: true });

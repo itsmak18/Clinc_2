@@ -2,11 +2,12 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { appointmentsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
-import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
 const router = Router();
 router.use(requireAuth);
+router.use("/appointments", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"));
 
 router.get("/appointments", async (req, res) => {
   const { status, date, doctorId, patientId, limit = "50", offset = "0" } = req.query;
