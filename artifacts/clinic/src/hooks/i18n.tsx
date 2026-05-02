@@ -1,0 +1,341 @@
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+
+type Language = "en" | "ar";
+
+const translations = {
+  en: {
+    // Nav
+    dashboard: "Dashboard",
+    patients: "Patients",
+    appointments: "Appointments",
+    medicalRecords: "Medical Records",
+    prescriptions: "Prescriptions",
+    xray: "X-Ray",
+    lab: "Laboratory",
+    billing: "Billing",
+    operations: "Operations",
+    inventory: "Inventory",
+    reports: "Reports",
+    notifications: "Notifications",
+    users: "Users",
+    audit: "Audit Log",
+    settings: "Settings",
+    logout: "Logout",
+    // Common
+    search: "Search",
+    filter: "Filter",
+    create: "Create",
+    save: "Save",
+    cancel: "Cancel",
+    edit: "Edit",
+    delete: "Delete",
+    view: "View",
+    loading: "Loading...",
+    noData: "No data found",
+    actions: "Actions",
+    status: "Status",
+    date: "Date",
+    name: "Name",
+    role: "Role",
+    email: "Email",
+    phone: "Phone",
+    notes: "Notes",
+    submit: "Submit",
+    close: "Close",
+    confirm: "Confirm",
+    active: "Active",
+    inactive: "Inactive",
+    all: "All",
+    // Auth
+    login: "Login",
+    username: "Username",
+    password: "Password",
+    loginSubtitle: "Clinic Management System",
+    // Roles
+    super_admin: "Super Admin",
+    admin: "Admin",
+    doctor: "Doctor",
+    nurse: "Nurse",
+    front_desk: "Front Desk",
+    xray_staff: "X-Ray Staff",
+    lab_staff: "Lab Staff",
+    // Appointment statuses
+    scheduled: "Scheduled",
+    checked_in: "Checked In",
+    in_progress: "In Progress",
+    completed: "Completed",
+    cancelled: "Cancelled",
+    no_show: "No Show",
+    // Invoice statuses
+    pending: "Pending",
+    paid: "Paid",
+    // Lab/Xray statuses
+    requested: "Requested",
+    uploaded: "Uploaded",
+    reviewed: "Reviewed",
+    // Patient
+    mrn: "MRN",
+    dateOfBirth: "Date of Birth",
+    gender: "Gender",
+    male: "Male",
+    female: "Female",
+    bloodType: "Blood Type",
+    allergies: "Allergies",
+    emergencyContact: "Emergency Contact",
+    address: "Address",
+    registerPatient: "Register Patient",
+    patientProfile: "Patient Profile",
+    // Appointment
+    doctorLabel: "Doctor",
+    scheduledAt: "Scheduled At",
+    reason: "Reason",
+    checkIn: "Check In",
+    newAppointment: "New Appointment",
+    // Medical Record
+    chiefComplaint: "Chief Complaint",
+    diagnosis: "Diagnosis",
+    treatment: "Treatment",
+    vitals: "Vitals",
+    bloodPressure: "Blood Pressure",
+    heartRate: "Heart Rate (bpm)",
+    temperature: "Temperature (C)",
+    weight: "Weight (kg)",
+    height: "Height (cm)",
+    oxygenSaturation: "O2 Saturation (%)",
+    // Prescription
+    medications: "Medications",
+    dosage: "Dosage",
+    frequency: "Frequency",
+    duration: "Duration",
+    instructions: "Instructions",
+    addMedication: "Add Medication",
+    // X-ray
+    bodyPart: "Body Part",
+    report: "Report",
+    // Lab
+    testName: "Test Name",
+    results: "Results",
+    // Billing
+    invoice: "Invoice",
+    invoiceNumber: "Invoice #",
+    subtotal: "Subtotal",
+    discount: "Discount",
+    total: "Total",
+    payNow: "Pay Now",
+    addItem: "Add Item",
+    description: "Description",
+    quantity: "Quantity",
+    unitPrice: "Unit Price",
+    // Operations
+    procedureName: "Procedure Name",
+    operatingRoom: "Operating Room",
+    surgeon: "Surgeon",
+    // Inventory
+    category: "Category",
+    unit: "Unit",
+    minimumStock: "Min. Stock",
+    expiryDate: "Expiry Date",
+    lowStock: "Low Stock",
+    expired: "Expired",
+    // Dashboard
+    todayAppointments: "Today's Appointments",
+    checkedInPatients: "Checked In",
+    pendingLabTests: "Pending Lab Tests",
+    pendingXrays: "Pending X-Rays",
+    todayRevenue: "Today's Revenue",
+    pendingInvoices: "Pending Invoices",
+    scheduledOperations: "Scheduled Operations",
+    lowStockItems: "Low Stock Items",
+    totalPatients: "Total Patients",
+    totalDoctors: "Total Doctors",
+    recentActivity: "Recent Activity",
+    // Reports
+    dateFrom: "From Date",
+    dateTo: "To Date",
+    totalAppointments: "Total Appointments",
+    cancellationRate: "Cancellation Rate",
+    avgWaitTime: "Avg. Wait Time",
+    revenue: "Revenue",
+    byDoctor: "By Doctor",
+    dailyBreakdown: "Daily Breakdown",
+  },
+  ar: {
+    dashboard: "لوحة التحكم",
+    patients: "المرضى",
+    appointments: "المواعيد",
+    medicalRecords: "السجلات الطبية",
+    prescriptions: "الوصفات الطبية",
+    xray: "الأشعة السينية",
+    lab: "المختبر",
+    billing: "الفوترة",
+    operations: "العمليات",
+    inventory: "المخزون",
+    reports: "التقارير",
+    notifications: "الإشعارات",
+    users: "المستخدمون",
+    audit: "سجل المراجعة",
+    settings: "الإعدادات",
+    logout: "تسجيل الخروج",
+    search: "بحث",
+    filter: "تصفية",
+    create: "إنشاء",
+    save: "حفظ",
+    cancel: "إلغاء",
+    edit: "تعديل",
+    delete: "حذف",
+    view: "عرض",
+    loading: "جاري التحميل...",
+    noData: "لا توجد بيانات",
+    actions: "إجراءات",
+    status: "الحالة",
+    date: "التاريخ",
+    name: "الاسم",
+    role: "الدور",
+    email: "البريد الإلكتروني",
+    phone: "الهاتف",
+    notes: "ملاحظات",
+    submit: "إرسال",
+    close: "إغلاق",
+    confirm: "تأكيد",
+    active: "نشط",
+    inactive: "غير نشط",
+    all: "الكل",
+    login: "تسجيل الدخول",
+    username: "اسم المستخدم",
+    password: "كلمة المرور",
+    loginSubtitle: "نظام إدارة العيادة",
+    super_admin: "مشرف عام",
+    admin: "مشرف",
+    doctor: "طبيب",
+    nurse: "ممرضة",
+    front_desk: "الاستقبال",
+    xray_staff: "موظف الأشعة",
+    lab_staff: "موظف المختبر",
+    scheduled: "مجدول",
+    checked_in: "تم التسجيل",
+    in_progress: "جاري",
+    completed: "مكتمل",
+    cancelled: "ملغى",
+    no_show: "لم يحضر",
+    pending: "معلق",
+    paid: "مدفوع",
+    requested: "مطلوب",
+    uploaded: "تم الرفع",
+    reviewed: "تمت المراجعة",
+    mrn: "رقم السجل",
+    dateOfBirth: "تاريخ الميلاد",
+    gender: "الجنس",
+    male: "ذكر",
+    female: "أنثى",
+    bloodType: "فصيلة الدم",
+    allergies: "الحساسية",
+    emergencyContact: "جهة الاتصال الطارئة",
+    address: "العنوان",
+    registerPatient: "تسجيل مريض",
+    patientProfile: "ملف المريض",
+    doctorLabel: "الطبيب",
+    scheduledAt: "موعد",
+    reason: "السبب",
+    checkIn: "تسجيل الوصول",
+    newAppointment: "موعد جديد",
+    chiefComplaint: "الشكوى الرئيسية",
+    diagnosis: "التشخيص",
+    treatment: "العلاج",
+    vitals: "العلامات الحيوية",
+    bloodPressure: "ضغط الدم",
+    heartRate: "معدل ضربات القلب (نبضة/دقيقة)",
+    temperature: "درجة الحرارة (م)",
+    weight: "الوزن (كجم)",
+    height: "الطول (سم)",
+    oxygenSaturation: "تشبع الأكسجين (%)",
+    medications: "الأدوية",
+    dosage: "الجرعة",
+    frequency: "التكرار",
+    duration: "المدة",
+    instructions: "التعليمات",
+    addMedication: "إضافة دواء",
+    bodyPart: "منطقة الجسم",
+    report: "التقرير",
+    testName: "اسم الفحص",
+    results: "النتائج",
+    invoice: "فاتورة",
+    invoiceNumber: "رقم الفاتورة",
+    subtotal: "المجموع الفرعي",
+    discount: "الخصم",
+    total: "الإجمالي",
+    payNow: "ادفع الآن",
+    addItem: "إضافة بند",
+    description: "الوصف",
+    quantity: "الكمية",
+    unitPrice: "سعر الوحدة",
+    procedureName: "اسم الإجراء",
+    operatingRoom: "غرفة العمليات",
+    surgeon: "الجراح",
+    category: "الفئة",
+    unit: "الوحدة",
+    minimumStock: "الحد الأدنى للمخزون",
+    expiryDate: "تاريخ الانتهاء",
+    lowStock: "مخزون منخفض",
+    expired: "منتهي الصلاحية",
+    todayAppointments: "مواعيد اليوم",
+    checkedInPatients: "المرضى المسجلون",
+    pendingLabTests: "فحوصات معلقة",
+    pendingXrays: "أشعة معلقة",
+    todayRevenue: "إيرادات اليوم",
+    pendingInvoices: "فواتير معلقة",
+    scheduledOperations: "عمليات مجدولة",
+    lowStockItems: "مواد منخفضة",
+    totalPatients: "إجمالي المرضى",
+    totalDoctors: "إجمالي الأطباء",
+    recentActivity: "النشاط الأخير",
+    dateFrom: "من تاريخ",
+    dateTo: "إلى تاريخ",
+    totalAppointments: "إجمالي المواعيد",
+    cancellationRate: "معدل الإلغاء",
+    avgWaitTime: "متوسط وقت الانتظار",
+    revenue: "الإيرادات",
+    byDoctor: "حسب الطبيب",
+    dailyBreakdown: "التفصيل اليومي",
+  },
+};
+
+interface I18nContextType {
+  language: Language;
+  setLanguage: (lang: Language) => void;
+  t: (key: keyof typeof translations.en) => string;
+  isRtl: boolean;
+}
+
+const I18nContext = createContext<I18nContextType | null>(null);
+
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguageState] = useState<Language>(() => {
+    return (localStorage.getItem("clinic_lang") as Language) || "en";
+  });
+
+  useEffect(() => {
+    document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
+    document.documentElement.lang = language;
+    localStorage.setItem("clinic_lang", language);
+  }, [language]);
+
+  const setLanguage = (lang: Language) => {
+    setLanguageState(lang);
+  };
+
+  const t = (key: keyof typeof translations.en): string => {
+    return translations[language][key] ?? translations.en[key] ?? key;
+  };
+
+  return (
+    <I18nContext.Provider value={{ language, setLanguage, t, isRtl: language === "ar" }}>
+      {children}
+    </I18nContext.Provider>
+  );
+}
+
+export function useI18n() {
+  const ctx = useContext(I18nContext);
+  if (!ctx) throw new Error("useI18n must be used within I18nProvider");
+  return ctx;
+}
