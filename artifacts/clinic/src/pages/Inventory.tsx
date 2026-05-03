@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useListInventoryItems, useCreateInventoryItem, useUpdateInventoryItem, getListInventoryItemsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
@@ -16,7 +17,9 @@ import { Plus, AlertTriangle } from "lucide-react";
 export default function Inventory() {
   const { t } = useI18n();
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const canWrite = user?.role === "super_admin" || user?.role === "admin";
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ name: "", category: "", quantity: "", unit: "", minimumStock: "", expiryDate: "", notes: "" });
@@ -44,11 +47,11 @@ export default function Inventory() {
       <PageHeader
         title={t("inventory")}
         subtitle={`${items?.length ?? 0} items`}
-        actions={
+        actions={canWrite ? (
           <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-add-item">
             <Plus className="w-3.5 h-3.5 me-1" /> Add Item
           </Button>
-        }
+        ) : undefined}
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">

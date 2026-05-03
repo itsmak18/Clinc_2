@@ -7,9 +7,9 @@ import { logAudit } from "../lib/audit";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/operations", requireRole("super_admin", "admin", "doctor"));
 
-router.get("/operations", async (req, res) => {
+// Nurses can view the OR schedule (read-only); only doctors/admins can create/update
+router.get("/operations", requireRole("super_admin", "admin", "doctor", "nurse"), async (req, res) => {
   const { status } = req.query;
   const rows = await db.select({
     id: operationsTable.id,
@@ -35,7 +35,7 @@ router.get("/operations", async (req, res) => {
   res.json(results);
 });
 
-router.post("/operations", async (req: AuthRequest, res) => {
+router.post("/operations", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
   const { patientId, surgeonId, procedureName, scheduledAt, operatingRoom, staffAssigned, notes } = req.body;
   if (!patientId || !surgeonId || !procedureName || !scheduledAt || !operatingRoom) {
     res.status(400).json({ error: "Missing required fields" });
@@ -52,13 +52,13 @@ router.post("/operations", async (req: AuthRequest, res) => {
   res.status(201).json(operation);
 });
 
-router.get("/operations/:operationId", async (req, res) => {
+router.get("/operations/:operationId", requireRole("super_admin", "admin", "doctor", "nurse"), async (req, res) => {
   const [operation] = await db.select().from(operationsTable).where(eq(operationsTable.id, parseInt(req.params.operationId as string)));
   if (!operation) { res.status(404).json({ error: "Not found" }); return; }
   res.json(operation);
 });
 
-router.patch("/operations/:operationId", async (req: AuthRequest, res) => {
+router.patch("/operations/:operationId", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
   const { status, notes, staffAssigned } = req.body;
   const [operation] = await db.update(operationsTable)
     .set({ status, notes, staffAssigned, updatedAt: new Date() })

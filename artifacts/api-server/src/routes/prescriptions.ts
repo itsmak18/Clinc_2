@@ -7,9 +7,10 @@ import { logAudit } from "../lib/audit";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/prescriptions", requireRole("super_admin", "admin", "doctor"));
 
-router.get("/prescriptions", async (req, res) => {
+// Nurses and lab staff can read prescriptions (to administer / cross-reference)
+// Only doctors/admins may create them
+router.get("/prescriptions", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"), async (req, res) => {
   const { patientId } = req.query;
   const rows = await db.select({
     id: prescriptionsTable.id,
@@ -32,7 +33,7 @@ router.get("/prescriptions", async (req, res) => {
   res.json(results);
 });
 
-router.post("/prescriptions", async (req: AuthRequest, res) => {
+router.post("/prescriptions", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
   const { patientId, doctorId, recordId, medications, notes } = req.body;
   if (!patientId || !doctorId || !medications?.length) {
     res.status(400).json({ error: "Missing required fields" });
@@ -45,7 +46,7 @@ router.post("/prescriptions", async (req: AuthRequest, res) => {
   res.status(201).json(prescription);
 });
 
-router.get("/prescriptions/:prescriptionId", async (req, res) => {
+router.get("/prescriptions/:prescriptionId", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"), async (req, res) => {
   const [prescription] = await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.id, parseInt(req.params.prescriptionId)));
   if (!prescription) { res.status(404).json({ error: "Not found" }); return; }
   res.json(prescription);
