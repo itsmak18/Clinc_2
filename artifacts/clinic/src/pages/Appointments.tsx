@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/auth";
 import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
+import DischargeSheet from "@/components/DischargeSheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime } from "@/lib/api";
-import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle } from "lucide-react";
+import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -45,6 +46,7 @@ export default function Appointments() {
   const [filterDate, setFilterDate] = useState("");
   const [transitionLoading, setTransitionLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
+  const [dischargeApptId, setDischargeApptId] = useState<number | null>(null);
 
   const params = {
     status: filterStatus as any || undefined,
@@ -203,6 +205,14 @@ export default function Appointments() {
                         {t("cancel")}
                       </Button>
                     )}
+                    {/* Print discharge sheet: completed or pending_payment */}
+                    {["pending_payment", "completed"].includes(a.status) && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-slate-600 border-slate-200 hover:bg-slate-50"
+                        onClick={(e) => { e.stopPropagation(); setDischargeApptId(a.id); }}
+                        title="Print Visit Summary">
+                        <FileText className="w-3 h-3 me-1" />Summary
+                      </Button>
+                    )}
                   </div>
                 );
               }},
@@ -254,6 +264,12 @@ export default function Appointments() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <DischargeSheet
+        appointmentId={dischargeApptId}
+        open={dischargeApptId !== null}
+        onClose={() => setDischargeApptId(null)}
+      />
     </div>
   );
 }

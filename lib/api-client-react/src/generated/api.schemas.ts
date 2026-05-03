@@ -321,6 +321,67 @@ export interface TodayAppointments {
   cancelled: number;
 }
 
+export interface Medication {
+  name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions?: string | null;
+}
+
+export interface Prescription {
+  id: number;
+  patientId: number;
+  doctorId: number;
+  recordId?: number | null;
+  patient?: Patient;
+  doctor?: User;
+  medications: Medication[];
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
+
+export const InvoiceStatus = {
+  pending: "pending",
+  paid: "paid",
+  cancelled: "cancelled",
+} as const;
+
+export interface Invoice {
+  id: number;
+  invoiceNumber: string;
+  patientId: number;
+  createdById: number;
+  patient?: Patient;
+  items: InvoiceItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  status: InvoiceStatus;
+  paidAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface DischargeSheet {
+  appointment: Appointment;
+  patient: Patient;
+  medicalRecord?: MedicalRecord | null;
+  prescriptions: Prescription[];
+  labTests: LabTest[];
+  xrays: XrayRecord[];
+  invoice?: Invoice | null;
+}
+
 export type PatientFlowStageCounts = {
   scheduled: number;
   checked_in: number;
@@ -364,26 +425,6 @@ export interface UpdateMedicalRecordBody {
   treatment?: string;
   notes?: string;
   vitals?: Vitals;
-}
-
-export interface Medication {
-  name: string;
-  dosage: string;
-  frequency: string;
-  duration: string;
-  instructions?: string | null;
-}
-
-export interface Prescription {
-  id: number;
-  patientId: number;
-  doctorId: number;
-  recordId?: number | null;
-  patient?: Patient;
-  doctor?: User;
-  medications: Medication[];
-  notes?: string | null;
-  createdAt: string;
 }
 
 export interface CreatePrescriptionBody {
@@ -441,37 +482,6 @@ export interface UpdateLabTestBody {
   results?: string;
   status?: UpdateLabTestBodyStatus;
   notes?: string;
-}
-
-export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
-
-export const InvoiceStatus = {
-  pending: "pending",
-  paid: "paid",
-  cancelled: "cancelled",
-} as const;
-
-export interface InvoiceItem {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-}
-
-export interface Invoice {
-  id: number;
-  invoiceNumber: string;
-  patientId: number;
-  createdById: number;
-  patient?: Patient;
-  items: InvoiceItem[];
-  subtotal: number;
-  discount: number;
-  total: number;
-  status: InvoiceStatus;
-  paidAt?: string | null;
-  notes?: string | null;
-  createdAt: string;
 }
 
 export interface CreateInvoiceBody {

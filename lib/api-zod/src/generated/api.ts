@@ -1012,6 +1012,362 @@ export const CheckInPatientResponse = zod.object({
 });
 
 /**
+ * @summary Get full discharge summary for a specific appointment visit
+ */
+export const GetAppointmentDischargeParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const GetAppointmentDischargeResponse = zod.object({
+  appointment: zod.object({
+    id: zod.number(),
+    patientId: zod.number(),
+    doctorId: zod.number(),
+    patient: zod
+      .object({
+        id: zod.number(),
+        mrn: zod.string(),
+        fullName: zod.string(),
+        fullNameAr: zod.string().optional(),
+        dateOfBirth: zod.coerce.date(),
+        gender: zod.enum(["male", "female"]),
+        phone: zod.string(),
+        address: zod.string().nullish(),
+        bloodType: zod.string().nullish(),
+        allergies: zod.string().nullish(),
+        emergencyContact: zod.string().nullish(),
+        isActive: zod.boolean(),
+        createdAt: zod.coerce.date(),
+      })
+      .optional(),
+    doctor: zod
+      .object({
+        id: zod.number(),
+        username: zod.string(),
+        fullName: zod.string(),
+        fullNameAr: zod.string().optional(),
+        email: zod.string().optional(),
+        role: zod.enum([
+          "super_admin",
+          "admin",
+          "doctor",
+          "nurse",
+          "front_desk",
+          "xray_staff",
+          "lab_staff",
+        ]),
+        isActive: zod.boolean(),
+        isOnShift: zod.boolean(),
+        phone: zod.string().nullish(),
+        createdAt: zod.coerce.date(),
+      })
+      .optional(),
+    scheduledAt: zod.coerce.date(),
+    reason: zod.string(),
+    status: zod.enum([
+      "scheduled",
+      "checked_in",
+      "in_triage",
+      "ready_for_doctor",
+      "in_consultation",
+      "awaiting_diagnostics",
+      "pending_payment",
+      "completed",
+      "cancelled",
+      "no_show",
+      "in_progress",
+    ]),
+    cancellationReason: zod.string().nullish(),
+    notes: zod.string().nullish(),
+    checkedInAt: zod.coerce.date().nullish(),
+    triageStartedAt: zod.coerce.date().nullish(),
+    consultationStartedAt: zod.coerce.date().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+  patient: zod.object({
+    id: zod.number(),
+    mrn: zod.string(),
+    fullName: zod.string(),
+    fullNameAr: zod.string().optional(),
+    dateOfBirth: zod.coerce.date(),
+    gender: zod.enum(["male", "female"]),
+    phone: zod.string(),
+    address: zod.string().nullish(),
+    bloodType: zod.string().nullish(),
+    allergies: zod.string().nullish(),
+    emergencyContact: zod.string().nullish(),
+    isActive: zod.boolean(),
+    createdAt: zod.coerce.date(),
+  }),
+  medicalRecord: zod
+    .object({
+      id: zod.number(),
+      patientId: zod.number(),
+      doctorId: zod.number(),
+      appointmentId: zod.number().nullish(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      doctor: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      chiefComplaint: zod.string(),
+      diagnosis: zod.string(),
+      treatment: zod.string(),
+      notes: zod.string().nullish(),
+      vitals: zod
+        .object({
+          bloodPressure: zod.string().nullish(),
+          heartRate: zod.number().nullish(),
+          temperature: zod.number().nullish(),
+          weight: zod.number().nullish(),
+          height: zod.number().nullish(),
+          oxygenSaturation: zod.number().nullish(),
+        })
+        .nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .nullish(),
+  prescriptions: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      doctorId: zod.number(),
+      recordId: zod.number().nullish(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      doctor: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      medications: zod.array(
+        zod.object({
+          name: zod.string(),
+          dosage: zod.string(),
+          frequency: zod.string(),
+          duration: zod.string(),
+          instructions: zod.string().nullish(),
+        }),
+      ),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  labTests: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      requestedById: zod.number(),
+      performedById: zod.number().nullish(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      requestedBy: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      testName: zod.string(),
+      results: zod.string().nullish(),
+      status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  xrays: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      requestedById: zod.number(),
+      performedById: zod.number().nullish(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      requestedBy: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      bodyPart: zod.string(),
+      imageUrl: zod.string().nullish(),
+      imageFileName: zod.string().nullish(),
+      report: zod.string().nullish(),
+      status: zod.enum(["pending", "uploaded", "reviewed"]),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  invoice: zod
+    .object({
+      id: zod.number(),
+      invoiceNumber: zod.string(),
+      patientId: zod.number(),
+      createdById: zod.number(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      items: zod.array(
+        zod.object({
+          description: zod.string(),
+          quantity: zod.number(),
+          unitPrice: zod.number(),
+          total: zod.number(),
+        }),
+      ),
+      subtotal: zod.number(),
+      discount: zod.number(),
+      total: zod.number(),
+      status: zod.enum(["pending", "paid", "cancelled"]),
+      paidAt: zod.coerce.date().nullish(),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .nullish(),
+});
+
+/**
  * @summary Get real-time patient flow metrics by stage
  */
 export const GetPatientFlowResponse = zod.object({

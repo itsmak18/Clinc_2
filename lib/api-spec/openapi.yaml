@@ -516,6 +516,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Appointment"
 
+  /appointments/{appointmentId}/discharge:
+    get:
+      operationId: getAppointmentDischarge
+      tags: [appointments]
+      summary: Get full discharge summary for a specific appointment visit
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Discharge summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DischargeSheet"
+
   /appointments/flow:
     get:
       operationId: getPatientFlow
@@ -1782,6 +1801,33 @@ components:
         cancelled:
           type: integer
       required: [appointments, total, scheduled, checkedIn, completed, cancelled]
+
+    DischargeSheet:
+      type: object
+      properties:
+        appointment:
+          $ref: "#/components/schemas/Appointment"
+        patient:
+          $ref: "#/components/schemas/Patient"
+        medicalRecord:
+          $ref: "#/components/schemas/MedicalRecord"
+          nullable: true
+        prescriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prescription"
+        labTests:
+          type: array
+          items:
+            $ref: "#/components/schemas/LabTest"
+        xrays:
+          type: array
+          items:
+            $ref: "#/components/schemas/XrayRecord"
+        invoice:
+          $ref: "#/components/schemas/Invoice"
+          nullable: true
+      required: [appointment, patient, prescriptions, labTests, xrays]
 
     PatientFlow:
       type: object
