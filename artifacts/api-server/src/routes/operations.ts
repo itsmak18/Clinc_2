@@ -53,7 +53,7 @@ router.post("/operations", async (req: AuthRequest, res) => {
 });
 
 router.get("/operations/:operationId", async (req, res) => {
-  const [operation] = await db.select().from(operationsTable).where(eq(operationsTable.id, parseInt(req.params.operationId)));
+  const [operation] = await db.select().from(operationsTable).where(eq(operationsTable.id, parseInt(req.params.operationId as string)));
   if (!operation) { res.status(404).json({ error: "Not found" }); return; }
   res.json(operation);
 });
@@ -62,7 +62,7 @@ router.patch("/operations/:operationId", async (req: AuthRequest, res) => {
   const { status, notes, staffAssigned } = req.body;
   const [operation] = await db.update(operationsTable)
     .set({ status, notes, staffAssigned, updatedAt: new Date() })
-    .where(eq(operationsTable.id, parseInt(req.params.operationId)))
+    .where(eq(operationsTable.id, parseInt(req.params.operationId as string)))
     .returning();
   await logAudit(req, "UPDATE", "operation", operation.id);
   res.json(operation);

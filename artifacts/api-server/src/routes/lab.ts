@@ -50,7 +50,7 @@ router.post("/lab/tests", async (req: AuthRequest, res) => {
 });
 
 router.get("/lab/tests/:testId", async (req, res) => {
-  const [test] = await db.select().from(labTestsTable).where(eq(labTestsTable.id, parseInt(req.params.testId)));
+  const [test] = await db.select().from(labTestsTable).where(eq(labTestsTable.id, parseInt(req.params.testId as string)));
   if (!test) { res.status(404).json({ error: "Not found" }); return; }
   res.json(test);
 });
@@ -59,7 +59,7 @@ router.patch("/lab/tests/:testId", async (req: AuthRequest, res) => {
   const { results, status, performedById } = req.body;
   const [test] = await db.update(labTestsTable)
     .set({ results, status, performedById, updatedAt: new Date() })
-    .where(eq(labTestsTable.id, parseInt(req.params.testId)))
+    .where(eq(labTestsTable.id, parseInt(req.params.testId as string)))
     .returning();
 
   if (status === "completed") {
@@ -67,7 +67,7 @@ router.patch("/lab/tests/:testId", async (req: AuthRequest, res) => {
       userId: test.requestedById,
       title: "Lab Results Ready",
       message: `${test.testName} results are ready for review`,
-      type: "lab_ready",
+      type: "lab_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
     if (notif) emitToUser(test.requestedById, "notification", notif);

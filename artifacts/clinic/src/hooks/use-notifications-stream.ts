@@ -4,6 +4,14 @@ import { getListNotificationsQueryKey } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 
+type ToastFn = (opts: { title: string; description?: string }) => void;
+
+let _toastFn: ToastFn | null = null;
+
+export function registerToastForSSE(fn: ToastFn) {
+  _toastFn = fn;
+}
+
 export function useNotificationsStream() {
   const queryClient = useQueryClient();
   const esRef = useRef<EventSource | null>(null);
@@ -23,13 +31,21 @@ export function useNotificationsStream() {
       const es = new EventSource(`${url}?token=${encodeURIComponent(token!)}`, { withCredentials: false });
       esRef.current = es;
 
-      es.addEventListener("notification", () => {
+      es.addEventListener("notification", (e: MessageEvent) => {
         queryClient.invalidateQueries({
           queryKey: getListNotificationsQueryKey({ unreadOnly: true }),
         });
         queryClient.invalidateQueries({
           queryKey: getListNotificationsQueryKey({}),
         });
+        try {
+          const notif = JSON.parse(e.data);
+          if (_toastFn) {
+            _toastFn({ title: notif.title, description: notif.message });
+          }
+        } catch {
+          // ignore parse errors
+        }
       });
 
       es.onerror = () => {

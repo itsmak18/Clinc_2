@@ -21,6 +21,7 @@ export const usersTable = pgTable("users", {
   email: text("email"),
   role: userRoleEnum("role").notNull(),
   isActive: boolean("is_active").notNull().default(true),
+  isOnShift: boolean("is_on_shift").notNull().default(false),
   phone: text("phone"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

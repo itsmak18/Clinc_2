@@ -916,6 +916,165 @@ export const useResetUserPassword = <
 };
 
 /**
+ * @summary Get all users currently on shift
+ */
+export const getGetOnShiftUsersUrl = () => {
+  return `/api/users/on-shift`;
+};
+
+export const getOnShiftUsers = async (
+  options?: RequestInit,
+): Promise<User[]> => {
+  return customFetch<User[]>(getGetOnShiftUsersUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetOnShiftUsersQueryKey = () => {
+  return [`/api/users/on-shift`] as const;
+};
+
+export const getGetOnShiftUsersQueryOptions = <
+  TData = Awaited<ReturnType<typeof getOnShiftUsers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOnShiftUsers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetOnShiftUsersQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getOnShiftUsers>>> = ({
+    signal,
+  }) => getOnShiftUsers({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getOnShiftUsers>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetOnShiftUsersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getOnShiftUsers>>
+>;
+export type GetOnShiftUsersQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get all users currently on shift
+ */
+
+export function useGetOnShiftUsers<
+  TData = Awaited<ReturnType<typeof getOnShiftUsers>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getOnShiftUsers>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetOnShiftUsersQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Toggle on-shift status for a user
+ */
+export const getToggleUserShiftUrl = (userId: number) => {
+  return `/api/users/${userId}/toggle-shift`;
+};
+
+export const toggleUserShift = async (
+  userId: number,
+  options?: RequestInit,
+): Promise<User> => {
+  return customFetch<User>(getToggleUserShiftUrl(userId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getToggleUserShiftMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof toggleUserShift>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof toggleUserShift>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  const mutationKey = ["toggleUserShift"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof toggleUserShift>>,
+    { userId: number }
+  > = (props) => {
+    const { userId } = props ?? {};
+
+    return toggleUserShift(userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ToggleUserShiftMutationResult = NonNullable<
+  Awaited<ReturnType<typeof toggleUserShift>>
+>;
+
+export type ToggleUserShiftMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Toggle on-shift status for a user
+ */
+export const useToggleUserShift = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof toggleUserShift>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof toggleUserShift>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  return useMutation(getToggleUserShiftMutationOptions(options));
+};
+
+/**
  * @summary List patients
  */
 export const getListPatientsUrl = (params?: ListPatientsParams) => {
@@ -2042,6 +2201,510 @@ export function useGetTodayAppointments<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Move appointment to in_triage
+ */
+export const getStartTriageUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/triage`;
+};
+
+export const startTriage = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getStartTriageUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getStartTriageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startTriage>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startTriage>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["startTriage"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startTriage>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return startTriage(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartTriageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startTriage>>
+>;
+
+export type StartTriageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Move appointment to in_triage
+ */
+export const useStartTriage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startTriage>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startTriage>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getStartTriageMutationOptions(options));
+};
+
+/**
+ * @summary Mark patient as ready_for_doctor
+ */
+export const getMarkPatientReadyUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/ready`;
+};
+
+export const markPatientReady = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getMarkPatientReadyUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkPatientReadyMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markPatientReady>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markPatientReady>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["markPatientReady"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markPatientReady>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return markPatientReady(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkPatientReadyMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markPatientReady>>
+>;
+
+export type MarkPatientReadyMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark patient as ready_for_doctor
+ */
+export const useMarkPatientReady = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markPatientReady>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markPatientReady>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getMarkPatientReadyMutationOptions(options));
+};
+
+/**
+ * @summary Start consultation (in_consultation)
+ */
+export const getStartConsultationUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/consult`;
+};
+
+export const startConsultation = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getStartConsultationUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getStartConsultationMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startConsultation>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startConsultation>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["startConsultation"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startConsultation>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return startConsultation(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartConsultationMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startConsultation>>
+>;
+
+export type StartConsultationMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Start consultation (in_consultation)
+ */
+export const useStartConsultation = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startConsultation>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startConsultation>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getStartConsultationMutationOptions(options));
+};
+
+/**
+ * @summary Move to awaiting_diagnostics
+ */
+export const getRequestDiagnosticsUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/diagnostics`;
+};
+
+export const requestDiagnostics = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getRequestDiagnosticsUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRequestDiagnosticsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestDiagnostics>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof requestDiagnostics>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["requestDiagnostics"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof requestDiagnostics>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return requestDiagnostics(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RequestDiagnosticsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof requestDiagnostics>>
+>;
+
+export type RequestDiagnosticsMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Move to awaiting_diagnostics
+ */
+export const useRequestDiagnostics = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof requestDiagnostics>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof requestDiagnostics>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getRequestDiagnosticsMutationOptions(options));
+};
+
+/**
+ * @summary Move to pending_payment
+ */
+export const getPendingPaymentUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/payment`;
+};
+
+export const pendingPayment = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getPendingPaymentUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getPendingPaymentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pendingPayment>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pendingPayment>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["pendingPayment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pendingPayment>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return pendingPayment(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PendingPaymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pendingPayment>>
+>;
+
+export type PendingPaymentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Move to pending_payment
+ */
+export const usePendingPayment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pendingPayment>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof pendingPayment>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getPendingPaymentMutationOptions(options));
+};
+
+/**
+ * @summary Mark appointment as completed
+ */
+export const getCompleteAppointmentUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/complete`;
+};
+
+export const completeAppointment = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<Appointment> => {
+  return customFetch<Appointment>(getCompleteAppointmentUrl(appointmentId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCompleteAppointmentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeAppointment>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof completeAppointment>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  const mutationKey = ["completeAppointment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof completeAppointment>>,
+    { appointmentId: number }
+  > = (props) => {
+    const { appointmentId } = props ?? {};
+
+    return completeAppointment(appointmentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CompleteAppointmentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof completeAppointment>>
+>;
+
+export type CompleteAppointmentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark appointment as completed
+ */
+export const useCompleteAppointment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof completeAppointment>>,
+    TError,
+    { appointmentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof completeAppointment>>,
+  TError,
+  { appointmentId: number },
+  TContext
+> => {
+  return useMutation(getCompleteAppointmentMutationOptions(options));
+};
 
 /**
  * @summary List medical records

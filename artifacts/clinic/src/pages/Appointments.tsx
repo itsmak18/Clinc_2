@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useListAppointments, useCreateAppointment, useCheckInPatient, useCancelAppointment, useListPatients, useListUsers, getListAppointmentsQueryKey, getListPatientsQueryKey, getListUsersQueryKey, useGetTodayAppointments, getGetTodayAppointmentsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/auth";
 import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
@@ -12,15 +13,37 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime } from "@/lib/api";
-import { Plus, UserCheck } from "lucide-react";
+import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL ?? "/";
+const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
+
+async function apiFetch(path: string, method = "POST", body?: object) {
+  const token = localStorage.getItem("clinic_token");
+  const res = await fetch(apiUrl(path), {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+const ALL_STATUSES = [
+  "scheduled", "checked_in", "in_triage", "ready_for_doctor",
+  "in_consultation", "awaiting_diagnostics", "pending_payment",
+  "completed", "cancelled", "no_show", "in_progress"
+];
 
 export default function Appointments() {
   const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [transitionLoading, setTransitionLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
 
   const params = {
@@ -31,16 +54,20 @@ export default function Appointments() {
   };
 
   const { data: appointments, isLoading } = useListAppointments(params, {
-    query: { queryKey: getListAppointmentsQueryKey(params) }
+    query: { queryKey: getListAppointmentsQueryKey(params), refetchInterval: 30000 }
   });
   const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
   const { data: users } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
 
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
+  };
+
   const createMutation = useCreateAppointment({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
+        invalidateAll();
         setShowCreate(false);
         setForm({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
         toast({ title: "Appointment created" });
@@ -51,24 +78,33 @@ export default function Appointments() {
 
   const checkInMutation = useCheckInPatient({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
-        toast({ title: "Patient checked in" });
-      },
+      onSuccess: () => { invalidateAll(); toast({ title: "Patient checked in" }); },
     }
   });
 
   const cancelMutation = useCancelAppointment({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        toast({ title: "Appointment cancelled" });
-      },
+      onSuccess: () => { invalidateAll(); toast({ title: "Appointment cancelled" }); },
     }
   });
 
-  const statuses = ["scheduled", "checked_in", "in_progress", "completed", "cancelled", "no_show"];
+  const transition = async (apptId: number, endpoint: string, label: string) => {
+    setTransitionLoading(apptId);
+    try {
+      await apiFetch(`appointments/${apptId}/${endpoint}`);
+      invalidateAll();
+      toast({ title: label });
+    } catch {
+      toast({ title: `Failed: ${label}`, variant: "destructive" });
+    } finally {
+      setTransitionLoading(null);
+    }
+  };
+
+  const role = user?.role;
+  const isNurse = role === "nurse" || role === "admin" || role === "super_admin";
+  const isDoctor = role === "doctor" || role === "admin" || role === "super_admin";
+  const isFrontDesk = role === "front_desk" || role === "admin" || role === "super_admin";
 
   return (
     <div>
@@ -85,12 +121,12 @@ export default function Appointments() {
         <div className="flex gap-3 mb-4 flex-wrap">
           <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date" />
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
+            <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="">{t("all")}</SelectItem>
-              {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+              {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
             </SelectContent>
           </Select>
           {(filterDate || filterStatus) && (
@@ -103,25 +139,73 @@ export default function Appointments() {
             data={appointments ?? []}
             emptyMessage="No appointments found"
             columns={[
-              { key: "patient", header: "Patient", render: a => <span className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</span> },
+              { key: "patient", header: "Patient", render: a => (
+                <div>
+                  <div className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</div>
+                  {a.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{a.patient.mrn}</div>}
+                </div>
+              )},
               { key: "doctor", header: t("doctorLabel"), render: a => <span className="text-sm">{a.doctor?.fullName || `#${a.doctorId}`}</span> },
               { key: "time", header: t("scheduledAt"), render: a => <span className="text-sm">{formatDateTime(a.scheduledAt)}</span> },
               { key: "reason", header: t("reason"), render: a => <span className="text-sm max-w-xs truncate block">{a.reason}</span> },
               { key: "status", header: t("status"), render: a => <StatusBadge status={a.status} /> },
-              { key: "actions", header: t("actions"), render: a => (
-                <div className="flex gap-1">
-                  {a.status === "scheduled" && (
-                    <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); checkInMutation.mutate({ appointmentId: a.id }); }} data-testid={`button-checkin-${a.id}`}>
-                      <UserCheck className="w-3 h-3 me-1" />{t("checkIn")}
-                    </Button>
-                  )}
-                  {["scheduled", "checked_in"].includes(a.status) && (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); cancelMutation.mutate({ appointmentId: a.id }); }}>
-                      {t("cancel")}
-                    </Button>
-                  )}
-                </div>
-              )},
+              { key: "actions", header: t("actions"), render: a => {
+                const busy = transitionLoading === a.id;
+                return (
+                  <div className="flex gap-1 flex-wrap">
+                    {/* Check-in: Front Desk for scheduled */}
+                    {a.status === "scheduled" && isFrontDesk && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); checkInMutation.mutate({ appointmentId: a.id }); }}
+                        data-testid={`button-checkin-${a.id}`}>
+                        <UserCheck className="w-3 h-3 me-1" />{t("checkIn")}
+                      </Button>
+                    )}
+                    {/* Triage: Nurse for checked_in */}
+                    {a.status === "checked_in" && isNurse && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-blue-600 border-blue-200 hover:bg-blue-50" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); transition(a.id, "triage", "Triage started"); }}>
+                        Triage
+                      </Button>
+                    )}
+                    {/* Consult: Doctor for ready_for_doctor */}
+                    {a.status === "ready_for_doctor" && isDoctor && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-purple-600 border-purple-200 hover:bg-purple-50" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); transition(a.id, "consult", "Consultation started"); }}>
+                        <Stethoscope className="w-3 h-3 me-1" />Consult
+                      </Button>
+                    )}
+                    {/* Diagnostics: Doctor for in_consultation */}
+                    {a.status === "in_consultation" && isDoctor && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); transition(a.id, "diagnostics", "Awaiting diagnostics"); }}>
+                        Diagnostics
+                      </Button>
+                    )}
+                    {/* Payment: Doctor/Nurse for in_consultation/awaiting_diagnostics */}
+                    {["in_consultation", "awaiting_diagnostics"].includes(a.status) && (isDoctor || isNurse) && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-amber-600 border-amber-200 hover:bg-amber-50" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); transition(a.id, "payment", "Pending payment"); }}>
+                        <CreditCard className="w-3 h-3 me-1" />Payment
+                      </Button>
+                    )}
+                    {/* Complete: Front Desk for pending_payment */}
+                    {a.status === "pending_payment" && isFrontDesk && (
+                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-600 border-green-200 hover:bg-green-50" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); transition(a.id, "complete", "Appointment completed"); }}>
+                        <CheckCircle className="w-3 h-3 me-1" />Complete
+                      </Button>
+                    )}
+                    {/* Cancel: early stages */}
+                    {["scheduled", "checked_in", "in_triage"].includes(a.status) && isFrontDesk && (
+                      <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); cancelMutation.mutate({ appointmentId: a.id }); }}>
+                        {t("cancel")}
+                      </Button>
+                    )}
+                  </div>
+                );
+              }},
             ]}
           />
         </div>

@@ -50,7 +50,7 @@ router.post("/patients", requireRole("super_admin", "admin", "nurse", "front_des
 });
 
 router.get("/patients/:patientId", async (req, res) => {
-  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, parseInt(req.params.patientId)));
+  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, parseInt(req.params.patientId as string)));
   if (!patient) { res.status(404).json({ error: "Not found" }); return; }
   res.json(patient);
 });
@@ -59,20 +59,20 @@ router.patch("/patients/:patientId", requireRole("super_admin", "admin", "nurse"
   const { fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive } = req.body;
   const [patient] = await db.update(patientsTable)
     .set({ fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, updatedAt: new Date() })
-    .where(eq(patientsTable.id, parseInt(req.params.patientId)))
+    .where(eq(patientsTable.id, parseInt(req.params.patientId as string)))
     .returning();
   await logAudit(req, "UPDATE", "patient", patient.id);
   res.json(patient);
 });
 
 router.delete("/patients/:patientId", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
-  await db.update(patientsTable).set({ deletedAt: new Date() }).where(eq(patientsTable.id, parseInt(req.params.patientId)));
-  await logAudit(req, "DELETE", "patient", parseInt(req.params.patientId));
+  await db.update(patientsTable).set({ deletedAt: new Date() }).where(eq(patientsTable.id, parseInt(req.params.patientId as string)));
+  await logAudit(req, "DELETE", "patient", parseInt(req.params.patientId as string));
   res.json({ success: true });
 });
 
 router.get("/patients/:patientId/summary", async (req, res) => {
-  const patientId = parseInt(req.params.patientId);
+  const patientId = parseInt(req.params.patientId as string);
   const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, patientId));
   if (!patient) { res.status(404).json({ error: "Not found" }); return; }
 

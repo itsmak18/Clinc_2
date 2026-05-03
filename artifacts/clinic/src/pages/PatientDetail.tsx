@@ -1,20 +1,19 @@
 import { useGetPatientSummary, getGetPatientSummaryQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/api";
-import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt } from "lucide-react";
+import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt, AlertTriangle } from "lucide-react";
 
-interface Props { params: { id: string } }
-
-export default function PatientDetail({ params }: Props) {
+export default function PatientDetail() {
   const { t } = useI18n();
   const [, setLocation] = useLocation();
-  const patientId = parseInt(params.id);
+  const params = useParams<{ id: string }>();
+  const patientId = parseInt(params.id ?? "0");
 
   const { data, isLoading } = useGetPatientSummary(patientId, {
     query: { enabled: !!patientId, queryKey: getGetPatientSummaryQueryKey(patientId) }
@@ -38,6 +37,16 @@ export default function PatientDetail({ params }: Props) {
       />
 
       <div className="p-6 space-y-4">
+        {/* Allergies Banner - pinned for doctor/nurse visibility */}
+        {patient.allergies && (
+          <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-destructive/60 bg-destructive/10">
+            <AlertTriangle className="w-5 h-5 text-destructive mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-destructive uppercase tracking-wide">Allergies / Contraindications</p>
+              <p className="text-sm text-destructive mt-0.5">{patient.allergies}</p>
+            </div>
+          </div>
+        )}
         {/* Patient info */}
         <Card className="border border-border">
           <CardHeader className="pb-2 pt-4 px-4">
