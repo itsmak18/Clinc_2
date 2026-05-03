@@ -152,8 +152,20 @@ export default function Appointments() {
             columns={[
               { key: "patient", header: "Patient", render: a => (
                 <div>
-                  <div className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</span>
+                    {(a.patient as any)?.allergies && (
+                      <span title={`Allergies: ${(a.patient as any).allergies}`}>
+                        <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                      </span>
+                    )}
+                  </div>
                   {a.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{a.patient.mrn}</div>}
+                  {(a.patient as any)?.allergies && (
+                    <div className="text-xs text-destructive mt-0.5 truncate max-w-[180px]">
+                      ⚠ {(a.patient as any).allergies}
+                    </div>
+                  )}
                 </div>
               )},
               { key: "doctor", header: t("doctorLabel"), render: a => <span className="text-sm">{a.doctor?.fullName || `#${a.doctorId}`}</span> },
