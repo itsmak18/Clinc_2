@@ -93,12 +93,12 @@ export default function Users() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">
-          <Select value={filterRole} onValueChange={setFilterRole}>
+          <Select value={filterRole || "all"} onValueChange={v => setFilterRole(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-40" data-testid="select-filter-role">
               <SelectValue placeholder="All roles" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All roles</SelectItem>
+              <SelectItem value="all">All roles</SelectItem>
               {roles.map(r => <SelectItem key={r} value={r}>{t(r as any)}</SelectItem>)}
             </SelectContent>
           </Select>
