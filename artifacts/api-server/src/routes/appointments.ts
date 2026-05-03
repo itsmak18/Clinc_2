@@ -185,6 +185,12 @@ router.delete("/appointments/:appointmentId", async (req: AuthRequest, res) => {
 // Check-in (Front Desk → checked_in)
 router.post("/appointments/:appointmentId/checkin", async (req: AuthRequest, res) => {
   const id = parseInt(req.params.appointmentId as string);
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  if (existing.status !== "scheduled") {
+    res.status(409).json({ error: `Cannot check in: appointment is already '${existing.status}'` });
+    return;
+  }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "checked_in", checkedInAt: new Date(), updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))

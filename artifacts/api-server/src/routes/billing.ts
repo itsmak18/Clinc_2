@@ -86,7 +86,7 @@ router.post("/billing/invoices/:invoiceId/pay", requireRole("super_admin", "admi
   res.json(updated);
 });
 
-router.get("/billing/summary/daily", async (req, res) => {
+router.get("/billing/daily-summary", async (req, res) => {
   const dateStr = (req.query.date as string) || new Date().toISOString().split("T")[0];
   const start = new Date(`${dateStr}T00:00:00.000Z`);
   const end = new Date(`${dateStr}T23:59:59.999Z`);
