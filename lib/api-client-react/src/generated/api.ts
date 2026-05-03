@@ -59,6 +59,7 @@ import type {
   Operation,
   PaginatedPatients,
   Patient,
+  PatientFlow,
   PatientSummary,
   PayInvoiceBody,
   Prescription,
@@ -2126,6 +2127,81 @@ export const useCheckInPatient = <
 > => {
   return useMutation(getCheckInPatientMutationOptions(options));
 };
+
+/**
+ * @summary Get real-time patient flow metrics by stage
+ */
+export const getGetPatientFlowUrl = () => {
+  return `/api/appointments/flow`;
+};
+
+export const getPatientFlow = async (
+  options?: RequestInit,
+): Promise<PatientFlow> => {
+  return customFetch<PatientFlow>(getGetPatientFlowUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPatientFlowQueryKey = () => {
+  return [`/api/appointments/flow`] as const;
+};
+
+export const getGetPatientFlowQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPatientFlow>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientFlow>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPatientFlowQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPatientFlow>>> = ({
+    signal,
+  }) => getPatientFlow({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientFlow>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPatientFlowQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPatientFlow>>
+>;
+export type GetPatientFlowQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get real-time patient flow metrics by stage
+ */
+
+export function useGetPatientFlow<
+  TData = Awaited<ReturnType<typeof getPatientFlow>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPatientFlow>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPatientFlowQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get today's appointments with status summary

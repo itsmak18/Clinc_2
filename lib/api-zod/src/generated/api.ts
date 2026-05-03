@@ -1012,6 +1012,31 @@ export const CheckInPatientResponse = zod.object({
 });
 
 /**
+ * @summary Get real-time patient flow metrics by stage
+ */
+export const GetPatientFlowResponse = zod.object({
+  stageCounts: zod.object({
+    scheduled: zod.number(),
+    checked_in: zod.number(),
+    in_triage: zod.number(),
+    ready_for_doctor: zod.number(),
+    in_consultation: zod.number(),
+    awaiting_diagnostics: zod.number(),
+    pending_payment: zod.number(),
+    completed: zod.number(),
+    cancelled: zod.number(),
+  }),
+  avgWaitMins: zod.object({
+    arrivalToTriage: zod.number().nullable(),
+    triageToConsultation: zod.number().nullable(),
+    consultationToPayment: zod.number().nullable(),
+  }),
+  totalToday: zod.number(),
+  activePatients: zod.number(),
+  refreshedAt: zod.coerce.date(),
+});
+
+/**
  * @summary Get today's appointments with status summary
  */
 export const GetTodayAppointmentsResponse = zod.object({
