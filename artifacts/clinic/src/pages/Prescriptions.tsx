@@ -20,6 +20,7 @@ export default function Prescriptions() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
   const [doctorId, setDoctorId] = useState("");
   const [medications, setMedications] = useState<Medication[]>([{ name: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
@@ -52,10 +53,25 @@ export default function Prescriptions() {
         }
       />
       <div className="p-6">
+        <div className="flex gap-3 mb-4">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient or medication…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={prescriptions ?? []}
+            data={(prescriptions ?? []).filter(p => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return (
+                p.patient?.fullName?.toLowerCase().includes(q) ||
+                (p.medications as any[])?.some((m: any) => m.name?.toLowerCase().includes(q))
+              );
+            })}
             emptyMessage="No prescriptions"
             columns={[
               { key: "patient", header: "Patient", render: p => <span className="font-medium text-sm">{p.patient?.fullName || `#${p.patientId}`}</span> },

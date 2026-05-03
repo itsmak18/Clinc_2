@@ -19,6 +19,7 @@ export default function MedicalRecords() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({
     patientId: "", doctorId: "", chiefComplaint: "", diagnosis: "", treatment: "", notes: "",
     bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: ""
@@ -63,10 +64,26 @@ export default function MedicalRecords() {
         }
       />
       <div className="p-6">
+        <div className="flex gap-3 mb-4">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient, diagnosis, complaint…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={records ?? []}
+            data={(records ?? []).filter(r => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return (
+                r.patient?.fullName?.toLowerCase().includes(q) ||
+                r.diagnosis?.toLowerCase().includes(q) ||
+                r.chiefComplaint?.toLowerCase().includes(q)
+              );
+            })}
             emptyMessage="No medical records"
             columns={[
               { key: "patient", header: "Patient", render: r => <span className="font-medium text-sm">{r.patient?.fullName || `#${r.patientId}`}</span> },

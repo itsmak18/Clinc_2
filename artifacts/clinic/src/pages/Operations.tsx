@@ -21,6 +21,7 @@ export default function Operations() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", surgeonId: "", procedureName: "", scheduledAt: "", operatingRoom: "", notes: "" });
 
   const params = { status: filterStatus as any || undefined };
@@ -55,6 +56,12 @@ export default function Operations() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient or procedure…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-36"><SelectValue placeholder={t("all")} /></SelectTrigger>
             <SelectContent>
@@ -66,7 +73,11 @@ export default function Operations() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={operations ?? []}
+            data={(operations ?? []).filter(op => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return op.patient?.fullName?.toLowerCase().includes(q) || op.procedureName?.toLowerCase().includes(q);
+            })}
             emptyMessage="No operations scheduled"
             columns={[
               { key: "patient", header: "Patient", render: op => <span className="font-medium text-sm">{op.patient?.fullName || `#${op.patientId}`}</span> },
