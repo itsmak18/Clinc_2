@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle } from "lucide-react";
 
 interface Medication { name: string; dosage: string; frequency: string; duration: string; instructions: string; }
 
@@ -74,7 +74,23 @@ export default function Prescriptions() {
             })}
             emptyMessage="No prescriptions"
             columns={[
-              { key: "patient", header: "Patient", render: p => <span className="font-medium text-sm">{p.patient?.fullName || `#${p.patientId}`}</span> },
+              { key: "patient", header: "Patient", render: p => (
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm">{p.patient?.fullName || `#${p.patientId}`}</span>
+                    {(p.patient as any)?.allergies && (
+                      <span title={`Allergies: ${(p.patient as any).allergies}`}>
+                        <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                      </span>
+                    )}
+                  </div>
+                  {(p.patient as any)?.allergies && (
+                    <div className="text-xs text-destructive mt-0.5 truncate max-w-[180px]">
+                      ⚠ {(p.patient as any).allergies}
+                    </div>
+                  )}
+                </div>
+              )},
               { key: "doctor", header: t("doctorLabel"), render: p => <span className="text-sm">{p.doctor?.fullName || `#${p.doctorId}`}</span> },
               { key: "meds", header: t("medications"), render: p => <span className="text-sm">{(p.medications as any[])?.map((m: any) => m.name).join(", ") || "-"}</span> },
               { key: "date", header: t("date"), render: p => <span className="text-sm">{formatDate(p.createdAt)}</span> },

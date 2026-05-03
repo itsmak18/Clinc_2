@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus } from "lucide-react";
+import { Plus, AlertTriangle } from "lucide-react";
 
 export default function MedicalRecords() {
   const { t } = useI18n();
@@ -86,7 +86,23 @@ export default function MedicalRecords() {
             })}
             emptyMessage="No medical records"
             columns={[
-              { key: "patient", header: "Patient", render: r => <span className="font-medium text-sm">{r.patient?.fullName || `#${r.patientId}`}</span> },
+              { key: "patient", header: "Patient", render: r => (
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm">{r.patient?.fullName || `#${r.patientId}`}</span>
+                    {(r.patient as any)?.allergies && (
+                      <span title={`Allergies: ${(r.patient as any).allergies}`}>
+                        <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                      </span>
+                    )}
+                  </div>
+                  {(r.patient as any)?.allergies && (
+                    <div className="text-xs text-destructive mt-0.5 truncate max-w-[180px]">
+                      ⚠ {(r.patient as any).allergies}
+                    </div>
+                  )}
+                </div>
+              )},
               { key: "doctor", header: t("doctorLabel"), render: r => <span className="text-sm">{r.doctor?.fullName || `#${r.doctorId}`}</span> },
               { key: "complaint", header: t("chiefComplaint"), render: r => <span className="text-sm max-w-[200px] truncate block">{r.chiefComplaint}</span> },
               { key: "diagnosis", header: t("diagnosis"), render: r => <span className="text-sm max-w-[200px] truncate block">{r.diagnosis}</span> },
