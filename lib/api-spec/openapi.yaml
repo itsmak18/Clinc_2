@@ -516,6 +516,19 @@ paths:
               schema:
                 $ref: "#/components/schemas/Appointment"
 
+  /appointments/flow:
+    get:
+      operationId: getPatientFlow
+      tags: [appointments]
+      summary: Get real-time patient flow metrics by stage
+      responses:
+        "200":
+          description: Patient flow metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientFlow"
+
   /appointments/today:
     get:
       operationId: getTodayAppointments
@@ -1769,6 +1782,34 @@ components:
         cancelled:
           type: integer
       required: [appointments, total, scheduled, checkedIn, completed, cancelled]
+
+    PatientFlow:
+      type: object
+      properties:
+        stageCounts:
+          type: object
+          properties:
+            scheduled: { type: integer }
+            checked_in: { type: integer }
+            in_triage: { type: integer }
+            ready_for_doctor: { type: integer }
+            in_consultation: { type: integer }
+            awaiting_diagnostics: { type: integer }
+            pending_payment: { type: integer }
+            completed: { type: integer }
+            cancelled: { type: integer }
+          required: [scheduled, checked_in, in_triage, ready_for_doctor, in_consultation, awaiting_diagnostics, pending_payment, completed, cancelled]
+        avgWaitMins:
+          type: object
+          properties:
+            arrivalToTriage: { type: number, nullable: true }
+            triageToConsultation: { type: number, nullable: true }
+            consultationToPayment: { type: number, nullable: true }
+          required: [arrivalToTriage, triageToConsultation, consultationToPayment]
+        totalToday: { type: integer }
+        activePatients: { type: integer }
+        refreshedAt: { type: string, format: date-time }
+      required: [stageCounts, avgWaitMins, totalToday, activePatients, refreshedAt]
 
     MedicalRecord:
       type: object

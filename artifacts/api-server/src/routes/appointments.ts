@@ -67,6 +67,60 @@ router.post("/appointments", async (req: AuthRequest, res) => {
   res.status(201).json(appt);
 });
 
+router.get("/appointments/flow", async (_req, res) => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+  const rows = await db.select({
+    status: appointmentsTable.status,
+    checkedInAt: appointmentsTable.checkedInAt,
+    triageStartedAt: appointmentsTable.triageStartedAt,
+    consultationStartedAt: appointmentsTable.consultationStartedAt,
+    updatedAt: appointmentsTable.updatedAt,
+  }).from(appointmentsTable)
+    .where(and(gte(appointmentsTable.scheduledAt, start), lte(appointmentsTable.scheduledAt, end)));
+
+  const counts: Record<string, number> = {
+    scheduled: 0, checked_in: 0, in_triage: 0, ready_for_doctor: 0,
+    in_consultation: 0, awaiting_diagnostics: 0, pending_payment: 0,
+    completed: 0, cancelled: 0,
+  };
+  for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
+
+  // Avg wait: checkedInAt → triageStartedAt
+  const triageWaits = rows
+    .filter(r => r.checkedInAt && r.triageStartedAt)
+    .map(r => (r.triageStartedAt!.getTime() - r.checkedInAt!.getTime()) / 60000);
+  const avgArrivalToTriage = triageWaits.length
+    ? Math.round(triageWaits.reduce((a, b) => a + b, 0) / triageWaits.length) : null;
+
+  // Avg wait: triageStartedAt → consultationStartedAt
+  const consultWaits = rows
+    .filter(r => r.triageStartedAt && r.consultationStartedAt)
+    .map(r => (r.consultationStartedAt!.getTime() - r.triageStartedAt!.getTime()) / 60000);
+  const avgTriageToConsultation = consultWaits.length
+    ? Math.round(consultWaits.reduce((a, b) => a + b, 0) / consultWaits.length) : null;
+
+  // Avg consult duration (consultationStartedAt → updatedAt for completed)
+  const consultDurations = rows
+    .filter(r => r.consultationStartedAt && r.status === "completed")
+    .map(r => (r.updatedAt.getTime() - r.consultationStartedAt!.getTime()) / 60000);
+  const avgConsultationToPayment = consultDurations.length
+    ? Math.round(consultDurations.reduce((a, b) => a + b, 0) / consultDurations.length) : null;
+
+  const activeStatuses = ["checked_in", "in_triage", "ready_for_doctor", "in_consultation", "awaiting_diagnostics", "pending_payment"];
+  const activePatients = activeStatuses.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
+
+  res.json({
+    stageCounts: counts,
+    avgWaitMins: { arrivalToTriage: avgArrivalToTriage, triageToConsultation: avgTriageToConsultation, consultationToPayment: avgConsultationToPayment },
+    totalToday: rows.length,
+    activePatients,
+    refreshedAt: new Date().toISOString(),
+  });
+});
+
 router.get("/appointments/today", async (_req, res) => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());

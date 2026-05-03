@@ -321,6 +321,32 @@ export interface TodayAppointments {
   cancelled: number;
 }
 
+export type PatientFlowStageCounts = {
+  scheduled: number;
+  checked_in: number;
+  in_triage: number;
+  ready_for_doctor: number;
+  in_consultation: number;
+  awaiting_diagnostics: number;
+  pending_payment: number;
+  completed: number;
+  cancelled: number;
+};
+
+export type PatientFlowAvgWaitMins = {
+  arrivalToTriage: number | null;
+  triageToConsultation: number | null;
+  consultationToPayment: number | null;
+};
+
+export interface PatientFlow {
+  stageCounts: PatientFlowStageCounts;
+  avgWaitMins: PatientFlowAvgWaitMins;
+  totalToday: number;
+  activePatients: number;
+  refreshedAt: string;
+}
+
 export interface CreateMedicalRecordBody {
   patientId: number;
   doctorId: number;
