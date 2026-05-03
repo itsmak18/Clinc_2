@@ -122,12 +122,12 @@ export default function Appointments() {
       <div className="p-6">
         <div className="flex gap-3 mb-4 flex-wrap">
           <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date" />
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{t("all")}</SelectItem>
+              <SelectItem value="all">{t("all")}</SelectItem>
               {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
             </SelectContent>
           </Select>

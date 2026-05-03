@@ -109,12 +109,12 @@ export default function Billing() {
         )}
 
         <div className="flex gap-3 mb-2">
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
+          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">{t("all")}</SelectItem>
+              <SelectItem value="all">{t("all")}</SelectItem>
               {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
             </SelectContent>
           </Select>
