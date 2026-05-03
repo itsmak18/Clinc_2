@@ -49,3 +49,15 @@ export function verifyPassword(password: string, stored: string): boolean {
   const { hash } = hashPassword(password, salt);
   return hash === stored;
 }
+
+/**
+ * Enforce a minimum password policy.
+ * Rules: ≥8 chars, at least one letter, at least one digit.
+ */
+export function validatePasswordStrength(password: string): { valid: boolean; reason?: string } {
+  if (!password || password.length < 8)          return { valid: false, reason: "Password must be at least 8 characters long." };
+  if (!/[a-zA-Z]/.test(password))                return { valid: false, reason: "Password must contain at least one letter." };
+  if (!/[0-9]/.test(password))                   return { valid: false, reason: "Password must contain at least one number." };
+  if (/^\s|\s$/.test(password))                  return { valid: false, reason: "Password must not start or end with a space." };
+  return { valid: true };
+}

@@ -1,40 +1,62 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { auditLogsTable, usersTable } from "@workspace/db";
-import { eq, gte, lte, and, desc } from "drizzle-orm";
+import { eq, gte, lte, and, desc, ilike } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/audit-logs", requireRole("super_admin"));
+router.use("/audit-logs", requireRole("super_admin", "admin"));
 
-router.get("/audit-logs", async (req, res) => {
-  const { dateFrom, dateTo, action, userId, entityType, limit = "100", offset = "0" } = req.query;
+router.get("/audit-logs", async (req: AuthRequest, res) => {
+  const {
+    dateFrom,
+    dateTo,
+    action,
+    userId,
+    entityType,
+    limit   = "200",
+    offset  = "0",
+  } = req.query;
 
-  const rows = await db.select({
-    id: auditLogsTable.id,
-    userId: auditLogsTable.userId,
-    action: auditLogsTable.action,
-    entityType: auditLogsTable.entityType,
-    entityId: auditLogsTable.entityId,
-    ipAddress: auditLogsTable.ipAddress,
-    details: auditLogsTable.details,
-    createdAt: auditLogsTable.createdAt,
-    user: { id: usersTable.id, fullName: usersTable.fullName, username: usersTable.username },
-  }).from(auditLogsTable)
+  // Build all filters at the DB level — never load-all-then-filter
+  const conditions = [];
+
+  if (dateFrom) conditions.push(gte(auditLogsTable.createdAt, new Date(dateFrom as string)));
+  if (dateTo) {
+    const end = new Date(dateTo as string);
+    end.setHours(23, 59, 59, 999);
+    conditions.push(lte(auditLogsTable.createdAt, end));
+  }
+  if (action)     conditions.push(eq(auditLogsTable.action,     action as string));
+  if (entityType) conditions.push(eq(auditLogsTable.entityType, entityType as string));
+  if (userId)     conditions.push(eq(auditLogsTable.userId,     parseInt(userId as string)));
+
+  const rows = await db
+    .select({
+      id:         auditLogsTable.id,
+      userId:     auditLogsTable.userId,
+      action:     auditLogsTable.action,
+      entityType: auditLogsTable.entityType,
+      entityId:   auditLogsTable.entityId,
+      ipAddress:  auditLogsTable.ipAddress,
+      details:    auditLogsTable.details,
+      createdAt:  auditLogsTable.createdAt,
+      user: {
+        id:       usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        role:     usersTable.role,
+      },
+    })
+    .from(auditLogsTable)
     .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
+    .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(auditLogsTable.createdAt))
-    .limit(parseInt(limit as string))
+    .limit(Math.min(parseInt(limit as string), 500))
     .offset(parseInt(offset as string));
 
-  let results = rows;
-  if (action) results = results.filter(r => r.action === action);
-  if (userId) results = results.filter(r => r.userId === parseInt(userId as string));
-  if (entityType) results = results.filter(r => r.entityType === entityType);
-  if (dateFrom) results = results.filter(r => r.createdAt >= new Date(dateFrom as string));
-  if (dateTo) results = results.filter(r => r.createdAt <= new Date(dateTo as string));
-
-  res.json(results);
+  res.json(rows);
 });
 
 export default router;
