@@ -4,6 +4,7 @@ import { appointmentsTable, patientsTable, usersTable, notificationsTable } from
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { emitToUser } from "../lib/sse";
 
 const router = Router();
 router.use(requireAuth);
@@ -116,15 +117,16 @@ router.post("/appointments/:appointmentId/checkin", async (req: AuthRequest, res
     .where(eq(appointmentsTable.id, parseInt(req.params.appointmentId)))
     .returning();
 
-  // Get patient info for notification
   const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, appt.patientId));
-  // Notify doctor
-  await db.insert(notificationsTable).values({
+
+  const notifData = {
     userId: appt.doctorId,
     title: "Patient Arrived",
     message: `${patient?.fullName || "Patient"} has checked in for their appointment`,
     type: "patient_arrived",
-  });
+  };
+  const [notif] = await db.insert(notificationsTable).values(notifData).returning();
+  emitToUser(appt.doctorId, "notification", notif);
 
   await logAudit(req, "CHECK_IN", "appointment", appt.id);
   res.json(appt);
