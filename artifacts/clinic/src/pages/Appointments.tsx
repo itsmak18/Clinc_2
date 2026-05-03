@@ -7,6 +7,7 @@ import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
 import DischargeSheet from "@/components/DischargeSheet";
+import DayScheduleView from "@/components/DayScheduleView";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime, exportToCSV } from "@/lib/api";
-import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download } from "lucide-react";
+import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -48,6 +49,9 @@ export default function Appointments() {
   const [transitionLoading, setTransitionLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
   const [dischargeApptId, setDischargeApptId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "day">("list");
+  const todayStr = new Date().toISOString().split("T")[0];
+  const dayViewDate = filterDate || todayStr;
 
   const params = {
     status: filterStatus as any || undefined,
@@ -116,6 +120,14 @@ export default function Appointments() {
         subtitle={`${appointments?.length ?? 0} appointments`}
         actions={
           <div className="flex gap-2">
+            <div className="flex border border-border rounded-md overflow-hidden">
+              <Button size="sm" variant={viewMode === "list" ? "default" : "ghost"} className="rounded-none h-8 px-2.5" onClick={() => setViewMode("list")}>
+                <List className="w-3.5 h-3.5 me-1" /> List
+              </Button>
+              <Button size="sm" variant={viewMode === "day" ? "default" : "ghost"} className="rounded-none h-8 px-2.5 border-s border-border" onClick={() => setViewMode("day")}>
+                <CalendarDays className="w-3.5 h-3.5 me-1" /> Day
+              </Button>
+            </div>
             <Button size="sm" variant="outline" onClick={() => exportToCSV(
               (appointments ?? []).map(a => ({
                 Patient: (a.patient as any)?.fullName ?? `#${a.patientId}`,
@@ -138,21 +150,31 @@ export default function Appointments() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4 flex-wrap">
-          <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or reason…" value={search} onChange={e => setSearch(e.target.value)} />
-          <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date" />
-          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
-              <SelectValue placeholder={t("all")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all")}</SelectItem>
-              {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          {viewMode === "list" && (
+            <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or reason…" value={search} onChange={e => setSearch(e.target.value)} />
+          )}
+          <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date"
+            title={viewMode === "day" ? "Schedule date" : "Filter by date"}
+          />
+          {viewMode === "list" && (
+            <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
+              <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
+                <SelectValue placeholder={t("all")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("all")}</SelectItem>
+                {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
           {(filterDate || filterStatus) && (
             <Button variant="ghost" size="sm" onClick={() => { setFilterDate(""); setFilterStatus(""); }}>Clear</Button>
           )}
         </div>
+
+        {viewMode === "day" ? (
+          <DayScheduleView appointments={(appointments ?? []) as any} selectedDate={dayViewDate} />
+        ) : (
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
@@ -256,6 +278,7 @@ export default function Appointments() {
             ]}
           />
         </div>
+        )}
       </div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

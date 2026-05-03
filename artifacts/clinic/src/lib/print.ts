@@ -111,6 +111,108 @@ export function prescriptionHtml(rx: PrescriptionData): string {
     </div>`;
 }
 
+export interface LabParam { name: string; value: string; unit: string; refRange: string; flag: "H" | "L" | "N" | "" }
+
+interface LabReportData {
+  createdAt: string | Date;
+  testName?: string | null;
+  patient?: { fullName?: string | null; mrn?: string | null; dateOfBirth?: string | null; gender?: string | null } | null;
+  requestedBy?: { fullName?: string | null } | null;
+  params: LabParam[];
+  notes?: string | null;
+}
+
+export function labReportHtml(d: LabReportData): string {
+  const rowStyle = (flag: string) =>
+    flag === "H" ? "background:#fff1f2;color:#be123c" :
+    flag === "L" ? "background:#eff6ff;color:#1d4ed8" : "";
+
+  const rows = d.params.length
+    ? d.params.map(p => `
+      <tr style="${rowStyle(p.flag)}">
+        <td>${p.name}</td>
+        <td style="text-align:center"><strong>${p.value || "-"}</strong></td>
+        <td style="text-align:center">${p.unit || "-"}</td>
+        <td style="text-align:center">${p.refRange || "-"}</td>
+        <td style="text-align:center;font-weight:700">${p.flag || "N"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" style="color:#888;text-align:center">No parameters entered</td></tr>`;
+
+  return `${STYLES}
+    <style>
+      .flag-H{background:#fff1f2;color:#be123c}
+      .flag-L{background:#eff6ff;color:#1d4ed8}
+    </style>
+    <div class="header">
+      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="doc-type">Laboratory Report</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
+      <span>Report Date: ${fmtDate(d.createdAt)}</span>
+      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+    </div>
+    <div class="section-title">Patient Information</div>
+    <div class="grid2" style="margin-bottom:12px">
+      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(d.patient?.dateOfBirth)}</div></div>
+      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${d.patient?.gender ?? "-"}</div></div>
+    </div>
+    <div class="section-title">Test: ${d.testName ?? "Unknown"}</div>
+    <table>
+      <thead><tr>
+        <th>Parameter</th>
+        <th style="text-align:center">Value</th>
+        <th style="text-align:center">Unit</th>
+        <th style="text-align:center">Reference Range</th>
+        <th style="text-align:center">Flag</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${d.notes ? `<div class="section-title">Notes / Interpretation</div><p style="font-size:13px;white-space:pre-wrap">${d.notes}</p>` : ""}
+    <div style="margin-top:32px;font-size:11px;color:#888">H = High &nbsp;|&nbsp; L = Low &nbsp;|&nbsp; N = Normal</div>
+    <div class="footer">
+      <div class="sig"><div class="sig-line">Laboratory Technician</div></div>
+    </div>`;
+}
+
+interface XrayReportData {
+  createdAt: string | Date;
+  bodyPart?: string | null;
+  patient?: { fullName?: string | null; mrn?: string | null } | null;
+  requestedBy?: { fullName?: string | null } | null;
+  findings: string;
+  impression: string;
+  imageUrl?: string | null;
+}
+
+export function xrayReportHtml(d: XrayReportData): string {
+  return `${STYLES}
+    <div class="header">
+      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="doc-type">Radiology Report</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
+      <span>Report Date: ${fmtDate(d.createdAt)}</span>
+      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+    </div>
+    <div class="section-title">Patient Information</div>
+    <div class="grid2" style="margin-bottom:12px">
+      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+    </div>
+    <div class="section-title">Examination</div>
+    <p style="font-size:14px;font-weight:600;margin-bottom:12px">${d.bodyPart ?? "Unknown area"}</p>
+    ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
+    <div class="section-title">Findings</div>
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:12px">${d.findings || "—"}</p>
+    <div class="section-title">Impression / Conclusion</div>
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:16px">${d.impression || "—"}</p>
+    <div class="footer">
+      <div class="sig"><div class="sig-line">Radiologist Signature</div></div>
+    </div>`;
+}
+
 interface InvoiceData {
   invoiceNumber?: string | null;
   createdAt: string | Date;
