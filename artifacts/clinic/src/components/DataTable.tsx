@@ -14,9 +14,10 @@ interface Props<T> {
   isLoading?: boolean;
   emptyMessage?: string;
   onRowClick?: (row: T) => void;
+  rowClassName?: (row: T) => string;
 }
 
-export default function DataTable<T>({ columns, data, isLoading, emptyMessage, onRowClick }: Props<T>) {
+export default function DataTable<T>({ columns, data, isLoading, emptyMessage, onRowClick, rowClassName }: Props<T>) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
@@ -54,7 +55,8 @@ export default function DataTable<T>({ columns, data, isLoading, emptyMessage, o
               key={i}
               className={cn(
                 "border-b border-border/50 transition-colors",
-                onRowClick ? "cursor-pointer hover:bg-muted/30" : ""
+                onRowClick ? "cursor-pointer hover:bg-muted/30" : "",
+                rowClassName?.(row) ?? ""
               )}
               onClick={() => onRowClick?.(row)}
               data-testid={`row-${i}`}

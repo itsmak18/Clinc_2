@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, Search, User, Scan } from "lucide-react";
+import { Plus, Search, Scan, Download } from "lucide-react";
+import { calcAge, exportToCSV } from "@/lib/api";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -100,9 +101,28 @@ export default function Patients() {
         title={t("patients")}
         subtitle={`${data?.total ?? 0} total patients`}
         actions={
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
-            <Plus className="w-3.5 h-3.5 me-1" /> {t("registerPatient")}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => exportToCSV(
+              patients.map(p => ({
+                MRN: p.mrn,
+                Name: p.fullName,
+                "Name (AR)": p.fullNameAr ?? "",
+                Gender: p.gender,
+                "Date of Birth": p.dateOfBirth ?? "",
+                Age: calcAge(p.dateOfBirth),
+                Phone: p.phone ?? "",
+                "Blood Type": p.bloodType ?? "",
+                Allergies: p.allergies ?? "",
+                Status: p.isActive ? "Active" : "Inactive",
+              })),
+              `patients-${new Date().toISOString().split("T")[0]}.csv`
+            )} data-testid="button-export-patients">
+              <Download className="w-3.5 h-3.5 me-1" /> Export CSV
+            </Button>
+            <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
+              <Plus className="w-3.5 h-3.5 me-1" /> {t("registerPatient")}
+            </Button>
+          </div>
         }
       />
 
@@ -139,7 +159,9 @@ export default function Patients() {
                 </div>
               )},
               { key: "gender", header: t("gender"), render: p => <span className="capitalize text-sm">{t(p.gender as any)}</span> },
-              { key: "dob", header: t("dateOfBirth"), render: p => <span className="text-sm">{formatDate(p.dateOfBirth)}</span> },
+              { key: "dob", header: t("dateOfBirth"), render: p => (
+                <span className="text-sm">{formatDate(p.dateOfBirth)} <span className="text-muted-foreground text-xs">({calcAge(p.dateOfBirth)})</span></span>
+              )},
               { key: "phone", header: t("phone"), render: p => <span className="text-sm">{p.phone}</span> },
               { key: "blood", header: t("bloodType"), render: p => p.bloodType ? <Badge variant="outline" className="text-xs">{p.bloodType}</Badge> : <span className="text-muted-foreground">-</span> },
               { key: "status", header: t("status"), render: p => (
