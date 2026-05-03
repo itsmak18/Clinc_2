@@ -4,6 +4,7 @@ import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@w
 import { eq, isNull, desc } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { emitToUser } from "../lib/sse";
 
 const router = Router();
 router.use(requireAuth);
@@ -62,12 +63,14 @@ router.patch("/lab/tests/:testId", async (req: AuthRequest, res) => {
     .returning();
 
   if (status === "completed") {
-    await db.insert(notificationsTable).values({
+    const notifData = {
       userId: test.requestedById,
       title: "Lab Results Ready",
       message: `${test.testName} results are ready for review`,
       type: "lab_ready",
-    }).catch(() => {});
+    };
+    const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
+    if (notif) emitToUser(test.requestedById, "notification", notif);
   }
 
   await logAudit(req, "UPDATE", "lab_test", test.id);

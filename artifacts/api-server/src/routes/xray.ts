@@ -4,6 +4,7 @@ import { xrayRecordsTable, patientsTable, usersTable, notificationsTable } from 
 import { eq, isNull, desc } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { emitToUser } from "../lib/sse";
 
 const router = Router();
 router.use(requireAuth);
@@ -63,13 +64,14 @@ router.patch("/xray/:xrayId", async (req: AuthRequest, res) => {
     .returning();
 
   if (status === "reviewed") {
-    // Notify requesting doctor
-    await db.insert(notificationsTable).values({
+    const notifData = {
       userId: xray.requestedById,
       title: "X-Ray Report Ready",
       message: `X-ray report for ${xray.bodyPart} is ready for review`,
       type: "xray_ready",
-    }).catch(() => {});
+    };
+    const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
+    if (notif) emitToUser(xray.requestedById, "notification", notif);
   }
 
   await logAudit(req, "UPDATE", "xray", xray.id);

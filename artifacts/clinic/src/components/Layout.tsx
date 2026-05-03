@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useAuth, UserRole } from "@/hooks/auth";
 import { useI18n } from "@/hooks/i18n";
+import { useNotificationsStream } from "@/hooks/use-notifications-stream";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useListNotifications, getListNotificationsQueryKey } from "@workspace/api-client-react";
@@ -139,6 +140,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { t, language, setLanguage, isRtl } = useI18n();
   const [location] = useLocation();
+
+  useNotificationsStream();
 
   const { data: notifications } = useListNotifications(
     { unreadOnly: true },
