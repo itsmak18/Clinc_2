@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListXrayImages, useCreateXrayRecord, useUpdateXrayRecord, useListPatients, useListUsers, getListXrayImagesQueryKey, getGetXrayRecordQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListXrayImages, useCreateXrayRecord, useUpdateXrayRecord, useListPatients, useListUsers, getListXrayImagesQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
@@ -13,7 +13,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, FileImage } from "lucide-react";
+import { openPrintWindow, xrayReportHtml } from "@/lib/print";
+import { Plus, FileImage, Printer } from "lucide-react";
+
+function parseReport(raw: string | null | undefined): { findings: string; impression: string } {
+  if (!raw) return { findings: "", impression: "" };
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?.v === 1) return { findings: parsed.findings ?? "", impression: parsed.impression ?? "" };
+  } catch { /* plain text */ }
+  return { findings: raw, impression: "" };
+}
+
+function serializeReport(findings: string, impression: string): string {
+  return JSON.stringify({ v: 1, findings, impression });
+}
 
 export default function XRay() {
   const { t } = useI18n();
@@ -24,10 +38,14 @@ export default function XRay() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", requestedById: "", bodyPart: "", notes: "" });
-  const [reportForm, setReportForm] = useState({ report: "", imageUrl: "", status: "uploaded" });
+  const [imageUrl, setImageUrl] = useState("");
+  const [findings, setFindings] = useState("");
+  const [impression, setImpression] = useState("");
+  const [reportStatus, setReportStatus] = useState("uploaded");
+  const [activeXray, setActiveXray] = useState<(typeof xrays extends (infer T)[] | undefined ? T : never) | null>(null);
 
-  const params = { status: filterStatus as any || undefined };
-  const { data: xrays, isLoading } = useListXrayImages(params, { query: { queryKey: getListXrayImagesQueryKey(params) } });
+  const filterParams = { status: filterStatus as any || undefined };
+  const { data: xrays, isLoading } = useListXrayImages(filterParams, { query: { queryKey: getListXrayImagesQueryKey(filterParams) } });
   const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
   const { data: doctors } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
 
@@ -55,6 +73,32 @@ export default function XRay() {
 
   const statuses = ["pending", "uploaded", "reviewed"];
 
+  function openReportDialog(xray: NonNullable<typeof xrays>[number]) {
+    setActiveXray(xray as any);
+    const parsed = parseReport(xray.report);
+    setFindings(parsed.findings);
+    setImpression(parsed.impression);
+    setImageUrl(xray.imageUrl || "");
+    setReportStatus(xray.status);
+    setShowReport(xray.id);
+  }
+
+  function handlePrint() {
+    if (!activeXray) return;
+    openPrintWindow(
+      xrayReportHtml({
+        createdAt: activeXray.createdAt,
+        bodyPart: activeXray.bodyPart,
+        patient: activeXray.patient as any,
+        requestedBy: activeXray.requestedBy as any,
+        findings,
+        impression,
+        imageUrl,
+      }),
+      `X-Ray Report - ${activeXray.bodyPart}`
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -68,16 +112,9 @@ export default function XRay() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">
-          <Input
-            className="h-8 text-sm max-w-xs"
-            placeholder="Search by patient or body part…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or body part…" value={search} onChange={e => setSearch(e.target.value)} />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
-              <SelectValue placeholder={t("all")} />
-            </SelectTrigger>
+            <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status"><SelectValue placeholder={t("all")} /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{t("all")}</SelectItem>
               {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
@@ -94,13 +131,28 @@ export default function XRay() {
             })}
             emptyMessage="No X-ray records"
             columns={[
-              { key: "patient", header: "Patient", render: x => <span className="font-medium text-sm">{x.patient?.fullName || `#${x.patientId}`}</span> },
-              { key: "body", header: t("bodyPart"), render: x => <span className="text-sm">{x.bodyPart}</span> },
+              { key: "patient", header: "Patient", render: x => (
+                <div>
+                  <span className="font-medium text-sm">{x.patient?.fullName || `#${x.patientId}`}</span>
+                  {x.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{x.patient.mrn}</div>}
+                </div>
+              )},
+              { key: "body", header: t("bodyPart"), render: x => <span className="text-sm font-medium">{x.bodyPart}</span> },
+              { key: "report", header: "Report Summary", render: x => {
+                const { findings: f, impression: imp } = parseReport(x.report);
+                if (!f && !imp) return <span className="text-xs text-muted-foreground">No report yet</span>;
+                return (
+                  <div className="text-xs space-y-0.5">
+                    {f && <p className="text-muted-foreground line-clamp-1"><span className="font-medium text-foreground">Findings:</span> {f}</p>}
+                    {imp && <p className="text-muted-foreground line-clamp-1"><span className="font-medium text-foreground">Impression:</span> {imp}</p>}
+                  </div>
+                );
+              }},
               { key: "requested", header: "Requested By", render: x => <span className="text-sm">{x.requestedBy?.fullName || `#${x.requestedById}`}</span> },
               { key: "date", header: t("date"), render: x => <span className="text-sm">{formatDate(x.createdAt)}</span> },
               { key: "status", header: t("status"), render: x => <StatusBadge status={x.status} /> },
               { key: "actions", header: t("actions"), render: x => (
-                <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); setShowReport(x.id); setReportForm({ report: x.report || "", imageUrl: x.imageUrl || "", status: x.status }); }}>
+                <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); openReportDialog(x); }} data-testid={`button-report-${x.id}`}>
                   <FileImage className="w-3 h-3 me-1" /> Report
                 </Button>
               )},
@@ -109,6 +161,7 @@ export default function XRay() {
         </div>
       </div>
 
+      {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>New X-Ray Request</DialogTitle></DialogHeader>
@@ -145,21 +198,34 @@ export default function XRay() {
         </DialogContent>
       </Dialog>
 
+      {/* Report dialog */}
       <Dialog open={showReport !== null} onOpenChange={() => setShowReport(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>X-Ray Report</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              X-Ray Report
+              {activeXray && <span className="text-sm font-normal text-muted-foreground">— {activeXray.bodyPart}</span>}
+            </DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">Image URL</Label>
-              <Input value={reportForm.imageUrl} onChange={e => setReportForm(f => ({ ...f, imageUrl: e.target.value }))} placeholder="https://..." data-testid="input-image-url" />
+              <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://..." data-testid="input-image-url" />
             </div>
+
             <div className="space-y-1">
-              <Label className="text-xs">{t("report")}</Label>
-              <Textarea value={reportForm.report} onChange={e => setReportForm(f => ({ ...f, report: e.target.value }))} rows={4} data-testid="input-report" />
+              <Label className="text-xs">Findings</Label>
+              <Textarea value={findings} onChange={e => setFindings(e.target.value)} rows={4} placeholder="Describe the radiological findings observed…" data-testid="input-findings" />
             </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs">Impression / Conclusion</Label>
+              <Textarea value={impression} onChange={e => setImpression(e.target.value)} rows={3} placeholder="Radiologist's impression and clinical conclusion…" data-testid="input-impression" />
+            </div>
+
             <div className="space-y-1">
               <Label className="text-xs">{t("status")}</Label>
-              <Select value={reportForm.status} onValueChange={v => setReportForm(f => ({ ...f, status: v }))}>
+              <Select value={reportStatus} onValueChange={setReportStatus}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem>
@@ -168,11 +234,17 @@ export default function XRay() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowReport(null)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => showReport && updateMutation.mutate({ xrayId: showReport, data: { report: reportForm.report || undefined, imageUrl: reportForm.imageUrl || undefined, status: reportForm.status as any } })} disabled={updateMutation.isPending} data-testid="button-save-report">
-                {updateMutation.isPending ? t("loading") : t("save")}
+
+            <div className="flex justify-between gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1" disabled={!findings && !impression}>
+                <Printer className="w-3.5 h-3.5" /> Print Report
               </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setShowReport(null)}>{t("cancel")}</Button>
+                <Button size="sm" onClick={() => showReport && updateMutation.mutate({ xrayId: showReport, data: { report: serializeReport(findings, impression), imageUrl: imageUrl || undefined, status: reportStatus as any } })} disabled={updateMutation.isPending} data-testid="button-save-report">
+                  {updateMutation.isPending ? t("loading") : t("save")}
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

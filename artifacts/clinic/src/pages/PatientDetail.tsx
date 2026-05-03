@@ -3,11 +3,13 @@ import { useI18n } from "@/hooks/i18n";
 import { useLocation, useParams } from "wouter";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
+import PatientTimeline from "@/components/PatientTimeline";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate, formatDateTime, formatCurrency, calcAge } from "@/lib/api";
-import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt, AlertTriangle } from "lucide-react";
+import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt, AlertTriangle, Activity } from "lucide-react";
 
 export default function PatientDetail() {
   const { t } = useI18n();
@@ -37,7 +39,7 @@ export default function PatientDetail() {
       />
 
       <div className="p-6 space-y-4">
-        {/* Allergies Banner - pinned for doctor/nurse visibility */}
+        {/* Allergies Banner */}
         {patient.allergies && (
           <div className="flex items-start gap-3 p-4 rounded-lg border-2 border-destructive/60 bg-destructive/10">
             <AlertTriangle className="w-5 h-5 text-destructive mt-0.5 shrink-0" />
@@ -47,7 +49,8 @@ export default function PatientDetail() {
             </div>
           </div>
         )}
-        {/* Patient info */}
+
+        {/* Patient Info Card */}
         <Card className="border border-border">
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm flex items-center gap-2"><User className="w-4 h-4 text-primary" /> Patient Information</CardTitle>
@@ -73,84 +76,132 @@ export default function PatientDetail() {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {/* Appointments */}
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><CalendarDays className="w-4 h-4 text-primary" /> Recent Appointments</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2">
-              {!recentAppointments?.length ? <p className="text-xs text-muted-foreground">No appointments</p> :
-                recentAppointments.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
-                    <div className="flex-1">
-                      <p className="font-medium">{a.reason}</p>
-                      <p className="text-muted-foreground">{formatDateTime(a.scheduledAt)} · {a.doctor?.fullName}</p>
-                    </div>
-                    <StatusBadge status={a.status} />
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
+        {/* Tabs: Overview / Timeline */}
+        <Tabs defaultValue="overview">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="timeline" className="gap-1.5">
+              <Activity className="w-3.5 h-3.5" /> Timeline
+              <Badge variant="secondary" className="ms-1 text-[10px] px-1.5 py-0">
+                {(recentAppointments?.length ?? 0) + (recentRecords?.length ?? 0) + (recentLabTests?.length ?? 0) + (recentXrays?.length ?? 0)}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
 
-          {/* Medical Records */}
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Recent Medical Records</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2">
-              {!recentRecords?.length ? <p className="text-xs text-muted-foreground">No records</p> :
-                recentRecords.map((r, i) => (
-                  <div key={i} className="text-xs border-b border-border/40 pb-2">
-                    <p className="font-medium">{r.diagnosis}</p>
-                    <p className="text-muted-foreground">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="mt-4">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {/* Appointments */}
+              <Card className="border border-border">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-primary" /> Recent Appointments
+                    <Badge variant="outline" className="ms-auto text-xs">{recentAppointments?.length ?? 0}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  {!recentAppointments?.length ? <p className="text-xs text-muted-foreground">No appointments</p> :
+                    recentAppointments.map((a, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{a.reason}</p>
+                          <p className="text-muted-foreground">{formatDateTime(a.scheduledAt)} · {a.doctor?.fullName}</p>
+                        </div>
+                        <StatusBadge status={a.status} />
+                      </div>
+                    ))
+                  }
+                </CardContent>
+              </Card>
 
-          {/* X-Rays */}
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><Scan className="w-4 h-4 text-primary" /> X-Ray History</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2">
-              {!recentXrays?.length ? <p className="text-xs text-muted-foreground">No X-rays</p> :
-                recentXrays.map((x, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
-                    <div className="flex-1">
-                      <p className="font-medium">{x.bodyPart}</p>
-                      <p className="text-muted-foreground">{formatDate(x.createdAt)}</p>
-                    </div>
-                    <StatusBadge status={x.status} />
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
+              {/* Medical Records */}
+              <Card className="border border-border">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-primary" /> Recent Medical Records
+                    <Badge variant="outline" className="ms-auto text-xs">{recentRecords?.length ?? 0}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  {!recentRecords?.length ? <p className="text-xs text-muted-foreground">No records</p> :
+                    recentRecords.map((r, i) => (
+                      <div key={i} className="text-xs border-b border-border/40 pb-2">
+                        <p className="font-medium">{r.diagnosis}</p>
+                        <p className="text-muted-foreground">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
+                      </div>
+                    ))
+                  }
+                </CardContent>
+              </Card>
 
-          {/* Lab Tests */}
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><FlaskConical className="w-4 h-4 text-primary" /> Lab Tests</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-2">
-              {!recentLabTests?.length ? <p className="text-xs text-muted-foreground">No lab tests</p> :
-                recentLabTests.map((l, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
-                    <div className="flex-1">
-                      <p className="font-medium">{l.testName}</p>
-                      <p className="text-muted-foreground">{formatDate(l.createdAt)}</p>
-                    </div>
-                    <StatusBadge status={l.status} />
-                  </div>
-                ))
-              }
-            </CardContent>
-          </Card>
-        </div>
+              {/* X-Rays */}
+              <Card className="border border-border">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Scan className="w-4 h-4 text-primary" /> X-Ray History
+                    <Badge variant="outline" className="ms-auto text-xs">{recentXrays?.length ?? 0}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  {!recentXrays?.length ? <p className="text-xs text-muted-foreground">No X-rays</p> :
+                    recentXrays.map((x, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
+                        <div className="flex-1">
+                          <p className="font-medium">{x.bodyPart}</p>
+                          <p className="text-muted-foreground">{formatDate(x.createdAt)}</p>
+                        </div>
+                        <StatusBadge status={x.status} />
+                      </div>
+                    ))
+                  }
+                </CardContent>
+              </Card>
+
+              {/* Lab Tests */}
+              <Card className="border border-border">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <FlaskConical className="w-4 h-4 text-primary" /> Lab Tests
+                    <Badge variant="outline" className="ms-auto text-xs">{recentLabTests?.length ?? 0}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  {!recentLabTests?.length ? <p className="text-xs text-muted-foreground">No lab tests</p> :
+                    recentLabTests.map((l, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs border-b border-border/40 pb-2">
+                        <div className="flex-1">
+                          <p className="font-medium">{l.testName}</p>
+                          <p className="text-muted-foreground">{formatDate(l.createdAt)}</p>
+                        </div>
+                        <StatusBadge status={l.status} />
+                      </div>
+                    ))
+                  }
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Timeline Tab */}
+          <TabsContent value="timeline" className="mt-4">
+            <Card className="border border-border">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" /> Complete Clinical Timeline
+                  <span className="text-xs font-normal text-muted-foreground ms-1">— most recent first</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-6 pt-2">
+                <PatientTimeline
+                  appointments={recentAppointments as any}
+                  records={recentRecords as any}
+                  labTests={recentLabTests as any}
+                  xrays={recentXrays as any}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
