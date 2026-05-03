@@ -22,6 +22,7 @@ export default function XRay() {
   const [showCreate, setShowCreate] = useState(false);
   const [showReport, setShowReport] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", requestedById: "", bodyPart: "", notes: "" });
   const [reportForm, setReportForm] = useState({ report: "", imageUrl: "", status: "uploaded" });
 
@@ -67,6 +68,12 @@ export default function XRay() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient or body part…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
@@ -80,7 +87,11 @@ export default function XRay() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={xrays ?? []}
+            data={(xrays ?? []).filter(x => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return x.patient?.fullName?.toLowerCase().includes(q) || x.bodyPart?.toLowerCase().includes(q);
+            })}
             emptyMessage="No X-ray records"
             columns={[
               { key: "patient", header: "Patient", render: x => <span className="font-medium text-sm">{x.patient?.fullName || `#${x.patientId}`}</span> },

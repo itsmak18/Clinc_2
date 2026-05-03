@@ -24,6 +24,7 @@ export default function Billing() {
   const [showCreate, setShowCreate] = useState(false);
   const [showPay, setShowPay] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
   const [createdById, setCreatedById] = useState("");
   const [discount, setDiscount] = useState("0");
@@ -109,6 +110,12 @@ export default function Billing() {
         )}
 
         <div className="flex gap-3 mb-2">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient or invoice #…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
@@ -123,7 +130,11 @@ export default function Billing() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={invoices ?? []}
+            data={(invoices ?? []).filter(inv => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return (inv as any).patient?.fullName?.toLowerCase().includes(q) || inv.invoiceNumber?.toLowerCase().includes(q);
+            })}
             emptyMessage="No invoices"
             columns={[
               { key: "num", header: t("invoiceNumber"), render: inv => <span className="font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</span> },

@@ -22,6 +22,7 @@ export default function Lab() {
   const [showCreate, setShowCreate] = useState(false);
   const [showResults, setShowResults] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
+  const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", requestedById: "", testName: "", notes: "" });
   const [resultsForm, setResultsForm] = useState({ results: "", status: "completed" });
 
@@ -67,6 +68,12 @@ export default function Lab() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">
+          <Input
+            className="h-8 text-sm max-w-xs"
+            placeholder="Search by patient or test name…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
               <SelectValue placeholder={t("all")} />
@@ -80,7 +87,11 @@ export default function Lab() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={tests ?? []}
+            data={(tests ?? []).filter(t => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return t.patient?.fullName?.toLowerCase().includes(q) || t.testName?.toLowerCase().includes(q);
+            })}
             emptyMessage="No lab tests"
             columns={[
               { key: "patient", header: "Patient", render: l => <span className="font-medium text-sm">{l.patient?.fullName || `#${l.patientId}`}</span> },
