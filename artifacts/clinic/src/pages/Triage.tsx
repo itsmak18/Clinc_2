@@ -48,15 +48,24 @@ export default function Triage() {
     bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: "", notes: ""
   });
   const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
 
   const { data, isLoading } = useGetTodayAppointments({
     query: { queryKey: getGetTodayAppointmentsQueryKey(), refetchInterval: 15000 }
   });
 
   const allAppts = data?.appointments ?? [];
-  const waiting = allAppts.filter(a => a.status === "checked_in");
-  const inTriage = allAppts.filter(a => a.status === "in_triage");
-  const readyForDoctor = allAppts.filter(a => a.status === "ready_for_doctor");
+  const matchesSearch = (a: any) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      a.patient?.fullName?.toLowerCase().includes(q) ||
+      a.patient?.mrn?.toLowerCase().includes(q)
+    );
+  };
+  const waiting = allAppts.filter(a => a.status === "checked_in" && matchesSearch(a));
+  const inTriage = allAppts.filter(a => a.status === "in_triage" && matchesSearch(a));
+  const readyForDoctor = allAppts.filter(a => a.status === "ready_for_doctor" && matchesSearch(a));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
@@ -144,6 +153,15 @@ export default function Triage() {
         title="Triage Queue"
         subtitle="Manage patient vitals before doctor consultation"
       />
+
+      <div className="px-6 pt-4 pb-0">
+        <Input
+          className="h-8 text-sm max-w-xs"
+          placeholder="Search by patient name or MRN…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
 
       <div className="p-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Waiting (checked_in) */}
