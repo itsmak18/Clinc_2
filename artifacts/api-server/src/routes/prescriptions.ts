@@ -47,7 +47,7 @@ router.post("/prescriptions", requireRole("super_admin", "admin", "doctor"), asy
 });
 
 router.get("/prescriptions/:prescriptionId", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"), async (req, res) => {
-  const [prescription] = await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.id, parseInt(req.params.prescriptionId)));
+  const [prescription] = await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.id, parseInt(req.params.prescriptionId as string)));
   if (!prescription) { res.status(404).json({ error: "Not found" }); return; }
   res.json(prescription);
 });

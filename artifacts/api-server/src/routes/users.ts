@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
-import { hashPassword } from "../lib/auth";
+import { hashPassword, validatePasswordStrength } from "../lib/auth";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
@@ -11,14 +11,14 @@ const router = Router();
 router.use(requireAuth);
 
 const userSelect = {
-  id: usersTable.id,
-  username: usersTable.username,
-  fullName: usersTable.fullName,
-  fullNameAr: usersTable.fullNameAr,
-  email: usersTable.email,
-  role: usersTable.role,
-  phone: usersTable.phone,
-  isActive: usersTable.isActive,
+  id:        usersTable.id,
+  username:  usersTable.username,
+  fullName:  usersTable.fullName,
+  fullNameAr:usersTable.fullNameAr,
+  email:     usersTable.email,
+  role:      usersTable.role,
+  phone:     usersTable.phone,
+  isActive:  usersTable.isActive,
   isOnShift: usersTable.isOnShift,
   createdAt: usersTable.createdAt,
 };
@@ -26,7 +26,7 @@ const userSelect = {
 router.get("/users", async (req: AuthRequest, res) => {
   const { role, isActive } = req.query;
   let users = await db.select(userSelect).from(usersTable).where(isNull(usersTable.deletedAt));
-  if (role) users = users.filter(u => u.role === role);
+  if (role)       users = users.filter(u => u.role === role);
   if (isActive !== undefined) users = users.filter(u => u.isActive === (isActive === "true"));
   res.json(users);
 });
@@ -44,6 +44,14 @@ router.post("/users", requireRole("super_admin", "admin"), async (req: AuthReque
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
+
+  // Enforce password complexity on creation
+  const strength = validatePasswordStrength(password);
+  if (!strength.valid) {
+    res.status(400).json({ error: strength.reason });
+    return;
+  }
+
   const { hash } = hashPassword(password);
   const [user] = await db.insert(usersTable).values({
     username, passwordHash: hash, fullName, fullNameAr, email, role, phone,
@@ -53,14 +61,16 @@ router.post("/users", requireRole("super_admin", "admin"), async (req: AuthReque
 });
 
 router.get("/users/:userId", async (req, res) => {
-  const [user] = await db.select(userSelect).from(usersTable).where(eq(usersTable.id, parseInt(req.params.userId as string)));
+  const [user] = await db.select(userSelect).from(usersTable)
+    .where(eq(usersTable.id, parseInt(req.params.userId as string)));
   if (!user) { res.status(404).json({ error: "Not found" }); return; }
   res.json(user);
 });
 
 router.patch("/users/:userId", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const { fullName, fullNameAr, email, role, phone, isActive, isOnShift } = req.body;
-  const before = await db.select(userSelect).from(usersTable).where(eq(usersTable.id, parseInt(req.params.userId as string)));
+  const before = await db.select(userSelect).from(usersTable)
+    .where(eq(usersTable.id, parseInt(req.params.userId as string)));
   const [user] = await db.update(usersTable)
     .set({ fullName, fullNameAr, email, role, phone, isActive, isOnShift, updatedAt: new Date() })
     .where(eq(usersTable.id, parseInt(req.params.userId as string)))
@@ -93,9 +103,22 @@ router.delete("/users/:userId", requireRole("super_admin", "admin"), async (req:
 
 router.post("/users/:userId/reset-password", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const { newPassword } = req.body;
-  if (!newPassword) { res.status(400).json({ error: "New password required" }); return; }
+  if (!newPassword) {
+    res.status(400).json({ error: "New password required" });
+    return;
+  }
+
+  // Enforce password complexity on reset
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.valid) {
+    res.status(400).json({ error: strength.reason });
+    return;
+  }
+
   const { hash } = hashPassword(newPassword);
-  await db.update(usersTable).set({ passwordHash: hash, updatedAt: new Date() }).where(eq(usersTable.id, parseInt(req.params.userId as string)));
+  await db.update(usersTable)
+    .set({ passwordHash: hash, updatedAt: new Date() })
+    .where(eq(usersTable.id, parseInt(req.params.userId as string)));
   await logAudit(req, "RESET_PASSWORD", "user", parseInt(req.params.userId as string));
   res.json({ success: true });
 });
