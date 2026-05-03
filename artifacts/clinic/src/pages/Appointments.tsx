@@ -44,6 +44,7 @@ export default function Appointments() {
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [search, setSearch] = useState("");
   const [transitionLoading, setTransitionLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
   const [dischargeApptId, setDischargeApptId] = useState<number | null>(null);
@@ -121,6 +122,7 @@ export default function Appointments() {
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4 flex-wrap">
+          <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or reason…" value={search} onChange={e => setSearch(e.target.value)} />
           <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date" />
           <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
@@ -138,7 +140,14 @@ export default function Appointments() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={appointments ?? []}
+            data={(appointments ?? []).filter(a => {
+              if (!search) return true;
+              const q = search.toLowerCase();
+              return (
+                (a.patient as any)?.fullName?.toLowerCase().includes(q) ||
+                a.reason?.toLowerCase().includes(q)
+              );
+            })}
             emptyMessage="No appointments found"
             columns={[
               { key: "patient", header: "Patient", render: a => (
