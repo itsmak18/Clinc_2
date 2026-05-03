@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useListPrescriptions, useCreatePrescription, useListPatients, useListUsers, getListPrescriptionsQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
@@ -18,7 +19,9 @@ interface Medication { name: string; dosage: string; frequency: string; duration
 export default function Prescriptions() {
   const { t } = useI18n();
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const canWrite = user?.role === "super_admin" || user?.role === "admin" || user?.role === "doctor";
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
@@ -46,11 +49,11 @@ export default function Prescriptions() {
       <PageHeader
         title={t("prescriptions")}
         subtitle={`${prescriptions?.length ?? 0} prescriptions`}
-        actions={
+        actions={canWrite ? (
           <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-prescription">
             <Plus className="w-3.5 h-3.5 me-1" /> New Prescription
           </Button>
-        }
+        ) : undefined}
       />
       <div className="p-6">
         <div className="flex gap-3 mb-4">

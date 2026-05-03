@@ -8,7 +8,8 @@ import { emitToUser } from "../lib/sse";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/appointments", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"));
+// Lab/xray staff need appointment visibility to see scheduled patients for their services
+router.use("/appointments", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff"));
 
 router.get("/appointments", async (req, res) => {
   const status = req.query.status as string | undefined;

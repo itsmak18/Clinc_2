@@ -7,9 +7,10 @@ import { logAudit } from "../lib/audit";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/inventory", requireRole("super_admin", "admin"));
 
-router.get("/inventory", async (req, res) => {
+// Clinical staff can read inventory to check stock levels
+// Only admins may add or update items
+router.get("/inventory", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"), async (req, res) => {
   const { search, category } = req.query;
   let items = await db.select().from(inventoryTable)
     .where(isNull(inventoryTable.deletedAt))
@@ -22,7 +23,7 @@ router.get("/inventory", async (req, res) => {
   res.json(items);
 });
 
-router.post("/inventory", async (req: AuthRequest, res) => {
+router.post("/inventory", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const { name, category, quantity, unit, minimumStock, expiryDate, notes } = req.body;
   if (!name || !category || quantity === undefined || !unit || minimumStock === undefined) {
     res.status(400).json({ error: "Missing required fields" });
@@ -35,13 +36,13 @@ router.post("/inventory", async (req: AuthRequest, res) => {
   res.status(201).json(item);
 });
 
-router.get("/inventory/:itemId", async (req, res) => {
+router.get("/inventory/:itemId", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"), async (req, res) => {
   const [item] = await db.select().from(inventoryTable).where(eq(inventoryTable.id, parseInt(req.params.itemId as string)));
   if (!item) { res.status(404).json({ error: "Not found" }); return; }
   res.json(item);
 });
 
-router.patch("/inventory/:itemId", async (req: AuthRequest, res) => {
+router.patch("/inventory/:itemId", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const { name, category, quantity, unit, minimumStock, expiryDate, notes, isActive } = req.body;
   const [item] = await db.update(inventoryTable)
     .set({ name, category, quantity, unit, minimumStock, expiryDate, notes, isActive, updatedAt: new Date() })
