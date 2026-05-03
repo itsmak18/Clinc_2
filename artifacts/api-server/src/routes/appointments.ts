@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { appointmentsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
+import { appointmentsTable, patientsTable, usersTable, notificationsTable, medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable } from "@workspace/db";
+import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
@@ -278,6 +278,63 @@ router.post("/appointments/:appointmentId/complete", requireRole("super_admin", 
     .returning();
   await logAudit(req, "COMPLETE", "appointment", appt.id);
   res.json(appt);
+});
+
+// Discharge summary for a specific appointment visit
+router.get("/appointments/:appointmentId/discharge", async (req, res) => {
+  const id = parseInt(req.params.appointmentId as string);
+
+  const [appt] = await db.select({
+    id: appointmentsTable.id,
+    patientId: appointmentsTable.patientId,
+    doctorId: appointmentsTable.doctorId,
+    scheduledAt: appointmentsTable.scheduledAt,
+    reason: appointmentsTable.reason,
+    status: appointmentsTable.status,
+    notes: appointmentsTable.notes,
+    checkedInAt: appointmentsTable.checkedInAt,
+    triageStartedAt: appointmentsTable.triageStartedAt,
+    consultationStartedAt: appointmentsTable.consultationStartedAt,
+    createdAt: appointmentsTable.createdAt,
+    doctor: { id: usersTable.id, fullName: usersTable.fullName, fullNameAr: usersTable.fullNameAr },
+  }).from(appointmentsTable)
+    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+    .where(eq(appointmentsTable.id, id));
+
+  if (!appt) { res.status(404).json({ error: "Appointment not found" }); return; }
+
+  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, appt.patientId));
+  if (!patient) { res.status(404).json({ error: "Patient not found" }); return; }
+
+  // Medical record for this appointment
+  const [medicalRecord] = await db.select().from(medicalRecordsTable)
+    .where(eq(medicalRecordsTable.appointmentId, id))
+    .orderBy(desc(medicalRecordsTable.createdAt))
+    .limit(1);
+
+  // Prescriptions linked to this record
+  const prescriptions = medicalRecord
+    ? await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.recordId, medicalRecord.id))
+    : [];
+
+  // Lab tests & X-rays for this patient created on the same day as the appointment
+  const apptDay = new Date(appt.scheduledAt);
+  const dayStart = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate());
+  const dayEnd = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate(), 23, 59, 59);
+
+  const labTests = await db.select().from(labTestsTable)
+    .where(and(eq(labTestsTable.patientId, appt.patientId), gte(labTestsTable.createdAt, dayStart), lte(labTestsTable.createdAt, dayEnd)));
+
+  const xrays = await db.select().from(xrayRecordsTable)
+    .where(and(eq(xrayRecordsTable.patientId, appt.patientId), gte(xrayRecordsTable.createdAt, dayStart), lte(xrayRecordsTable.createdAt, dayEnd)));
+
+  // Most recent invoice for patient
+  const [invoice] = await db.select().from(invoicesTable)
+    .where(eq(invoicesTable.patientId, appt.patientId))
+    .orderBy(desc(invoicesTable.createdAt))
+    .limit(1);
+
+  res.json({ appointment: appt, patient, medicalRecord: medicalRecord ?? null, prescriptions, labTests, xrays, invoice: invoice ?? null });
 });
 
 export default router;

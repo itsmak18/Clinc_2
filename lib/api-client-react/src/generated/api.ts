@@ -33,6 +33,7 @@ import type {
   CreateXrayBody,
   DailyBillingSummary,
   DashboardSummary,
+  DischargeSheet,
   GetAppointmentReportParams,
   GetDailyBillingSummaryParams,
   GetRevenueReportParams,
@@ -2127,6 +2128,101 @@ export const useCheckInPatient = <
 > => {
   return useMutation(getCheckInPatientMutationOptions(options));
 };
+
+/**
+ * @summary Get full discharge summary for a specific appointment visit
+ */
+export const getGetAppointmentDischargeUrl = (appointmentId: number) => {
+  return `/api/appointments/${appointmentId}/discharge`;
+};
+
+export const getAppointmentDischarge = async (
+  appointmentId: number,
+  options?: RequestInit,
+): Promise<DischargeSheet> => {
+  return customFetch<DischargeSheet>(
+    getGetAppointmentDischargeUrl(appointmentId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetAppointmentDischargeQueryKey = (appointmentId: number) => {
+  return [`/api/appointments/${appointmentId}/discharge`] as const;
+};
+
+export const getGetAppointmentDischargeQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAppointmentDischarge>>,
+  TError = ErrorType<unknown>,
+>(
+  appointmentId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAppointmentDischarge>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetAppointmentDischargeQueryKey(appointmentId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAppointmentDischarge>>
+  > = ({ signal }) =>
+    getAppointmentDischarge(appointmentId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!appointmentId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAppointmentDischarge>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAppointmentDischargeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAppointmentDischarge>>
+>;
+export type GetAppointmentDischargeQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get full discharge summary for a specific appointment visit
+ */
+
+export function useGetAppointmentDischarge<
+  TData = Awaited<ReturnType<typeof getAppointmentDischarge>>,
+  TError = ErrorType<unknown>,
+>(
+  appointmentId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAppointmentDischarge>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAppointmentDischargeQueryOptions(
+    appointmentId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Get real-time patient flow metrics by stage
