@@ -58,7 +58,7 @@ router.post("/billing/invoices", requireRole("super_admin", "admin", "front_desk
 });
 
 router.get("/billing/invoices/:invoiceId", async (req, res) => {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, parseInt(req.params.invoiceId)));
+  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, parseInt(req.params.invoiceId as string)));
   if (!invoice) { res.status(404).json({ error: "Not found" }); return; }
   res.json(invoice);
 });
@@ -67,7 +67,7 @@ router.patch("/billing/invoices/:invoiceId", requireRole("super_admin", "admin")
   const { status, notes } = req.body;
   const [invoice] = await db.update(invoicesTable)
     .set({ status, notes, updatedAt: new Date() })
-    .where(eq(invoicesTable.id, parseInt(req.params.invoiceId)))
+    .where(eq(invoicesTable.id, parseInt(req.params.invoiceId as string)))
     .returning();
   await logAudit(req, "UPDATE", "invoice", invoice.id);
   res.json(invoice);
@@ -75,7 +75,7 @@ router.patch("/billing/invoices/:invoiceId", requireRole("super_admin", "admin")
 
 router.post("/billing/invoices/:invoiceId/pay", requireRole("super_admin", "admin", "front_desk"), async (req: AuthRequest, res) => {
   const { amountReceived } = req.body;
-  const invoiceId = parseInt(req.params.invoiceId);
+  const invoiceId = parseInt(req.params.invoiceId as string);
   const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
   if (!invoice) { res.status(404).json({ error: "Not found" }); return; }
   const [updated] = await db.update(invoicesTable)

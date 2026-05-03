@@ -39,6 +39,7 @@ export const LoginResponse = zod.object({
       "lab_staff",
     ]),
     isActive: zod.boolean(),
+    isOnShift: zod.boolean(),
     phone: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
@@ -64,6 +65,7 @@ export const GetCurrentUserResponse = zod.object({
     "lab_staff",
   ]),
   isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -103,6 +105,7 @@ export const ListUsersResponseItem = zod.object({
     "lab_staff",
   ]),
   isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -152,6 +155,7 @@ export const GetUserResponse = zod.object({
     "lab_staff",
   ]),
   isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -198,6 +202,7 @@ export const UpdateUserResponse = zod.object({
     "lab_staff",
   ]),
   isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -218,6 +223,59 @@ export const ResetUserPasswordParams = zod.object({
 
 export const ResetUserPasswordBody = zod.object({
   newPassword: zod.string(),
+});
+
+/**
+ * @summary Get all users currently on shift
+ */
+export const GetOnShiftUsersResponseItem = zod.object({
+  id: zod.number(),
+  username: zod.string(),
+  fullName: zod.string(),
+  fullNameAr: zod.string().optional(),
+  email: zod.string().optional(),
+  role: zod.enum([
+    "super_admin",
+    "admin",
+    "doctor",
+    "nurse",
+    "front_desk",
+    "xray_staff",
+    "lab_staff",
+  ]),
+  isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
+  phone: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const GetOnShiftUsersResponse = zod.array(GetOnShiftUsersResponseItem);
+
+/**
+ * @summary Toggle on-shift status for a user
+ */
+export const ToggleUserShiftParams = zod.object({
+  userId: zod.coerce.number(),
+});
+
+export const ToggleUserShiftResponse = zod.object({
+  id: zod.number(),
+  username: zod.string(),
+  fullName: zod.string(),
+  fullNameAr: zod.string().optional(),
+  email: zod.string().optional(),
+  role: zod.enum([
+    "super_admin",
+    "admin",
+    "doctor",
+    "nurse",
+    "front_desk",
+    "xray_staff",
+    "lab_staff",
+  ]),
+  isActive: zod.boolean(),
+  isOnShift: zod.boolean(),
+  phone: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
 });
 
 /**
@@ -398,6 +456,7 @@ export const GetPatientSummaryResponse = zod.object({
             "lab_staff",
           ]),
           isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
@@ -407,13 +466,21 @@ export const GetPatientSummaryResponse = zod.object({
       status: zod.enum([
         "scheduled",
         "checked_in",
-        "in_progress",
+        "in_triage",
+        "ready_for_doctor",
+        "in_consultation",
+        "awaiting_diagnostics",
+        "pending_payment",
         "completed",
         "cancelled",
         "no_show",
+        "in_progress",
       ]),
       cancellationReason: zod.string().nullish(),
       notes: zod.string().nullish(),
+      checkedInAt: zod.coerce.date().nullish(),
+      triageStartedAt: zod.coerce.date().nullish(),
+      consultationStartedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -457,6 +524,7 @@ export const GetPatientSummaryResponse = zod.object({
             "lab_staff",
           ]),
           isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
@@ -518,6 +586,7 @@ export const GetPatientSummaryResponse = zod.object({
             "lab_staff",
           ]),
           isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
@@ -571,6 +640,7 @@ export const GetPatientSummaryResponse = zod.object({
             "lab_staff",
           ]),
           isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
@@ -599,10 +669,15 @@ export const ListAppointmentsQueryParams = zod.object({
     .enum([
       "scheduled",
       "checked_in",
-      "in_progress",
+      "in_triage",
+      "ready_for_doctor",
+      "in_consultation",
+      "awaiting_diagnostics",
+      "pending_payment",
       "completed",
       "cancelled",
       "no_show",
+      "in_progress",
     ])
     .optional(),
   limit: zod.coerce.number().default(listAppointmentsQueryLimitDefault),
@@ -647,6 +722,7 @@ export const ListAppointmentsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -656,13 +732,21 @@ export const ListAppointmentsResponseItem = zod.object({
   status: zod.enum([
     "scheduled",
     "checked_in",
-    "in_progress",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
     "completed",
     "cancelled",
     "no_show",
+    "in_progress",
   ]),
   cancellationReason: zod.string().nullish(),
   notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListAppointmentsResponse = zod.array(ListAppointmentsResponseItem);
@@ -723,6 +807,7 @@ export const GetAppointmentResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -732,13 +817,21 @@ export const GetAppointmentResponse = zod.object({
   status: zod.enum([
     "scheduled",
     "checked_in",
-    "in_progress",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
     "completed",
     "cancelled",
     "no_show",
+    "in_progress",
   ]),
   cancellationReason: zod.string().nullish(),
   notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -757,10 +850,15 @@ export const UpdateAppointmentBody = zod.object({
     .enum([
       "scheduled",
       "checked_in",
-      "in_progress",
+      "in_triage",
+      "ready_for_doctor",
+      "in_consultation",
+      "awaiting_diagnostics",
+      "pending_payment",
       "completed",
       "cancelled",
       "no_show",
+      "in_progress",
     ])
     .optional(),
   cancellationReason: zod.string().optional(),
@@ -805,6 +903,7 @@ export const UpdateAppointmentResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -814,13 +913,21 @@ export const UpdateAppointmentResponse = zod.object({
   status: zod.enum([
     "scheduled",
     "checked_in",
-    "in_progress",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
     "completed",
     "cancelled",
     "no_show",
+    "in_progress",
   ]),
   cancellationReason: zod.string().nullish(),
   notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -876,6 +983,7 @@ export const CheckInPatientResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -885,13 +993,21 @@ export const CheckInPatientResponse = zod.object({
   status: zod.enum([
     "scheduled",
     "checked_in",
-    "in_progress",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
     "completed",
     "cancelled",
     "no_show",
+    "in_progress",
   ]),
   cancellationReason: zod.string().nullish(),
   notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -938,6 +1054,7 @@ export const GetTodayAppointmentsResponse = zod.object({
             "lab_staff",
           ]),
           isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
@@ -947,13 +1064,21 @@ export const GetTodayAppointmentsResponse = zod.object({
       status: zod.enum([
         "scheduled",
         "checked_in",
-        "in_progress",
+        "in_triage",
+        "ready_for_doctor",
+        "in_consultation",
+        "awaiting_diagnostics",
+        "pending_payment",
         "completed",
         "cancelled",
         "no_show",
+        "in_progress",
       ]),
       cancellationReason: zod.string().nullish(),
       notes: zod.string().nullish(),
+      checkedInAt: zod.coerce.date().nullish(),
+      triageStartedAt: zod.coerce.date().nullish(),
+      consultationStartedAt: zod.coerce.date().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -962,6 +1087,444 @@ export const GetTodayAppointmentsResponse = zod.object({
   checkedIn: zod.number(),
   completed: zod.number(),
   cancelled: zod.number(),
+});
+
+/**
+ * @summary Move appointment to in_triage
+ */
+export const StartTriageParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const StartTriageResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Mark patient as ready_for_doctor
+ */
+export const MarkPatientReadyParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const MarkPatientReadyResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Start consultation (in_consultation)
+ */
+export const StartConsultationParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const StartConsultationResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Move to awaiting_diagnostics
+ */
+export const RequestDiagnosticsParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const RequestDiagnosticsResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Move to pending_payment
+ */
+export const PendingPaymentParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const PendingPaymentResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Mark appointment as completed
+ */
+export const CompleteAppointmentParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const CompleteAppointmentResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
 });
 
 /**
@@ -1011,6 +1574,7 @@ export const ListMedicalRecordsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1104,6 +1668,7 @@ export const GetMedicalRecordResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1188,6 +1753,7 @@ export const UpdateMedicalRecordResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1256,6 +1822,7 @@ export const ListPrescriptionsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1341,6 +1908,7 @@ export const GetPrescriptionResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1405,6 +1973,7 @@ export const ListXrayImagesResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1475,6 +2044,7 @@ export const GetXrayRecordResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1543,6 +2113,7 @@ export const UpdateXrayRecordResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1605,6 +2176,7 @@ export const ListLabTestsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1673,6 +2245,7 @@ export const GetLabTestResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -1739,6 +2312,7 @@ export const UpdateLabTestResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -2080,6 +2654,7 @@ export const ListOperationsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -2152,6 +2727,7 @@ export const GetOperationResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -2221,6 +2797,7 @@ export const UpdateOperationResponse = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
@@ -2385,6 +2962,7 @@ export const ListAuditLogsResponseItem = zod.object({
         "lab_staff",
       ]),
       isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })

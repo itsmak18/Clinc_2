@@ -222,6 +222,40 @@ paths:
         "200":
           description: Password reset
 
+  /users/on-shift:
+    get:
+      operationId: getOnShiftUsers
+      tags: [users]
+      summary: Get all users currently on shift
+      responses:
+        "200":
+          description: On-shift users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /users/{userId}/toggle-shift:
+    post:
+      operationId: toggleUserShift
+      tags: [users]
+      summary: Toggle on-shift status for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Shift toggled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
   # PATIENTS
   /patients:
     get:
@@ -370,7 +404,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [scheduled, checked_in, in_progress, completed, cancelled, no_show]
+            enum: [scheduled, checked_in, in_triage, ready_for_doctor, in_consultation, awaiting_diagnostics, pending_payment, completed, cancelled, no_show, in_progress]
         - name: limit
           in: query
           schema:
@@ -494,6 +528,120 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TodayAppointments"
+
+  /appointments/{appointmentId}/triage:
+    post:
+      operationId: startTriage
+      tags: [appointments]
+      summary: Move appointment to in_triage
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Triage started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+  /appointments/{appointmentId}/ready:
+    post:
+      operationId: markPatientReady
+      tags: [appointments]
+      summary: Mark patient as ready_for_doctor
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Patient marked ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+  /appointments/{appointmentId}/consult:
+    post:
+      operationId: startConsultation
+      tags: [appointments]
+      summary: Start consultation (in_consultation)
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Consultation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+  /appointments/{appointmentId}/diagnostics:
+    post:
+      operationId: requestDiagnostics
+      tags: [appointments]
+      summary: Move to awaiting_diagnostics
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Awaiting diagnostics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+  /appointments/{appointmentId}/payment:
+    post:
+      operationId: pendingPayment
+      tags: [appointments]
+      summary: Move to pending_payment
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pending payment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
+  /appointments/{appointmentId}/complete:
+    post:
+      operationId: completeAppointment
+      tags: [appointments]
+      summary: Mark appointment as completed
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Appointment completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
 
   # MEDICAL RECORDS
   /medical-records:
@@ -1344,13 +1492,15 @@ components:
           enum: [super_admin, admin, doctor, nurse, front_desk, xray_staff, lab_staff]
         isActive:
           type: boolean
+        isOnShift:
+          type: boolean
         phone:
           type: string
           nullable: true
         createdAt:
           type: string
           format: date-time
-      required: [id, username, fullName, role, isActive, createdAt]
+      required: [id, username, fullName, role, isActive, isOnShift, createdAt]
 
     CreateUserBody:
       type: object
@@ -1543,12 +1693,24 @@ components:
           type: string
         status:
           type: string
-          enum: [scheduled, checked_in, in_progress, completed, cancelled, no_show]
+          enum: [scheduled, checked_in, in_triage, ready_for_doctor, in_consultation, awaiting_diagnostics, pending_payment, completed, cancelled, no_show, in_progress]
         cancellationReason:
           type: string
           nullable: true
         notes:
           type: string
+          nullable: true
+        checkedInAt:
+          type: string
+          format: date-time
+          nullable: true
+        triageStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        consultationStartedAt:
+          type: string
+          format: date-time
           nullable: true
         createdAt:
           type: string
@@ -1583,7 +1745,7 @@ components:
           type: string
         status:
           type: string
-          enum: [scheduled, checked_in, in_progress, completed, cancelled, no_show]
+          enum: [scheduled, checked_in, in_triage, ready_for_doctor, in_consultation, awaiting_diagnostics, pending_payment, completed, cancelled, no_show, in_progress]
         cancellationReason:
           type: string
         notes:

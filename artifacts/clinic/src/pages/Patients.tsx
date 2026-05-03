@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useListPatients, useCreatePatient, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
@@ -13,7 +13,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, Search, User } from "lucide-react";
+import { Plus, Search, User, Scan } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL ?? "/";
+const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 export default function Patients() {
   const { t } = useI18n();
@@ -26,6 +29,51 @@ export default function Patients() {
     fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male" as "male" | "female",
     phone: "", address: "", bloodType: "", allergies: "", emergencyContact: ""
   });
+
+  // Barcode scanner (keyboard-wedge): accumulates chars in <50ms intervals
+  const barcodeBuffer = useRef("");
+  const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is focused on an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.key === "Enter") {
+        const mrn = barcodeBuffer.current.trim();
+        barcodeBuffer.current = "";
+        if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
+        if (mrn.length >= 4) {
+          // Look up patient by MRN via API
+          const token = localStorage.getItem("clinic_token");
+          fetch(apiUrl(`patients?search=${encodeURIComponent(mrn)}&limit=1&offset=0`), {
+            headers: { Authorization: `Bearer ${token}` }
+          }).then(r => r.json()).then(data => {
+            const patient = data?.patients?.[0];
+            if (patient) {
+              setLocation(`/patients/${patient.id}`);
+            } else {
+              toast({ title: `No patient found for MRN: ${mrn}`, variant: "destructive" });
+            }
+          }).catch(() => toast({ title: "Barcode scan failed", variant: "destructive" }));
+        }
+        return;
+      }
+
+      if (e.key.length === 1) {
+        barcodeBuffer.current += e.key;
+        if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
+        // If no new key in 200ms, reset buffer (manual typing threshold)
+        barcodeTimer.current = setTimeout(() => {
+          barcodeBuffer.current = "";
+        }, 200);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [setLocation, toast]);
 
   const { data, isLoading } = useListPatients(
     { search: search || undefined, limit: 50, offset: 0 },
@@ -64,11 +112,15 @@ export default function Patients() {
             <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
               className="ps-9 h-8 text-sm"
-              placeholder={`${t("search")} patients...`}
+              placeholder={`${t("search")} by name or MRN...`}
               value={search}
               onChange={e => setSearch(e.target.value)}
               data-testid="input-search-patients"
             />
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 border border-border/50">
+            <Scan className="w-3.5 h-3.5" />
+            <span>Barcode scan supported</span>
           </div>
         </div>
 

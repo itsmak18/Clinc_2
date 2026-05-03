@@ -7,10 +7,15 @@ import { patientsTable } from "./patients";
 export const appointmentStatusEnum = pgEnum("appointment_status", [
   "scheduled",
   "checked_in",
-  "in_progress",
+  "in_triage",
+  "ready_for_doctor",
+  "in_consultation",
+  "awaiting_diagnostics",
+  "pending_payment",
   "completed",
   "cancelled",
   "no_show",
+  "in_progress",
 ]);
 
 export const appointmentsTable = pgTable("appointments", {
@@ -23,6 +28,8 @@ export const appointmentsTable = pgTable("appointments", {
   cancellationReason: text("cancellation_reason"),
   notes: text("notes"),
   checkedInAt: timestamp("checked_in_at"),
+  triageStartedAt: timestamp("triage_started_at"),
+  consultationStartedAt: timestamp("consultation_started_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

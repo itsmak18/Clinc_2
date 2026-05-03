@@ -23,6 +23,7 @@ import Notifications from "@/pages/Notifications";
 import Users from "@/pages/Users";
 import AuditLog from "@/pages/AuditLog";
 import Settings from "@/pages/Settings";
+import Triage from "@/pages/Triage";
 import AccessDenied from "@/pages/AccessDenied";
 import NotFound from "@/pages/not-found";
 
@@ -58,6 +59,9 @@ function ProtectedRoutes() {
         </Route>
         <Route path="/appointments">
           <Guard path="/appointments" role={role}><Appointments /></Guard>
+        </Route>
+        <Route path="/triage">
+          <Guard path="/triage" role={role}><Triage /></Guard>
         </Route>
         <Route path="/medical-records">
           <Guard path="/medical-records" role={role}><MedicalRecords /></Guard>

@@ -1,7 +1,9 @@
 import { Link, useLocation } from "wouter";
 import { useAuth, UserRole } from "@/hooks/auth";
 import { useI18n } from "@/hooks/i18n";
-import { useNotificationsStream } from "@/hooks/use-notifications-stream";
+import { useNotificationsStream, registerToastForSSE } from "@/hooks/use-notifications-stream";
+import { useIdleTimeout } from "@/hooks/use-idle-timeout";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useListNotifications, getListNotificationsQueryKey } from "@workspace/api-client-react";
@@ -40,6 +42,13 @@ export const navItems: NavItem[] = [
     icon: CalendarDays,
     labelKey: "appointments",
     roles: ["super_admin", "admin", "doctor", "nurse", "front_desk"],
+  },
+  {
+    key: "triage",
+    href: "/triage",
+    icon: Activity,
+    labelKey: "triage",
+    roles: ["super_admin", "admin", "nurse", "front_desk"],
   },
   {
     key: "medical-records",
@@ -140,8 +149,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { t, language, setLanguage, isRtl } = useI18n();
   const [location] = useLocation();
+  const { toast } = useToast();
 
   useNotificationsStream();
+  registerToastForSSE(({ title, description }) => toast({ title, description }));
+  useIdleTimeout(logout, !!user);
 
   const { data: notifications } = useListNotifications(
     { unreadOnly: true },

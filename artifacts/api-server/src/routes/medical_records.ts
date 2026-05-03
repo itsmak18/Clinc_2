@@ -50,7 +50,7 @@ router.post("/medical-records", async (req: AuthRequest, res) => {
 });
 
 router.get("/medical-records/:recordId", async (req, res) => {
-  const [record] = await db.select().from(medicalRecordsTable).where(eq(medicalRecordsTable.id, parseInt(req.params.recordId)));
+  const [record] = await db.select().from(medicalRecordsTable).where(eq(medicalRecordsTable.id, parseInt(req.params.recordId as string)));
   if (!record) { res.status(404).json({ error: "Not found" }); return; }
   res.json(record);
 });
@@ -59,7 +59,7 @@ router.patch("/medical-records/:recordId", async (req: AuthRequest, res) => {
   const { chiefComplaint, diagnosis, treatment, notes, vitals } = req.body;
   const [record] = await db.update(medicalRecordsTable)
     .set({ chiefComplaint, diagnosis, treatment, notes, vitals, updatedAt: new Date() })
-    .where(eq(medicalRecordsTable.id, parseInt(req.params.recordId)))
+    .where(eq(medicalRecordsTable.id, parseInt(req.params.recordId as string)))
     .returning();
   await logAudit(req, "UPDATE", "medical_record", record.id);
   res.json(record);

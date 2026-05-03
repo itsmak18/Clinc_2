@@ -51,7 +51,7 @@ router.post("/xray", async (req: AuthRequest, res) => {
 });
 
 router.get("/xray/:xrayId", async (req, res) => {
-  const [xray] = await db.select().from(xrayRecordsTable).where(eq(xrayRecordsTable.id, parseInt(req.params.xrayId)));
+  const [xray] = await db.select().from(xrayRecordsTable).where(eq(xrayRecordsTable.id, parseInt(req.params.xrayId as string)));
   if (!xray) { res.status(404).json({ error: "Not found" }); return; }
   res.json(xray);
 });
@@ -60,7 +60,7 @@ router.patch("/xray/:xrayId", async (req: AuthRequest, res) => {
   const { imageUrl, imageFileName, report, status, performedById } = req.body;
   const [xray] = await db.update(xrayRecordsTable)
     .set({ imageUrl, imageFileName, report, status, performedById, updatedAt: new Date() })
-    .where(eq(xrayRecordsTable.id, parseInt(req.params.xrayId)))
+    .where(eq(xrayRecordsTable.id, parseInt(req.params.xrayId as string)))
     .returning();
 
   if (status === "reviewed") {
@@ -68,7 +68,7 @@ router.patch("/xray/:xrayId", async (req: AuthRequest, res) => {
       userId: xray.requestedById,
       title: "X-Ray Report Ready",
       message: `X-ray report for ${xray.bodyPart} is ready for review`,
-      type: "xray_ready",
+      type: "xray_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
     if (notif) emitToUser(xray.requestedById, "notification", notif);

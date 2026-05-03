@@ -34,6 +34,7 @@ export interface User {
   email?: string;
   role: UserRole;
   isActive: boolean;
+  isOnShift: boolean;
   phone?: string | null;
   createdAt: string;
 }
@@ -168,10 +169,15 @@ export type AppointmentStatus =
 export const AppointmentStatus = {
   scheduled: "scheduled",
   checked_in: "checked_in",
-  in_progress: "in_progress",
+  in_triage: "in_triage",
+  ready_for_doctor: "ready_for_doctor",
+  in_consultation: "in_consultation",
+  awaiting_diagnostics: "awaiting_diagnostics",
+  pending_payment: "pending_payment",
   completed: "completed",
   cancelled: "cancelled",
   no_show: "no_show",
+  in_progress: "in_progress",
 } as const;
 
 export interface Appointment {
@@ -185,6 +191,9 @@ export interface Appointment {
   status: AppointmentStatus;
   cancellationReason?: string | null;
   notes?: string | null;
+  checkedInAt?: string | null;
+  triageStartedAt?: string | null;
+  consultationStartedAt?: string | null;
   createdAt: string;
 }
 
@@ -283,10 +292,15 @@ export type UpdateAppointmentBodyStatus =
 export const UpdateAppointmentBodyStatus = {
   scheduled: "scheduled",
   checked_in: "checked_in",
-  in_progress: "in_progress",
+  in_triage: "in_triage",
+  ready_for_doctor: "ready_for_doctor",
+  in_consultation: "in_consultation",
+  awaiting_diagnostics: "awaiting_diagnostics",
+  pending_payment: "pending_payment",
   completed: "completed",
   cancelled: "cancelled",
   no_show: "no_show",
+  in_progress: "in_progress",
 } as const;
 
 export interface UpdateAppointmentBody {
@@ -685,10 +699,15 @@ export type ListAppointmentsStatus =
 export const ListAppointmentsStatus = {
   scheduled: "scheduled",
   checked_in: "checked_in",
-  in_progress: "in_progress",
+  in_triage: "in_triage",
+  ready_for_doctor: "ready_for_doctor",
+  in_consultation: "in_consultation",
+  awaiting_diagnostics: "awaiting_diagnostics",
+  pending_payment: "pending_payment",
   completed: "completed",
   cancelled: "cancelled",
   no_show: "no_show",
+  in_progress: "in_progress",
 } as const;
 
 export type ListMedicalRecordsParams = {

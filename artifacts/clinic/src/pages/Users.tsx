@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListUsers, useCreateUser, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
@@ -12,16 +13,32 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, UserX } from "lucide-react";
+import { Plus, UserX, Coffee, Clock } from "lucide-react";
+
+const BASE = import.meta.env.BASE_URL ?? "/";
+const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
+
+async function apiFetch(path: string, method = "POST", body?: object) {
+  const token = localStorage.getItem("clinic_token");
+  const res = await fetch(apiUrl(path), {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
 
 const roles = ["super_admin", "admin", "doctor", "nurse", "front_desk", "xray_staff", "lab_staff"] as const;
 
 export default function Users() {
   const { t } = useI18n();
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [filterRole, setFilterRole] = useState("");
+  const [shiftLoading, setShiftLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "" });
 
   const params = { role: filterRole as any || undefined };
@@ -47,6 +64,21 @@ export default function Users() {
       },
     }
   });
+
+  const toggleShift = async (userId: number) => {
+    setShiftLoading(userId);
+    try {
+      await apiFetch(`users/${userId}/toggle-shift`);
+      queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
+      toast({ title: "Shift status updated" });
+    } catch {
+      toast({ title: "Failed to update shift", variant: "destructive" });
+    } finally {
+      setShiftLoading(null);
+    }
+  };
+
+  const canManageShift = currentUser?.role === "admin" || currentUser?.role === "super_admin";
 
   return (
     <div>
@@ -84,16 +116,31 @@ export default function Users() {
                 </div>
               )},
               { key: "role", header: t("role"), render: u => <Badge variant="outline" className="text-xs capitalize">{t(u.role as any)}</Badge> },
+              { key: "shift", header: "Shift", render: u => (
+                <Badge variant={(u as any).isOnShift ? "default" : "secondary"} className="text-xs gap-1">
+                  {(u as any).isOnShift ? <><Coffee className="w-2.5 h-2.5" /> On Shift</> : <><Clock className="w-2.5 h-2.5" /> Off</>}
+                </Badge>
+              )},
               { key: "email", header: t("email"), render: u => <span className="text-sm text-muted-foreground">{u.email || "-"}</span> },
               { key: "phone", header: t("phone"), render: u => <span className="text-sm">{u.phone || "-"}</span> },
               { key: "status", header: t("status"), render: u => <Badge variant={u.isActive ? "default" : "secondary"} className="text-xs">{u.isActive ? t("active") : t("inactive")}</Badge> },
               { key: "created", header: "Created", render: u => <span className="text-sm">{formatDate(u.createdAt)}</span> },
               { key: "actions", header: t("actions"), render: u => (
-                u.isActive ? (
-                  <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ userId: u.id }); }} data-testid={`button-deactivate-${u.id}`}>
-                    <UserX className="w-3 h-3 me-1" /> Deactivate
-                  </Button>
-                ) : null
+                <div className="flex gap-1">
+                  {canManageShift && (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2" disabled={shiftLoading === u.id}
+                      onClick={(e) => { e.stopPropagation(); toggleShift(u.id); }}>
+                      {(u as any).isOnShift ? "End Shift" : "Start Shift"}
+                    </Button>
+                  )}
+                  {u.isActive ? (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ userId: u.id }); }}
+                      data-testid={`button-deactivate-${u.id}`}>
+                      <UserX className="w-3 h-3 me-1" /> Deactivate
+                    </Button>
+                  ) : null}
+                </div>
               )},
             ]}
           />
