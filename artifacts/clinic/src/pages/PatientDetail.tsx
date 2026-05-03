@@ -6,7 +6,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatDate, formatDateTime, formatCurrency } from "@/lib/api";
+import { formatDate, formatDateTime, formatCurrency, calcAge } from "@/lib/api";
 import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt, AlertTriangle } from "lucide-react";
 
 export default function PatientDetail() {
@@ -56,7 +56,7 @@ export default function PatientDetail() {
             {[
               { label: t("mrn"), value: <span className="font-mono font-semibold text-primary">{patient.mrn}</span> },
               { label: t("gender"), value: t(patient.gender as any) },
-              { label: t("dateOfBirth"), value: formatDate(patient.dateOfBirth) },
+              { label: t("dateOfBirth"), value: `${formatDate(patient.dateOfBirth)} (${calcAge(patient.dateOfBirth)})` },
               { label: t("phone"), value: patient.phone },
               { label: t("bloodType"), value: patient.bloodType || "-" },
               { label: t("allergies"), value: patient.allergies || "-" },

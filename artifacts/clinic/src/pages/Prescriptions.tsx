@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Printer } from "lucide-react";
+import { openPrintWindow, prescriptionHtml } from "@/lib/print";
 
 interface Medication { name: string; dosage: string; frequency: string; duration: string; instructions: string; }
 
@@ -27,6 +28,7 @@ export default function Prescriptions() {
   const [patientId, setPatientId] = useState("");
   const [doctorId, setDoctorId] = useState("");
   const [medications, setMedications] = useState<Medication[]>([{ name: "", dosage: "", frequency: "", duration: "", instructions: "" }]);
+  const [printRx, setPrintRx] = useState<(typeof prescriptions extends (infer U)[] | undefined ? U : never) | null>(null);
 
   const { data: prescriptions, isLoading } = useListPrescriptions({}, { query: { queryKey: getListPrescriptionsQueryKey({}) } });
   const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
@@ -97,6 +99,13 @@ export default function Prescriptions() {
               { key: "doctor", header: t("doctorLabel"), render: p => <span className="text-sm">{p.doctor?.fullName || `#${p.doctorId}`}</span> },
               { key: "meds", header: t("medications"), render: p => <span className="text-sm">{(p.medications as any[])?.map((m: any) => m.name).join(", ") || "-"}</span> },
               { key: "date", header: t("date"), render: p => <span className="text-sm">{formatDate(p.createdAt)}</span> },
+              { key: "print", header: "", render: p => (
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={e => { e.stopPropagation(); openPrintWindow(prescriptionHtml(p as any), `Prescription - ${p.patient?.fullName ?? p.id}`); }}
+                  title="Print prescription" data-testid={`button-print-rx-${p.id}`}>
+                  <Printer className="w-3.5 h-3.5" />
+                </Button>
+              )},
             ]}
           />
         </div>

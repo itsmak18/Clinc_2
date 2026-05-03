@@ -13,8 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { formatDateTime } from "@/lib/api";
-import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText } from "lucide-react";
+import { formatDateTime, exportToCSV } from "@/lib/api";
+import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -115,9 +115,25 @@ export default function Appointments() {
         title={t("appointments")}
         subtitle={`${appointments?.length ?? 0} appointments`}
         actions={
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
-            <Plus className="w-3.5 h-3.5 me-1" /> {t("newAppointment")}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => exportToCSV(
+              (appointments ?? []).map(a => ({
+                Patient: (a.patient as any)?.fullName ?? `#${a.patientId}`,
+                MRN: (a.patient as any)?.mrn ?? "",
+                Doctor: (a.doctor as any)?.fullName ?? "",
+                "Scheduled At": a.scheduledAt ? new Date(a.scheduledAt).toLocaleString("en-GB") : "",
+                Reason: a.reason ?? "",
+                Status: a.status,
+                Notes: a.notes ?? "",
+              })),
+              `appointments-${new Date().toISOString().split("T")[0]}.csv`
+            )} data-testid="button-export-appointments">
+              <Download className="w-3.5 h-3.5 me-1" /> Export CSV
+            </Button>
+            <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
+              <Plus className="w-3.5 h-3.5 me-1" /> {t("newAppointment")}
+            </Button>
+          </div>
         }
       />
       <div className="p-6">

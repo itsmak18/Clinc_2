@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
-import { Plus, DollarSign, Trash2 } from "lucide-react";
+import { Plus, DollarSign, Trash2, Printer } from "lucide-react";
+import { openPrintWindow, invoiceHtml } from "@/lib/print";
 
 interface InvoiceItem { description: string; quantity: number; unitPrice: number; total: number; }
 
@@ -130,6 +131,11 @@ export default function Billing() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
+            rowClassName={inv => {
+              if (inv.status !== "pending") return "";
+              const daysOld = Math.floor((Date.now() - new Date(inv.createdAt).getTime()) / 86400000);
+              return daysOld >= 7 ? "bg-red-50 dark:bg-red-950/20" : daysOld >= 3 ? "bg-orange-50 dark:bg-orange-950/20" : "";
+            }}
             data={(invoices ?? []).filter(inv => {
               if (!search) return true;
               const q = search.toLowerCase();
@@ -143,11 +149,16 @@ export default function Billing() {
               { key: "status", header: t("status"), render: inv => <StatusBadge status={inv.status} /> },
               { key: "date", header: t("date"), render: inv => <span className="text-sm">{formatDate(inv.createdAt)}</span> },
               { key: "actions", header: t("actions"), render: inv => (
-                inv.status === "pending" ? (
-                  <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50" onClick={(e) => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }} data-testid={`button-pay-${inv.id}`}>
-                    <DollarSign className="w-3 h-3 me-1" />{t("payNow")}
+                <div className="flex items-center gap-1.5">
+                  {inv.status === "pending" && (
+                    <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50" onClick={(e) => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }} data-testid={`button-pay-${inv.id}`}>
+                      <DollarSign className="w-3 h-3 me-1" />{t("payNow")}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" onClick={e => { e.stopPropagation(); openPrintWindow(invoiceHtml(inv as any), `Invoice ${inv.invoiceNumber ?? inv.id}`); }} title="Print invoice" data-testid={`button-print-inv-${inv.id}`}>
+                    <Printer className="w-3.5 h-3.5" />
                   </Button>
-                ) : null
+                </div>
               )},
             ]}
           />
