@@ -12,6 +12,7 @@ import {
   Receipt, Scissors, Package, BarChart3, Bell, Shield, Settings, LogOut,
   Globe, Activity, UserCog
 } from "lucide-react";
+import GlobalSearch from "@/components/GlobalSearch";
 
 export interface NavItem {
   key: string;
@@ -215,6 +216,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* User + Actions */}
         <div className="p-2 border-t border-sidebar-border flex-shrink-0 space-y-1">
+          <GlobalSearch />
           <button
             onClick={() => setLanguage(language === "en" ? "ar" : "en")}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"

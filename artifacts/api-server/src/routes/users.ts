@@ -91,7 +91,7 @@ router.delete("/users/:userId", requireRole("super_admin", "admin"), async (req:
   res.json({ success: true });
 });
 
-router.post("/users/:userId/reset-password", requireRole("super_admin"), async (req: AuthRequest, res) => {
+router.post("/users/:userId/reset-password", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const { newPassword } = req.body;
   if (!newPassword) { res.status(400).json({ error: "New password required" }); return; }
   const { hash } = hashPassword(newPassword);

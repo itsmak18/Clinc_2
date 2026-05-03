@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
-import { Plus, UserX, Coffee, Clock } from "lucide-react";
+import { Plus, UserX, Coffee, Clock, KeyRound } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -40,6 +40,9 @@ export default function Users() {
   const [filterRole, setFilterRole] = useState("");
   const [shiftLoading, setShiftLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "" });
+  const [resetTarget, setResetTarget] = useState<{ id: number; fullName: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
 
   const params = { role: filterRole as any || undefined };
   const { data: users, isLoading } = useListUsers(params, { query: { queryKey: getListUsersQueryKey(params) } });
@@ -64,6 +67,23 @@ export default function Users() {
       },
     }
   });
+
+  const canResetPasswords = currentUser?.role === "super_admin" || currentUser?.role === "admin";
+
+  const handleResetPassword = async () => {
+    if (!resetTarget || !newPassword) return;
+    setResetLoading(true);
+    try {
+      await apiFetch(`users/${resetTarget.id}/reset-password`, "POST", { newPassword });
+      toast({ title: "Password reset successfully" });
+      setResetTarget(null);
+      setNewPassword("");
+    } catch {
+      toast({ title: "Failed to reset password", variant: "destructive" });
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const toggleShift = async (userId: number) => {
     setShiftLoading(userId);
@@ -133,6 +153,12 @@ export default function Users() {
                       {(u as any).isOnShift ? "End Shift" : "Start Shift"}
                     </Button>
                   )}
+                  {canResetPasswords && u.id !== currentUser?.id && (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                      onClick={(e) => { e.stopPropagation(); setResetTarget({ id: u.id, fullName: u.fullName }); setNewPassword(""); }}>
+                      <KeyRound className="w-3 h-3 me-1" /> Reset PW
+                    </Button>
+                  )}
                   {u.isActive ? (
                     <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive"
                       onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ userId: u.id }); }}
@@ -192,6 +218,41 @@ export default function Users() {
               <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
               <Button size="sm" onClick={() => createMutation.mutate({ data: form as any })} disabled={createMutation.isPending} data-testid="button-save-user">
                 {createMutation.isPending ? t("loading") : t("save")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={!!resetTarget} onOpenChange={v => { if (!v) { setResetTarget(null); setNewPassword(""); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-amber-500" /> Reset Password
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Set a new password for <span className="font-semibold text-foreground">{resetTarget?.fullName}</span>.
+            </p>
+            <div className="space-y-1">
+              <Label className="text-xs">New Password *</Label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={e => setNewPassword(e.target.value)}
+                placeholder="Enter new password"
+                onKeyDown={e => e.key === "Enter" && handleResetPassword()}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => { setResetTarget(null); setNewPassword(""); }}>
+                {t("cancel")}
+              </Button>
+              <Button size="sm" onClick={handleResetPassword} disabled={!newPassword || resetLoading} className="bg-amber-500 hover:bg-amber-600 text-white">
+                {resetLoading ? t("loading") : "Reset Password"}
               </Button>
             </div>
           </div>
