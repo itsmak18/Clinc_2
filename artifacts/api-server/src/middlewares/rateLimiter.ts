@@ -90,7 +90,10 @@ export function ipRateLimit(maxPerWindow: number, windowMs: number) {
     legacyHeaders: false,
     message: { error: "Too many requests. Please try again later." },
     store: new RedisStore({
-      sendCommand: (...args: string[]) => redisClient.call(...args),
+      sendCommand: (...args: string[]) => {
+        const [command, ...rest] = args;
+        return redisClient.call(command, ...rest) as any;
+      },
     }),
   });
 }
