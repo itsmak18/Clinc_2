@@ -138,6 +138,12 @@ router.patch("/users/:userId", requireRole("super_admin", "admin"), async (req: 
     .set({ fullName, fullNameAr, email, role, phone, isActive, isOnShift, specialty, department, updatedAt: new Date() })
     .where(eq(usersTable.id, userId))
     .returning();
+    
+  if (before[0] && before[0].role !== role) {
+    const { revokeAllTokensForUser } = await import("../lib/auth");
+    await revokeAllTokensForUser(userId);
+  }
+
   await logAudit(req, "UPDATE", "user", user.id, { before: before[0], after: user });
   res.json(user);
 });

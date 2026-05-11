@@ -106,20 +106,20 @@ describe("requireRole", () => {
 // ── requireAuth ───────────────────────────────────────────────────────────────
 
 describe("requireAuth", () => {
-  it("returns 401 when no cookie present", () => {
+  it("returns 401 when no cookie present", async () => {
     const req = makeReq({ cookies: {} });
     const res = makeRes();
     const next = vi.fn();
-    requireAuth(req, res, next);
+    await requireAuth(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("returns 401 when cookie contains invalid token", () => {
+  it("returns 401 when cookie contains invalid token", async () => {
     const req = makeReq({ cookies: { clinic_token: "garbage.token.value" } });
     const res = makeRes();
     const next = vi.fn();
-    requireAuth(req, res, next);
+    await requireAuth(req, res, next);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();
   });

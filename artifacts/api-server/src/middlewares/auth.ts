@@ -5,7 +5,7 @@ export interface AuthRequest extends Request {
   user?: { userId: number; username: string; role: string };
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   // Read token from HttpOnly cookie — never from Authorization header
   const rawToken = req.cookies?.clinic_token ?? null;
   if (!rawToken) {
@@ -13,7 +13,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     return;
   }
   try {
-    const payload = verifyToken(rawToken);
+    const payload = await verifyToken(rawToken);
     req.user = { userId: payload.userId, username: payload.username, role: payload.role };
     next();
   } catch {
