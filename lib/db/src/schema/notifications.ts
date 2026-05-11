@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, boolean, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, boolean, pgEnum, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -7,6 +7,7 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "patient_arrived",
   "lab_ready",
   "xray_ready",
+  "ultrasound_ready",
   "general",
 ]);
 
@@ -18,7 +19,11 @@ export const notificationsTable = pgTable("notifications", {
   type: notificationTypeEnum("type").notNull().default("general"),
   isRead: boolean("is_read").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("notif_user_idx").on(t.userId),       // M-04
+  index("notif_read_idx").on(t.isRead),       // M-04
+  index("notif_created_idx").on(t.createdAt), // M-04
+]);
 
 export const insertNotificationSchema = createInsertSchema(notificationsTable).omit({
   id: true,

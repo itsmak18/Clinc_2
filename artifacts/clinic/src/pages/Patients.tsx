@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/auth";
 import { formatDate } from "@/lib/api";
 import { Plus, Search, Scan, Download } from "lucide-react";
 import { calcAge, exportToCSV } from "@/lib/api";
@@ -21,6 +22,7 @@ const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 export default function Patients() {
   const { t } = useI18n();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -47,9 +49,8 @@ export default function Patients() {
         if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
         if (mrn.length >= 4) {
           // Look up patient by MRN via API
-          const token = localStorage.getItem("clinic_token");
           fetch(apiUrl(`patients?search=${encodeURIComponent(mrn)}&limit=1&offset=0`), {
-            headers: { Authorization: `Bearer ${token}` }
+            credentials: "include",
           }).then(r => r.json()).then(data => {
             const patient = data?.patients?.[0];
             if (patient) {
@@ -168,6 +169,22 @@ export default function Patients() {
                 <Badge variant={p.isActive ? "default" : "secondary"} className="text-xs">
                   {p.isActive ? t("active") : t("inactive")}
                 </Badge>
+              )},
+              { key: "actions", header: t("actions"), render: p => (
+                <div className="flex gap-1">
+                  {["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "") && (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
+                      onClick={(e) => { e.stopPropagation(); setLocation(`/patients/${p.id}`); }}>
+                      {t("view")}
+                    </Button>
+                  )}
+                  {["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "") && (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
+                      onClick={(e) => { e.stopPropagation(); setLocation(`/patients/${p.id}?edit=true`); }}>
+                      {t("edit")}
+                    </Button>
+                  )}
+                </div>
               )},
             ]}
           />

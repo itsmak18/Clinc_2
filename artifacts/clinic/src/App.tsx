@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth, UserRole } from "@/hooks/auth";
 import { I18nProvider } from "@/hooks/i18n";
-import { setAuthTokenGetter, setUnauthorizedHandler } from "@workspace/api-client-react";
+import { setUnauthorizedHandler } from "@workspace/api-client-react";
 import { useSessionTimeout } from "@/hooks/useSessionTimeout";
 import Layout from "@/components/Layout";
 import { canAccessRoute } from "@/lib/route-access";
@@ -26,6 +26,7 @@ import Appointments from "@/pages/Appointments";
 import MedicalRecords from "@/pages/MedicalRecords";
 import Prescriptions from "@/pages/Prescriptions";
 import XRay from "@/pages/XRay";
+import Ultrasound from "@/pages/Ultrasound";
 import Lab from "@/pages/Lab";
 import Billing from "@/pages/Billing";
 import Operations from "@/pages/Operations";
@@ -36,10 +37,9 @@ import Users from "@/pages/Users";
 import AuditLog from "@/pages/AuditLog";
 import Settings from "@/pages/Settings";
 import Triage from "@/pages/Triage";
+import Schedule from "@/pages/Schedule";
 import AccessDenied from "@/pages/AccessDenied";
 import NotFound from "@/pages/not-found";
-
-setAuthTokenGetter(() => localStorage.getItem("clinic_token"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -98,7 +98,7 @@ function SessionTimeoutWarning({
 }
 
 function ProtectedRoutes() {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
 
   // Session timeout: warn at 28 min, logout at 30 min of inactivity
   const { showWarning, secondsLeft, stayLoggedIn } = useSessionTimeout({
@@ -112,6 +112,7 @@ function ProtectedRoutes() {
     return () => setUnauthorizedHandler(null);
   }, [logout]);
 
+  if (isLoading) return null;
   if (!isAuthenticated || !user) return <Login />;
 
   const role = user.role;
@@ -136,6 +137,9 @@ function ProtectedRoutes() {
           <Route path="/appointments">
             <Guard path="/appointments" role={role}><Appointments /></Guard>
           </Route>
+          <Route path="/schedule">
+            <Guard path="/schedule" role={role}><Schedule /></Guard>
+          </Route>
           <Route path="/triage">
             <Guard path="/triage" role={role}><Triage /></Guard>
           </Route>
@@ -147,6 +151,9 @@ function ProtectedRoutes() {
           </Route>
           <Route path="/xray">
             <Guard path="/xray" role={role}><XRay /></Guard>
+          </Route>
+          <Route path="/ultrasound">
+            <Guard path="/ultrasound" role={role}><Ultrasound /></Guard>
           </Route>
           <Route path="/lab">
             <Guard path="/lab" role={role}><Lab /></Guard>

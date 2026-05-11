@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, date, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, date, pgEnum, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,6 +16,12 @@ export const patientsTable = pgTable("patients", {
   bloodType: text("blood_type"),
   allergies: text("allergies"),
   emergencyContact: text("emergency_contact"),
+  // S-05: Insurance fields — all nullable, populated when insurance billing is enabled
+  insuranceProvider:   text("insurance_provider"),
+  insurancePolicyNum:  text("insurance_policy_num"),
+  insuranceMemberId:   text("insurance_member_id"),
+  insuranceExpiry:     timestamp("insurance_expiry"),
+  insuranceGroupNum:   text("insurance_group_num"),
   isActive: boolean("is_active").notNull().default(true),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

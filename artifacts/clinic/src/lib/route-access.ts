@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, CalendarDays, FileText, Pill, Scan, FlaskConical,
   Receipt, Scissors, Package, BarChart3, Bell, Shield, Settings,
-  Activity, UserCog
+  Activity, UserCog, Waves, CalendarRange
 } from "lucide-react";
 import type { UserRole } from "@/hooks/auth";
 
@@ -35,6 +35,13 @@ export const navItems: NavItem[] = [
     roles: ["super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff"],
   },
   {
+    key: "schedule",
+    href: "/schedule",
+    icon: CalendarRange,
+    labelKey: "schedule",
+    roles: ["super_admin", "admin", "front_desk", "nurse", "doctor"],
+  },
+  {
     key: "triage",
     href: "/triage",
     icon: Activity,
@@ -61,6 +68,13 @@ export const navItems: NavItem[] = [
     icon: Scan,
     labelKey: "xray",
     roles: ["super_admin", "admin", "doctor", "xray_staff"],
+  },
+  {
+    key: "ultrasound",
+    href: "/ultrasound",
+    icon: Waves,
+    labelKey: "ultrasound",
+    roles: ["super_admin", "admin", "doctor", "nurse", "xray_staff"],
   },
   {
     key: "lab",

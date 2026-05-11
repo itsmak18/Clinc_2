@@ -21,6 +21,7 @@ import type {
   Appointment,
   AppointmentReport,
   AuditLog,
+  AvailabilityResponse,
   CreateAppointmentBody,
   CreateInventoryItemBody,
   CreateInvoiceBody,
@@ -29,14 +30,23 @@ import type {
   CreateOperationBody,
   CreatePatientBody,
   CreatePrescriptionBody,
+  CreateUltrasoundBody,
   CreateUserBody,
   CreateXrayBody,
   DailyBillingSummary,
   DashboardSummary,
+  DeleteScheduleOverride200,
+  DeleteWeeklyBlock200,
+  DepartmentLoadItem,
   DischargeSheet,
+  DoctorScheduleDay,
+  DoctorScheduleDetail,
+  DoctorScheduleSummary,
   GetAppointmentReportParams,
   GetDailyBillingSummaryParams,
+  GetDoctorAvailabilityParams,
   GetRevenueReportParams,
+  GetScheduleWeekParams,
   HealthStatus,
   InventoryItem,
   Invoice,
@@ -51,6 +61,7 @@ import type {
   ListOperationsParams,
   ListPatientsParams,
   ListPrescriptionsParams,
+  ListUltrasoundRecordsParams,
   ListUsersParams,
   ListXrayImagesParams,
   LoginBody,
@@ -66,7 +77,9 @@ import type {
   Prescription,
   ResetPasswordBody,
   RevenueReport,
+  ScheduleOverride,
   TodayAppointments,
+  UltrasoundRecord,
   UpdateAppointmentBody,
   UpdateInventoryItemBody,
   UpdateInvoiceBody,
@@ -74,9 +87,14 @@ import type {
   UpdateMedicalRecordBody,
   UpdateOperationBody,
   UpdatePatientBody,
+  UpdateUltrasoundBody,
   UpdateUserBody,
+  UpdateWeeklyBlockStatusBody,
   UpdateXrayBody,
+  UpsertOverrideBody,
+  UpsertWeeklyBlockBody,
   User,
+  WeekResponse,
   XrayRecord,
 } from "./api.schemas";
 
@@ -3862,6 +3880,377 @@ export const useUpdateXrayRecord = <
 };
 
 /**
+ * @summary List ultrasound records
+ */
+export const getListUltrasoundRecordsUrl = (
+  params?: ListUltrasoundRecordsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/ultrasound?${stringifiedParams}`
+    : `/api/ultrasound`;
+};
+
+export const listUltrasoundRecords = async (
+  params?: ListUltrasoundRecordsParams,
+  options?: RequestInit,
+): Promise<UltrasoundRecord[]> => {
+  return customFetch<UltrasoundRecord[]>(getListUltrasoundRecordsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListUltrasoundRecordsQueryKey = (
+  params?: ListUltrasoundRecordsParams,
+) => {
+  return [`/api/ultrasound`, ...(params ? [params] : [])] as const;
+};
+
+export const getListUltrasoundRecordsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listUltrasoundRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListUltrasoundRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listUltrasoundRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListUltrasoundRecordsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listUltrasoundRecords>>
+  > = ({ signal }) =>
+    listUltrasoundRecords(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listUltrasoundRecords>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListUltrasoundRecordsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listUltrasoundRecords>>
+>;
+export type ListUltrasoundRecordsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List ultrasound records
+ */
+
+export function useListUltrasoundRecords<
+  TData = Awaited<ReturnType<typeof listUltrasoundRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListUltrasoundRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listUltrasoundRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListUltrasoundRecordsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create ultrasound record
+ */
+export const getCreateUltrasoundRecordUrl = () => {
+  return `/api/ultrasound`;
+};
+
+export const createUltrasoundRecord = async (
+  createUltrasoundBody: CreateUltrasoundBody,
+  options?: RequestInit,
+): Promise<UltrasoundRecord> => {
+  return customFetch<UltrasoundRecord>(getCreateUltrasoundRecordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createUltrasoundBody),
+  });
+};
+
+export const getCreateUltrasoundRecordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createUltrasoundRecord>>,
+    TError,
+    { data: BodyType<CreateUltrasoundBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createUltrasoundRecord>>,
+  TError,
+  { data: BodyType<CreateUltrasoundBody> },
+  TContext
+> => {
+  const mutationKey = ["createUltrasoundRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createUltrasoundRecord>>,
+    { data: BodyType<CreateUltrasoundBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createUltrasoundRecord(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateUltrasoundRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createUltrasoundRecord>>
+>;
+export type CreateUltrasoundRecordMutationBody = BodyType<CreateUltrasoundBody>;
+export type CreateUltrasoundRecordMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create ultrasound record
+ */
+export const useCreateUltrasoundRecord = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createUltrasoundRecord>>,
+    TError,
+    { data: BodyType<CreateUltrasoundBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createUltrasoundRecord>>,
+  TError,
+  { data: BodyType<CreateUltrasoundBody> },
+  TContext
+> => {
+  return useMutation(getCreateUltrasoundRecordMutationOptions(options));
+};
+
+/**
+ * @summary Get ultrasound record
+ */
+export const getGetUltrasoundRecordUrl = (ultrasoundId: number) => {
+  return `/api/ultrasound/${ultrasoundId}`;
+};
+
+export const getUltrasoundRecord = async (
+  ultrasoundId: number,
+  options?: RequestInit,
+): Promise<UltrasoundRecord> => {
+  return customFetch<UltrasoundRecord>(
+    getGetUltrasoundRecordUrl(ultrasoundId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetUltrasoundRecordQueryKey = (ultrasoundId: number) => {
+  return [`/api/ultrasound/${ultrasoundId}`] as const;
+};
+
+export const getGetUltrasoundRecordQueryOptions = <
+  TData = Awaited<ReturnType<typeof getUltrasoundRecord>>,
+  TError = ErrorType<unknown>,
+>(
+  ultrasoundId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getUltrasoundRecord>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetUltrasoundRecordQueryKey(ultrasoundId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getUltrasoundRecord>>
+  > = ({ signal }) =>
+    getUltrasoundRecord(ultrasoundId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!ultrasoundId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getUltrasoundRecord>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetUltrasoundRecordQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getUltrasoundRecord>>
+>;
+export type GetUltrasoundRecordQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get ultrasound record
+ */
+
+export function useGetUltrasoundRecord<
+  TData = Awaited<ReturnType<typeof getUltrasoundRecord>>,
+  TError = ErrorType<unknown>,
+>(
+  ultrasoundId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getUltrasoundRecord>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetUltrasoundRecordQueryOptions(
+    ultrasoundId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update ultrasound record (add report)
+ */
+export const getUpdateUltrasoundRecordUrl = (ultrasoundId: number) => {
+  return `/api/ultrasound/${ultrasoundId}`;
+};
+
+export const updateUltrasoundRecord = async (
+  ultrasoundId: number,
+  updateUltrasoundBody: UpdateUltrasoundBody,
+  options?: RequestInit,
+): Promise<UltrasoundRecord> => {
+  return customFetch<UltrasoundRecord>(
+    getUpdateUltrasoundRecordUrl(ultrasoundId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateUltrasoundBody),
+    },
+  );
+};
+
+export const getUpdateUltrasoundRecordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateUltrasoundRecord>>,
+    TError,
+    { ultrasoundId: number; data: BodyType<UpdateUltrasoundBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateUltrasoundRecord>>,
+  TError,
+  { ultrasoundId: number; data: BodyType<UpdateUltrasoundBody> },
+  TContext
+> => {
+  const mutationKey = ["updateUltrasoundRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateUltrasoundRecord>>,
+    { ultrasoundId: number; data: BodyType<UpdateUltrasoundBody> }
+  > = (props) => {
+    const { ultrasoundId, data } = props ?? {};
+
+    return updateUltrasoundRecord(ultrasoundId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateUltrasoundRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateUltrasoundRecord>>
+>;
+export type UpdateUltrasoundRecordMutationBody = BodyType<UpdateUltrasoundBody>;
+export type UpdateUltrasoundRecordMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update ultrasound record (add report)
+ */
+export const useUpdateUltrasoundRecord = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateUltrasoundRecord>>,
+    TError,
+    { ultrasoundId: number; data: BodyType<UpdateUltrasoundBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateUltrasoundRecord>>,
+  TError,
+  { ultrasoundId: number; data: BodyType<UpdateUltrasoundBody> },
+  TContext
+> => {
+  return useMutation(getUpdateUltrasoundRecordMutationOptions(options));
+};
+
+/**
  * @summary List lab tests
  */
 export const getListLabTestsUrl = (params?: ListLabTestsParams) => {
@@ -5904,6 +6293,81 @@ export function useGetDashboardSummary<
 }
 
 /**
+ * @summary Get today's appointment count grouped by doctor
+ */
+export const getGetDepartmentLoadUrl = () => {
+  return `/api/dashboard/department-load`;
+};
+
+export const getDepartmentLoad = async (
+  options?: RequestInit,
+): Promise<DepartmentLoadItem[]> => {
+  return customFetch<DepartmentLoadItem[]>(getGetDepartmentLoadUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDepartmentLoadQueryKey = () => {
+  return [`/api/dashboard/department-load`] as const;
+};
+
+export const getGetDepartmentLoadQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDepartmentLoad>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDepartmentLoad>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetDepartmentLoadQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDepartmentLoad>>
+  > = ({ signal }) => getDepartmentLoad({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDepartmentLoad>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDepartmentLoadQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDepartmentLoad>>
+>;
+export type GetDepartmentLoadQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get today's appointment count grouped by doctor
+ */
+
+export function useGetDepartmentLoad<
+  TData = Awaited<ReturnType<typeof getDepartmentLoad>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getDepartmentLoad>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDepartmentLoadQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
  * @summary Get recent system activity feed
  */
 export const getGetRecentActivityUrl = () => {
@@ -6167,6 +6631,969 @@ export function useGetRevenueReport<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetRevenueReportQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List all doctors with their weekly schedule templates
+ */
+export const getListScheduleDoctorsUrl = () => {
+  return `/api/schedule/doctors`;
+};
+
+export const listScheduleDoctors = async (
+  options?: RequestInit,
+): Promise<DoctorScheduleSummary[]> => {
+  return customFetch<DoctorScheduleSummary[]>(getListScheduleDoctorsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListScheduleDoctorsQueryKey = () => {
+  return [`/api/schedule/doctors`] as const;
+};
+
+export const getListScheduleDoctorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listScheduleDoctors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listScheduleDoctors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListScheduleDoctorsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listScheduleDoctors>>
+  > = ({ signal }) => listScheduleDoctors({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listScheduleDoctors>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListScheduleDoctorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listScheduleDoctors>>
+>;
+export type ListScheduleDoctorsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all doctors with their weekly schedule templates
+ */
+
+export function useListScheduleDoctors<
+  TData = Awaited<ReturnType<typeof listScheduleDoctors>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listScheduleDoctors>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListScheduleDoctorsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get a doctor's full schedule (template + overrides)
+ */
+export const getGetDoctorScheduleUrl = (doctorId: number) => {
+  return `/api/schedule/doctor/${doctorId}`;
+};
+
+export const getDoctorSchedule = async (
+  doctorId: number,
+  options?: RequestInit,
+): Promise<DoctorScheduleDetail> => {
+  return customFetch<DoctorScheduleDetail>(getGetDoctorScheduleUrl(doctorId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetDoctorScheduleQueryKey = (doctorId: number) => {
+  return [`/api/schedule/doctor/${doctorId}`] as const;
+};
+
+export const getGetDoctorScheduleQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDoctorSchedule>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorSchedule>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDoctorScheduleQueryKey(doctorId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDoctorSchedule>>
+  > = ({ signal }) =>
+    getDoctorSchedule(doctorId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!doctorId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorSchedule>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDoctorScheduleQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDoctorSchedule>>
+>;
+export type GetDoctorScheduleQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get a doctor's full schedule (template + overrides)
+ */
+
+export function useGetDoctorSchedule<
+  TData = Awaited<ReturnType<typeof getDoctorSchedule>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorSchedule>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDoctorScheduleQueryOptions(doctorId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create or update a weekly schedule block for a doctor
+ */
+export const getUpsertWeeklyBlockUrl = (doctorId: number) => {
+  return `/api/schedule/doctor/${doctorId}/weekly`;
+};
+
+export const upsertWeeklyBlock = async (
+  doctorId: number,
+  upsertWeeklyBlockBody: UpsertWeeklyBlockBody,
+  options?: RequestInit,
+): Promise<DoctorScheduleDay> => {
+  return customFetch<DoctorScheduleDay>(getUpsertWeeklyBlockUrl(doctorId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(upsertWeeklyBlockBody),
+  });
+};
+
+export const getUpsertWeeklyBlockMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertWeeklyBlock>>,
+    TError,
+    { doctorId: number; data: BodyType<UpsertWeeklyBlockBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upsertWeeklyBlock>>,
+  TError,
+  { doctorId: number; data: BodyType<UpsertWeeklyBlockBody> },
+  TContext
+> => {
+  const mutationKey = ["upsertWeeklyBlock"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upsertWeeklyBlock>>,
+    { doctorId: number; data: BodyType<UpsertWeeklyBlockBody> }
+  > = (props) => {
+    const { doctorId, data } = props ?? {};
+
+    return upsertWeeklyBlock(doctorId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpsertWeeklyBlockMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upsertWeeklyBlock>>
+>;
+export type UpsertWeeklyBlockMutationBody = BodyType<UpsertWeeklyBlockBody>;
+export type UpsertWeeklyBlockMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create or update a weekly schedule block for a doctor
+ */
+export const useUpsertWeeklyBlock = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertWeeklyBlock>>,
+    TError,
+    { doctorId: number; data: BodyType<UpsertWeeklyBlockBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upsertWeeklyBlock>>,
+  TError,
+  { doctorId: number; data: BodyType<UpsertWeeklyBlockBody> },
+  TContext
+> => {
+  return useMutation(getUpsertWeeklyBlockMutationOptions(options));
+};
+
+/**
+ * @summary Toggle a weekly block active or inactive
+ */
+export const getUpdateWeeklyBlockStatusUrl = (
+  doctorId: number,
+  day:
+    | "sunday"
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday",
+) => {
+  return `/api/schedule/doctor/${doctorId}/weekly/${day}/status`;
+};
+
+export const updateWeeklyBlockStatus = async (
+  doctorId: number,
+  day:
+    | "sunday"
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday",
+  updateWeeklyBlockStatusBody: UpdateWeeklyBlockStatusBody,
+  options?: RequestInit,
+): Promise<DoctorScheduleDay> => {
+  return customFetch<DoctorScheduleDay>(
+    getUpdateWeeklyBlockStatusUrl(doctorId, day),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateWeeklyBlockStatusBody),
+    },
+  );
+};
+
+export const getUpdateWeeklyBlockStatusMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWeeklyBlockStatus>>,
+    TError,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+      data: BodyType<UpdateWeeklyBlockStatusBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateWeeklyBlockStatus>>,
+  TError,
+  {
+    doctorId: number;
+    day:
+      | "sunday"
+      | "monday"
+      | "tuesday"
+      | "wednesday"
+      | "thursday"
+      | "friday"
+      | "saturday";
+    data: BodyType<UpdateWeeklyBlockStatusBody>;
+  },
+  TContext
+> => {
+  const mutationKey = ["updateWeeklyBlockStatus"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateWeeklyBlockStatus>>,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+      data: BodyType<UpdateWeeklyBlockStatusBody>;
+    }
+  > = (props) => {
+    const { doctorId, day, data } = props ?? {};
+
+    return updateWeeklyBlockStatus(doctorId, day, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateWeeklyBlockStatusMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateWeeklyBlockStatus>>
+>;
+export type UpdateWeeklyBlockStatusMutationBody =
+  BodyType<UpdateWeeklyBlockStatusBody>;
+export type UpdateWeeklyBlockStatusMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Toggle a weekly block active or inactive
+ */
+export const useUpdateWeeklyBlockStatus = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateWeeklyBlockStatus>>,
+    TError,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+      data: BodyType<UpdateWeeklyBlockStatusBody>;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateWeeklyBlockStatus>>,
+  TError,
+  {
+    doctorId: number;
+    day:
+      | "sunday"
+      | "monday"
+      | "tuesday"
+      | "wednesday"
+      | "thursday"
+      | "friday"
+      | "saturday";
+    data: BodyType<UpdateWeeklyBlockStatusBody>;
+  },
+  TContext
+> => {
+  return useMutation(getUpdateWeeklyBlockStatusMutationOptions(options));
+};
+
+/**
+ * @summary Remove a day from a doctor's weekly template
+ */
+export const getDeleteWeeklyBlockUrl = (
+  doctorId: number,
+  day:
+    | "sunday"
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday",
+) => {
+  return `/api/schedule/doctor/${doctorId}/weekly/${day}`;
+};
+
+export const deleteWeeklyBlock = async (
+  doctorId: number,
+  day:
+    | "sunday"
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday",
+  options?: RequestInit,
+): Promise<DeleteWeeklyBlock200> => {
+  return customFetch<DeleteWeeklyBlock200>(
+    getDeleteWeeklyBlockUrl(doctorId, day),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteWeeklyBlockMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteWeeklyBlock>>,
+    TError,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteWeeklyBlock>>,
+  TError,
+  {
+    doctorId: number;
+    day:
+      | "sunday"
+      | "monday"
+      | "tuesday"
+      | "wednesday"
+      | "thursday"
+      | "friday"
+      | "saturday";
+  },
+  TContext
+> => {
+  const mutationKey = ["deleteWeeklyBlock"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteWeeklyBlock>>,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+    }
+  > = (props) => {
+    const { doctorId, day } = props ?? {};
+
+    return deleteWeeklyBlock(doctorId, day, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteWeeklyBlockMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteWeeklyBlock>>
+>;
+
+export type DeleteWeeklyBlockMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a day from a doctor's weekly template
+ */
+export const useDeleteWeeklyBlock = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteWeeklyBlock>>,
+    TError,
+    {
+      doctorId: number;
+      day:
+        | "sunday"
+        | "monday"
+        | "tuesday"
+        | "wednesday"
+        | "thursday"
+        | "friday"
+        | "saturday";
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteWeeklyBlock>>,
+  TError,
+  {
+    doctorId: number;
+    day:
+      | "sunday"
+      | "monday"
+      | "tuesday"
+      | "wednesday"
+      | "thursday"
+      | "friday"
+      | "saturday";
+  },
+  TContext
+> => {
+  return useMutation(getDeleteWeeklyBlockMutationOptions(options));
+};
+
+/**
+ * @summary Add or update a date-specific schedule override
+ */
+export const getUpsertScheduleOverrideUrl = (doctorId: number) => {
+  return `/api/schedule/doctor/${doctorId}/override`;
+};
+
+export const upsertScheduleOverride = async (
+  doctorId: number,
+  upsertOverrideBody: UpsertOverrideBody,
+  options?: RequestInit,
+): Promise<ScheduleOverride> => {
+  return customFetch<ScheduleOverride>(getUpsertScheduleOverrideUrl(doctorId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(upsertOverrideBody),
+  });
+};
+
+export const getUpsertScheduleOverrideMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertScheduleOverride>>,
+    TError,
+    { doctorId: number; data: BodyType<UpsertOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upsertScheduleOverride>>,
+  TError,
+  { doctorId: number; data: BodyType<UpsertOverrideBody> },
+  TContext
+> => {
+  const mutationKey = ["upsertScheduleOverride"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upsertScheduleOverride>>,
+    { doctorId: number; data: BodyType<UpsertOverrideBody> }
+  > = (props) => {
+    const { doctorId, data } = props ?? {};
+
+    return upsertScheduleOverride(doctorId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpsertScheduleOverrideMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upsertScheduleOverride>>
+>;
+export type UpsertScheduleOverrideMutationBody = BodyType<UpsertOverrideBody>;
+export type UpsertScheduleOverrideMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Add or update a date-specific schedule override
+ */
+export const useUpsertScheduleOverride = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upsertScheduleOverride>>,
+    TError,
+    { doctorId: number; data: BodyType<UpsertOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upsertScheduleOverride>>,
+  TError,
+  { doctorId: number; data: BodyType<UpsertOverrideBody> },
+  TContext
+> => {
+  return useMutation(getUpsertScheduleOverrideMutationOptions(options));
+};
+
+/**
+ * @summary Remove a date-specific override
+ */
+export const getDeleteScheduleOverrideUrl = (
+  doctorId: number,
+  date: string,
+) => {
+  return `/api/schedule/doctor/${doctorId}/override/${date}`;
+};
+
+export const deleteScheduleOverride = async (
+  doctorId: number,
+  date: string,
+  options?: RequestInit,
+): Promise<DeleteScheduleOverride200> => {
+  return customFetch<DeleteScheduleOverride200>(
+    getDeleteScheduleOverrideUrl(doctorId, date),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getDeleteScheduleOverrideMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScheduleOverride>>,
+    TError,
+    { doctorId: number; date: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteScheduleOverride>>,
+  TError,
+  { doctorId: number; date: string },
+  TContext
+> => {
+  const mutationKey = ["deleteScheduleOverride"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteScheduleOverride>>,
+    { doctorId: number; date: string }
+  > = (props) => {
+    const { doctorId, date } = props ?? {};
+
+    return deleteScheduleOverride(doctorId, date, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteScheduleOverrideMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteScheduleOverride>>
+>;
+
+export type DeleteScheduleOverrideMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Remove a date-specific override
+ */
+export const useDeleteScheduleOverride = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScheduleOverride>>,
+    TError,
+    { doctorId: number; date: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteScheduleOverride>>,
+  TError,
+  { doctorId: number; date: string },
+  TContext
+> => {
+  return useMutation(getDeleteScheduleOverrideMutationOptions(options));
+};
+
+/**
+ * @summary Get available appointment slots for a doctor on a specific date
+ */
+export const getGetDoctorAvailabilityUrl = (
+  doctorId: number,
+  params: GetDoctorAvailabilityParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/schedule/availability/${doctorId}?${stringifiedParams}`
+    : `/api/schedule/availability/${doctorId}`;
+};
+
+export const getDoctorAvailability = async (
+  doctorId: number,
+  params: GetDoctorAvailabilityParams,
+  options?: RequestInit,
+): Promise<AvailabilityResponse> => {
+  return customFetch<AvailabilityResponse>(
+    getGetDoctorAvailabilityUrl(doctorId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDoctorAvailabilityQueryKey = (
+  doctorId: number,
+  params?: GetDoctorAvailabilityParams,
+) => {
+  return [
+    `/api/schedule/availability/${doctorId}`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetDoctorAvailabilityQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDoctorAvailability>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  params: GetDoctorAvailabilityParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorAvailability>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetDoctorAvailabilityQueryKey(doctorId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDoctorAvailability>>
+  > = ({ signal }) =>
+    getDoctorAvailability(doctorId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!doctorId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorAvailability>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDoctorAvailabilityQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDoctorAvailability>>
+>;
+export type GetDoctorAvailabilityQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get available appointment slots for a doctor on a specific date
+ */
+
+export function useGetDoctorAvailability<
+  TData = Awaited<ReturnType<typeof getDoctorAvailability>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  params: GetDoctorAvailabilityParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorAvailability>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDoctorAvailabilityQueryOptions(
+    doctorId,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get 7-day schedule summary for a doctor
+ */
+export const getGetScheduleWeekUrl = (params: GetScheduleWeekParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/schedule/week?${stringifiedParams}`
+    : `/api/schedule/week`;
+};
+
+export const getScheduleWeek = async (
+  params: GetScheduleWeekParams,
+  options?: RequestInit,
+): Promise<WeekResponse> => {
+  return customFetch<WeekResponse>(getGetScheduleWeekUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetScheduleWeekQueryKey = (params?: GetScheduleWeekParams) => {
+  return [`/api/schedule/week`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetScheduleWeekQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScheduleWeek>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetScheduleWeekParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getScheduleWeek>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScheduleWeekQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScheduleWeek>>> = ({
+    signal,
+  }) => getScheduleWeek(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScheduleWeek>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScheduleWeekQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScheduleWeek>>
+>;
+export type GetScheduleWeekQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get 7-day schedule summary for a doctor
+ */
+
+export function useGetScheduleWeek<
+  TData = Awaited<ReturnType<typeof getScheduleWeek>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetScheduleWeekParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getScheduleWeek>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScheduleWeekQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

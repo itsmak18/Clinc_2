@@ -1,5 +1,8 @@
-import { useGetPatientSummary, getGetPatientSummaryQueryKey } from "@workspace/api-client-react";
+import { useGetPatientSummary, getGetPatientSummaryQueryKey, useUpdatePatient, useListMedicalRecords, getListMedicalRecordsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -8,20 +11,107 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatDateTime, formatCurrency, calcAge } from "@/lib/api";
-import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, Receipt, AlertTriangle, Activity } from "lucide-react";
+import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, AlertTriangle, Activity, Edit2, ShieldOff } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function PatientDetail() {
   const { t } = useI18n();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const params = useParams<{ id: string }>();
   const patientId = parseInt(params.id ?? "0");
 
-  const { data, isLoading } = useGetPatientSummary(patientId, {
+  const [showEdit, setShowEdit] = useState(false);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get("edit") === "true") {
+      setShowEdit(true);
+    }
+  }, []);
+  const [form, setForm] = useState({
+    fullName: "",
+    fullNameAr: "",
+    phone: "",
+    address: "",
+    dateOfBirth: "",
+    gender: "male" as "male" | "female",
+    bloodType: "",
+    allergies: "",
+    emergencyContact: "",
+    isActive: true
+  });
+
+  const { data, isLoading, error } = useGetPatientSummary(patientId, {
     query: { enabled: !!patientId, queryKey: getGetPatientSummaryQueryKey(patientId) }
   });
 
+  const { data: medicalRecords } = useListMedicalRecords(
+    { patientId },
+    { query: { enabled: !!patientId, queryKey: getListMedicalRecordsQueryKey({ patientId }) } }
+  );
+
+  useEffect(() => {
+    if (data?.patient) {
+      setForm({
+        fullName: data.patient.fullName,
+        fullNameAr: data.patient.fullNameAr || "",
+        phone: data.patient.phone,
+        address: data.patient.address || "",
+        dateOfBirth: data.patient.dateOfBirth ? new Date(data.patient.dateOfBirth).toISOString().split("T")[0] : "",
+        gender: data.patient.gender as any,
+        bloodType: data.patient.bloodType || "",
+        allergies: data.patient.allergies || "",
+        emergencyContact: data.patient.emergencyContact || "",
+        isActive: data.patient.isActive
+      });
+    }
+  }, [data]);
+
+  const updateMutation = useUpdatePatient({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetPatientSummaryQueryKey(patientId) });
+        setShowEdit(false);
+        toast({ title: t("patientUpdated") });
+      },
+      onError: (err: any) => {
+        const msg = err.response?.data?.error || "Failed to update patient";
+        toast({ title: msg, variant: "destructive" });
+      }
+    }
+  });
+
+  const handleUpdate = () => {
+    updateMutation.mutate({
+      patientId,
+      data: form as any
+    });
+  };
+
+  const canEdit = ["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "");
+
   if (isLoading) return <div className="flex items-center justify-center h-full text-muted-foreground">{t("loading")}</div>;
+  if ((error as any)?.status === 403) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 p-6 text-center">
+        <ShieldOff className="w-12 h-12 text-destructive" />
+        <h2 className="text-xl font-semibold">{t("patientForbidden")}</h2>
+        <p className="text-muted-foreground max-w-sm">{t("patientForbiddenDesc")}</p>
+        <Button variant="outline" onClick={() => setLocation("/patients")}>
+          <ArrowLeft className="w-4 h-4 me-2" />{t("back")}
+        </Button>
+      </div>
+    );
+  }
   if (!data) return <div className="p-6 text-muted-foreground">Patient not found</div>;
 
   const { patient, recentAppointments, recentRecords, recentXrays, recentLabTests, outstandingBalance } = data;
@@ -32,9 +122,16 @@ export default function PatientDetail() {
         title={patient.fullName}
         subtitle={`MRN: ${patient.mrn}`}
         actions={
-          <Button variant="outline" size="sm" onClick={() => setLocation("/patients")} data-testid="button-back">
-            <ArrowLeft className="w-3.5 h-3.5 me-1" /> Back
-          </Button>
+          <div className="flex gap-2">
+            {canEdit && (
+              <Button size="sm" onClick={() => setShowEdit(true)} data-testid="button-edit-patient">
+                <Edit2 className="w-3.5 h-3.5 me-1" /> {t("edit")}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setLocation("/patients")} data-testid="button-back">
+              <ArrowLeft className="w-3.5 h-3.5 me-1" /> {t("back")}
+            </Button>
+          </div>
         }
       />
 
@@ -119,17 +216,28 @@ export default function PatientDetail() {
                 <CardHeader className="pb-2 pt-4 px-4">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <FileText className="w-4 h-4 text-primary" /> Recent Medical Records
-                    <Badge variant="outline" className="ms-auto text-xs">{recentRecords?.length ?? 0}</Badge>
+                    <Badge variant="outline" className="ms-auto text-xs">{medicalRecords?.length ?? recentRecords?.length ?? 0}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-4 pb-4 space-y-2">
-                  {!recentRecords?.length ? <p className="text-xs text-muted-foreground">No records</p> :
-                    recentRecords.map((r, i) => (
-                      <div key={i} className="text-xs border-b border-border/40 pb-2">
-                        <p className="font-medium">{r.diagnosis}</p>
-                        <p className="text-muted-foreground">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
-                      </div>
-                    ))
+                  {!(medicalRecords ?? recentRecords)?.length ? <p className="text-xs text-muted-foreground">No records</p> :
+                    (medicalRecords ?? recentRecords ?? []).map((r, i) => {
+                      const isOwn = user?.role === "doctor" && (r as any).doctorId === user?.id;
+                      return (
+                        <div key={i} className={cn(
+                          "relative text-xs border border-border/40 rounded-md p-2",
+                          isOwn ? "bg-primary/5 border-primary/30" : "border-transparent"
+                        )}>
+                          {isOwn && (
+                            <Badge variant="outline" className="absolute top-2 end-2 text-[9px] px-1 py-0 border-primary/40 text-primary">
+                              {t("yourNote")}
+                            </Badge>
+                          )}
+                          <p className="font-medium pe-14">{r.diagnosis}</p>
+                          <p className="text-muted-foreground">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
+                        </div>
+                      );
+                    })
                   }
                 </CardContent>
               </Card>
@@ -203,6 +311,80 @@ export default function PatientDetail() {
           </TabsContent>
         </Tabs>
       </div>
+      <Dialog open={showEdit} onOpenChange={setShowEdit}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("editPatient")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("name")} (EN) *</Label>
+                <Input value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("name")} (AR)</Label>
+                <Input value={form.fullNameAr} onChange={e => setForm(f => ({ ...f, fullNameAr: e.target.value }))} dir="rtl" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("dateOfBirth")} *</Label>
+                <Input type="date" value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("phone")} *</Label>
+                <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("address")}</Label>
+              <Input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+            </div>
+
+            {/* Clinical fields - only for nurse/admin */}
+            {["super_admin", "admin", "nurse"].includes(user?.role || "") && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("bloodType")}</Label>
+                    <Input value={form.bloodType} onChange={e => setForm(f => ({ ...f, bloodType: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("emergencyContact")}</Label>
+                    <Input value={form.emergencyContact} onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("allergies")}</Label>
+                  <Input value={form.allergies} onChange={e => setForm(f => ({ ...f, allergies: e.target.value }))} />
+                </div>
+              </>
+            )}
+
+            {/* Admin only fields */}
+            {["super_admin", "admin"].includes(user?.role || "") && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="isActive"
+                  checked={form.isActive}
+                  onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))}
+                  className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <Label htmlFor="isActive" className="text-sm cursor-pointer">{t("active")}</Label>
+              </div>
+            )}
+
+            <DialogFooter className="gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setShowEdit(false)}>{t("cancel")}</Button>
+              <Button size="sm" onClick={handleUpdate} disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? t("loading") : t("saveChanges")}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

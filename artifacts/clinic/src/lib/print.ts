@@ -213,6 +213,47 @@ export function xrayReportHtml(d: XrayReportData): string {
     </div>`;
 }
 
+interface UltrasoundReportData {
+  createdAt: string | Date;
+  examType?: string | null;
+  bodyPart?: string | null;
+  patient?: { fullName?: string | null; mrn?: string | null } | null;
+  requestedBy?: { fullName?: string | null } | null;
+  findings: string;
+  impression: string;
+  imageUrl?: string | null;
+}
+
+export function ultrasoundReportHtml(d: UltrasoundReportData): string {
+  return `${STYLES}
+    <div class="header">
+      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="doc-type">Ultrasound Report</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
+      <span>Report Date: ${fmtDate(d.createdAt)}</span>
+      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+    </div>
+    <div class="section-title">Patient Information</div>
+    <div class="grid2" style="margin-bottom:12px">
+      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+    </div>
+    <div class="section-title">Examination</div>
+    <div class="grid2" style="margin-bottom:12px">
+      <div><div class="lbl">Exam Type</div><div class="val">${d.examType ?? "-"}</div></div>
+      <div><div class="lbl">Body Part</div><div class="val">${d.bodyPart ?? "-"}</div></div>
+    </div>
+    ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
+    <div class="section-title">Findings</div>
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:12px">${d.findings || "—"}</p>
+    <div class="section-title">Impression / Conclusion</div>
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:16px">${d.impression || "—"}</p>
+    <div class="footer">
+      <div class="sig"><div class="sig-line">Sonographer / Radiologist Signature</div></div>
+    </div>`;
+}
+
 interface InvoiceData {
   invoiceNumber?: string | null;
   createdAt: string | Date;

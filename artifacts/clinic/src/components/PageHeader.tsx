@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 
 interface Props {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   actions?: ReactNode;
 }
 

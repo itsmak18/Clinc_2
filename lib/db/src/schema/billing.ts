@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, numeric, jsonb, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, numeric, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -21,7 +21,11 @@ export const invoicesTable = pgTable("invoices", {
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("invoice_patient_idx").on(t.patientId),
+  index("invoice_status_idx").on(t.status),
+  index("invoice_created_idx").on(t.createdAt),
+]);
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({
   id: true,

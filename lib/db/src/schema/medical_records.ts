@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, numeric, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
@@ -15,10 +15,16 @@ export const medicalRecordsTable = pgTable("medical_records", {
   treatment: text("treatment").notNull(),
   notes: text("notes"),
   vitals: jsonb("vitals"),
+  isGlobal: boolean("is_global").notNull().default(false),
+  globalReason: text("global_reason"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("mr_patient_idx").on(t.patientId),   // M-04
+  index("mr_doctor_idx").on(t.doctorId),     // M-04
+  index("mr_created_idx").on(t.createdAt),   // M-04
+]);
 
 export const insertMedicalRecordSchema = createInsertSchema(medicalRecordsTable).omit({
   id: true,

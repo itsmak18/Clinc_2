@@ -7,15 +7,33 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useListNotifications, getListNotificationsQueryKey } from "@workspace/api-client-react";
-import { LogOut, Globe, Activity } from "lucide-react";
+import { LogOut, Globe, Activity, CalendarDays, Moon, Sun } from "lucide-react";
 import GlobalSearch from "@/components/GlobalSearch";
 import { navItems } from "@/lib/route-access";
+import { useEffect, useState } from "react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const { t, language, setLanguage, isRtl } = useI18n();
   const [location] = useLocation();
   const { toast } = useToast();
+
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return document.documentElement.classList.contains("dark") || 
+      localStorage.getItem("theme") === "dark";
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      root.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [isDark]);
 
   useNotificationsStream();
   registerToastForSSE(({ title, description }) => toast({ title, description }));
@@ -62,7 +80,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 className={cn(
                   "flex items-center gap-2.5 px-2.5 py-1.5 rounded text-xs font-medium cursor-pointer transition-colors",
                   isActive(item.href)
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                    ? "bg-sidebar-primary text-sidebar-primary-foreground border-s-2 border-sidebar-primary-foreground/40 shadow-sm"
                     : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 )}
                 data-testid={`nav-${item.key}`}
@@ -90,6 +108,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Globe className="w-3.5 h-3.5" />
             <span>{language === "en" ? "العربية" : "English"}</span>
           </button>
+          <button
+            onClick={() => setIsDark(!isDark)}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-xs text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+            data-testid="button-toggle-theme"
+          >
+            {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            <span>{isDark ? t("light_mode") || "Light Mode" : t("dark_mode") || "Dark Mode"}</span>
+          </button>
           {user && (
             <div className="px-2.5 py-1.5">
               <div className="text-[11px] font-semibold text-sidebar-foreground truncate">{user.fullName}</div>
@@ -108,9 +134,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Main */}
-      <main className="flex-1 overflow-y-auto scrollbar-thin">
-        {children}
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        {user && (
+          <div className="h-10 px-4 flex items-center justify-between border-b border-border bg-background/80 backdrop-blur-sm flex-shrink-0">
+            <span className="text-xs text-muted-foreground">
+              {t("welcome")}, <span className="font-medium text-foreground">{user.fullName}</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CalendarDays className="w-3.5 h-3.5" />
+              {new Date().toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+            </span>
+          </div>
+        )}
+        <main className="flex-1 overflow-y-auto scrollbar-thin">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

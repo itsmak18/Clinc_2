@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +15,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { openPrintWindow, xrayReportHtml } from "@/lib/print";
-import { Plus, FileImage, Printer } from "lucide-react";
+import { Plus, FileImage, Printer, ChevronDown, ChevronUp } from "lucide-react";
+
+const STATUS_SORT_ORDER: Record<string, number> = { pending: 0, uploaded: 1, reviewed: 2 };
+
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif)(\?.*)?$/i;
 
 function parseReport(raw: string | null | undefined): { findings: string; impression: string } {
   if (!raw) return { findings: "", impression: "" };
@@ -34,15 +39,16 @@ export default function XRay() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [showReport, setShowReport] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", requestedById: "", bodyPart: "", notes: "" });
+
+  // Inline expand state
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [imageUrl, setImageUrl] = useState("");
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
   const [reportStatus, setReportStatus] = useState("uploaded");
-  const [activeXray, setActiveXray] = useState<(typeof xrays extends (infer T)[] | undefined ? T : never) | null>(null);
 
   const filterParams = { status: filterStatus as any || undefined };
   const { data: xrays, isLoading } = useListXrayImages(filterParams, { query: { queryKey: getListXrayImagesQueryKey(filterParams) } });
@@ -65,45 +71,70 @@ export default function XRay() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListXrayImagesQueryKey() });
-        setShowReport(null);
+        setExpandedId(null);
         toast({ title: "X-ray updated" });
       },
     }
   });
 
   const statuses = ["pending", "uploaded", "reviewed"];
+  const allXrays = xrays ?? [];
+  const pendingCount = allXrays.filter(x => x.status === "pending" || x.status === "uploaded").length;
 
-  function openReportDialog(xray: NonNullable<typeof xrays>[number]) {
-    setActiveXray(xray as any);
+  function openInline(xray: NonNullable<typeof xrays>[number]) {
+    if (expandedId === xray.id) { setExpandedId(null); return; }
     const parsed = parseReport(xray.report);
     setFindings(parsed.findings);
     setImpression(parsed.impression);
     setImageUrl(xray.imageUrl || "");
     setReportStatus(xray.status);
-    setShowReport(xray.id);
+    setExpandedId(xray.id);
   }
 
   function handlePrint() {
-    if (!activeXray) return;
+    const xray = allXrays.find(x => x.id === expandedId);
+    if (!xray) return;
     openPrintWindow(
       xrayReportHtml({
-        createdAt: activeXray.createdAt,
-        bodyPart: activeXray.bodyPart,
-        patient: activeXray.patient as any,
-        requestedBy: activeXray.requestedBy as any,
+        createdAt: xray.createdAt,
+        bodyPart: xray.bodyPart,
+        patient: xray.patient as any,
+        requestedBy: xray.requestedBy as any,
         findings,
         impression,
         imageUrl,
       }),
-      `X-Ray Report - ${activeXray.bodyPart}`
+      `X-Ray Report - ${xray.bodyPart}`
     );
   }
+
+  const sortedFiltered = [...allXrays]
+    .filter(x => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return x.patient?.fullName?.toLowerCase().includes(q) || x.bodyPart?.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      if (filterStatus) return 0;
+      const sa = STATUS_SORT_ORDER[a.status] ?? 99;
+      const sb = STATUS_SORT_ORDER[b.status] ?? 99;
+      return sa - sb;
+    });
 
   return (
     <div>
       <PageHeader
         title={t("xray")}
-        subtitle={`${xrays?.length ?? 0} records`}
+        subtitle={
+          <span className="flex items-center gap-2">
+            {allXrays.length} records
+            {pendingCount > 0 && (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                {pendingCount} pending
+              </Badge>
+            )}
+          </span>
+        }
         actions={
           <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-xray">
             <Plus className="w-3.5 h-3.5 me-1" /> New X-Ray Request
@@ -124,12 +155,66 @@ export default function XRay() {
         <div className="bg-card rounded-lg border border-border overflow-hidden">
           <DataTable
             isLoading={isLoading}
-            data={(xrays ?? []).filter(x => {
-              if (!search) return true;
-              const q = search.toLowerCase();
-              return x.patient?.fullName?.toLowerCase().includes(q) || x.bodyPart?.toLowerCase().includes(q);
-            })}
+            data={sortedFiltered}
             emptyMessage="No X-ray records"
+            expandedRow={expandedId ? (row) => row.id === expandedId ? (
+              <div className="p-4 bg-muted/30 border-t border-border space-y-4">
+                <div className="space-y-1">
+                  <Label className="text-xs">Image URL</Label>
+                  <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://…" data-testid="input-image-url" />
+                  {imageUrl && IMAGE_EXT_RE.test(imageUrl) && (
+                    <div className="mt-2">
+                      <img
+                        src={imageUrl}
+                        alt="X-ray preview"
+                        loading="lazy"
+                        className="h-32 rounded border border-border object-cover"
+                        onError={e => {
+                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                          const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
+                          if (fallback) fallback.style.display = "block";
+                        }}
+                      />
+                      <p className="hidden text-xs text-muted-foreground mt-1">Preview unavailable</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Findings</Label>
+                  <Textarea value={findings} onChange={e => setFindings(e.target.value)} rows={3} placeholder="Describe the radiological findings observed…" data-testid="input-findings" />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Impression / Conclusion</Label>
+                  <Textarea value={impression} onChange={e => setImpression(e.target.value)} rows={2} placeholder="Radiologist's impression and clinical conclusion…" data-testid="input-impression" />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("status")}</Label>
+                  <Select value={reportStatus} onValueChange={setReportStatus}>
+                    <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="uploaded">Uploaded</SelectItem>
+                      <SelectItem value="reviewed">Reviewed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex justify-between gap-2">
+                  <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1" disabled={!findings && !impression}>
+                    <Printer className="w-3.5 h-3.5" /> Print Report
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setExpandedId(null)}>{t("cancel")}</Button>
+                    <Button size="sm" onClick={() => expandedId && updateMutation.mutate({ xrayId: expandedId, data: { report: serializeReport(findings, impression), imageUrl: imageUrl || undefined, status: reportStatus as any } })} disabled={updateMutation.isPending} data-testid="button-save-report">
+                      {updateMutation.isPending ? t("loading") : t("save")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null : undefined}
             columns={[
               { key: "patient", header: "Patient", render: x => (
                 <div>
@@ -152,8 +237,9 @@ export default function XRay() {
               { key: "date", header: t("date"), render: x => <span className="text-sm">{formatDate(x.createdAt)}</span> },
               { key: "status", header: t("status"), render: x => <StatusBadge status={x.status} /> },
               { key: "actions", header: t("actions"), render: x => (
-                <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); openReportDialog(x); }} data-testid={`button-report-${x.id}`}>
-                  <FileImage className="w-3 h-3 me-1" /> Report
+                <Button size="sm" variant={expandedId === x.id ? "default" : "outline"} className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); openInline(x); }} data-testid={`button-report-${x.id}`}>
+                  <FileImage className="w-3 h-3 me-1" />
+                  {expandedId === x.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </Button>
               )},
             ]}
@@ -193,58 +279,6 @@ export default function XRay() {
               <Button size="sm" onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), bodyPart: form.bodyPart, notes: form.notes || undefined } as any })} disabled={createMutation.isPending} data-testid="button-save-xray">
                 {createMutation.isPending ? t("loading") : t("save")}
               </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Report dialog */}
-      <Dialog open={showReport !== null} onOpenChange={() => setShowReport(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              X-Ray Report
-              {activeXray && <span className="text-sm font-normal text-muted-foreground">— {activeXray.bodyPart}</span>}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Image URL</Label>
-              <Input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://..." data-testid="input-image-url" />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Findings</Label>
-              <Textarea value={findings} onChange={e => setFindings(e.target.value)} rows={4} placeholder="Describe the radiological findings observed…" data-testid="input-findings" />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Impression / Conclusion</Label>
-              <Textarea value={impression} onChange={e => setImpression(e.target.value)} rows={3} placeholder="Radiologist's impression and clinical conclusion…" data-testid="input-impression" />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">{t("status")}</Label>
-              <Select value={reportStatus} onValueChange={setReportStatus}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="uploaded">Uploaded</SelectItem>
-                  <SelectItem value="reviewed">Reviewed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex justify-between gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1" disabled={!findings && !impression}>
-                <Printer className="w-3.5 h-3.5" /> Print Report
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setShowReport(null)}>{t("cancel")}</Button>
-                <Button size="sm" onClick={() => showReport && updateMutation.mutate({ xrayId: showReport, data: { report: serializeReport(findings, impression), imageUrl: imageUrl || undefined, status: reportStatus as any } })} disabled={updateMutation.isPending} data-testid="button-save-report">
-                  {updateMutation.isPending ? t("loading") : t("save")}
-                </Button>
-              </div>
             </div>
           </div>
         </DialogContent>

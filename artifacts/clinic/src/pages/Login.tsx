@@ -21,7 +21,7 @@ export default function Login() {
   const loginMutation = useLogin({
     mutation: {
       onSuccess: (data) => {
-        login(data.user as any, data.token);
+        login(data.user as any);
         setLocation("/dashboard");
       },
       onError: () => {
