@@ -2,6 +2,9 @@ import type { Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
 import { loginAttemptsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import rateLimit from "express-rate-limit";
+import RedisStore from "rate-limit-redis";
+import { redisClient } from "../lib/redis";
 
 const WINDOW_MS    = 15 * 60 * 1000;  // 15-minute sliding window
 const MAX_ATTEMPTS = 5;
@@ -77,24 +80,17 @@ export async function getRemainingAttempts(key: string): Promise<number> {
 
 /**
  * General-purpose IP rate limiter middleware for non-login endpoints.
- * Stays in-memory intentionally — restart persistence is not a security
- * requirement for these endpoints.
+ * Uses Redis to synchronize rate limits across horizontally scaled instances.
  */
 export function ipRateLimit(maxPerWindow: number, windowMs: number) {
-  const ipStore = new Map<string, { count: number; firstSeen: number }>();
-  return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || "unknown";
-    const now = Date.now();
-    const b = ipStore.get(ip);
-    if (!b || now - b.firstSeen > windowMs) {
-      ipStore.set(ip, { count: 1, firstSeen: now });
-      return next();
-    }
-    if (b.count >= maxPerWindow) {
-      res.status(429).json({ error: "Too many requests. Please try again later." });
-      return;
-    }
-    b.count++;
-    next();
-  };
+  return rateLimit({
+    windowMs,
+    max: maxPerWindow,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please try again later." },
+    store: new RedisStore({
+      sendCommand: (...args: string[]) => redisClient.call(...args),
+    }),
+  });
 }
