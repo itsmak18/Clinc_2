@@ -8,6 +8,7 @@ import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
 import { csrfProtect } from "./middlewares/csrf";
 import { metricsMiddleware, getMetrics } from "./lib/metrics";
+import { ipRateLimit } from "./middlewares/rateLimiter";
 
 const app: Express = express();
 
@@ -45,7 +46,10 @@ app.use(cors({
     // Allow requests with no origin (e.g. curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
 
-    const allowed = [...devOriginPatterns, ...replitOriginPatterns];
+    const allowed = process.env.NODE_ENV === "production" 
+      ? [...replitOriginPatterns] 
+      : [...devOriginPatterns, ...replitOriginPatterns];
+      
     if (allowed.some(pattern => pattern.test(origin))) {
       callback(null, true);
     } else {
@@ -91,6 +95,14 @@ app.use(cookieParser());
 app.use("/api", csrfProtect);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Global rate limiting for all mutation endpoints
+const globalMutationLimiter = ipRateLimit(100, 15 * 60 * 1000);
+app.use("/api", (req, res, next) => {
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    return globalMutationLimiter(req, res, next);
+  }
+  next();
+});
 app.use("/api", router);
 
 // ── 404 handler for unmatched routes ────────────────────────────────────────
