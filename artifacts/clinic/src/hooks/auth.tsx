@@ -63,5 +63,7 @@ export function useAuth() {
 }
 
 export function canAccess(role: UserRole, allowedRoles: UserRole[]): boolean {
+  // super_admin MUST bypass ALL access checks — architectural invariant.
+  if (role === "super_admin") return true;
   return allowedRoles.includes(role);
 }

@@ -24,6 +24,9 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 export function requireRole(...roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+    // super_admin MUST bypass ALL role checks — architectural invariant.
+    // This is enforced here centrally so callers never need to include 'super_admin' explicitly.
+    if (req.user.role === "super_admin") { next(); return; }
     if (!roles.includes(req.user.role)) { res.status(403).json({ error: "Forbidden" }); return; }
     next();
   };
