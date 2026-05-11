@@ -41,9 +41,8 @@ export default function GlobalSearch() {
   const doSearch = useCallback((q: string) => {
     if (q.length < 2) { setResults(null); setLoading(false); return; }
     setLoading(true);
-    const token = localStorage.getItem("clinic_token");
     fetch(apiUrl(`search?q=${encodeURIComponent(q)}`), {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
     })
       .then(r => r.json())
       .then(setResults)

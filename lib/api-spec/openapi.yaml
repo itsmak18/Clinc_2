@@ -24,6 +24,8 @@ tags:
     description: Prescriptions
   - name: xray
     description: X-ray imaging
+  - name: ultrasound
+    description: Ultrasound imaging
   - name: lab
     description: Laboratory tests
   - name: billing
@@ -40,6 +42,8 @@ tags:
     description: Audit logs
   - name: dashboard
     description: Dashboard summaries
+  - name: schedule
+    description: Doctor schedule management
 
 paths:
   /healthz:
@@ -905,6 +909,91 @@ paths:
               schema:
                 $ref: "#/components/schemas/XrayRecord"
 
+  # ULTRASOUND
+  /ultrasound:
+    get:
+      operationId: listUltrasoundRecords
+      tags: [ultrasound]
+      summary: List ultrasound records
+      parameters:
+        - name: patientId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, uploaded, reviewed]
+      responses:
+        "200":
+          description: List of ultrasound records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UltrasoundRecord"
+    post:
+      operationId: createUltrasoundRecord
+      tags: [ultrasound]
+      summary: Create ultrasound record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUltrasoundBody"
+      responses:
+        "201":
+          description: Ultrasound record created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UltrasoundRecord"
+
+  /ultrasound/{ultrasoundId}:
+    get:
+      operationId: getUltrasoundRecord
+      tags: [ultrasound]
+      summary: Get ultrasound record
+      parameters:
+        - name: ultrasoundId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Ultrasound record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UltrasoundRecord"
+    patch:
+      operationId: updateUltrasoundRecord
+      tags: [ultrasound]
+      summary: Update ultrasound record (add report)
+      parameters:
+        - name: ultrasoundId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUltrasoundBody"
+      responses:
+        "200":
+          description: Updated ultrasound record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UltrasoundRecord"
+
   # LABORATORY
   /lab/tests:
     get:
@@ -1412,6 +1501,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardSummary"
 
+  /dashboard/department-load:
+    get:
+      operationId: getDepartmentLoad
+      tags: [dashboard]
+      summary: Get today's appointment count grouped by doctor
+      responses:
+        "200":
+          description: Department load
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DepartmentLoadItem"
+
   /dashboard/recent-activity:
     get:
       operationId: getRecentActivity
@@ -1478,6 +1582,233 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RevenueReport"
+
+  # SCHEDULE
+  /schedule/doctors:
+    get:
+      operationId: listScheduleDoctors
+      tags: [schedule]
+      summary: List all doctors with their weekly schedule templates
+      responses:
+        "200":
+          description: List of doctors with schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DoctorScheduleSummary"
+
+  /schedule/doctor/{doctorId}:
+    get:
+      operationId: getDoctorSchedule
+      tags: [schedule]
+      summary: Get a doctor's full schedule (template + overrides)
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Doctor schedule detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorScheduleDetail"
+
+  /schedule/doctor/{doctorId}/weekly:
+    post:
+      operationId: upsertWeeklyBlock
+      tags: [schedule]
+      summary: Create or update a weekly schedule block for a doctor
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertWeeklyBlockBody"
+      responses:
+        "201":
+          description: Weekly block created or updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorScheduleDay"
+
+  /schedule/doctor/{doctorId}/weekly/{day}/status:
+    patch:
+      operationId: updateWeeklyBlockStatus
+      tags: [schedule]
+      summary: Toggle a weekly block active or inactive
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: day
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sunday, monday, tuesday, wednesday, thursday, friday, saturday]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [active, inactive]
+              required: [status]
+      responses:
+        "200":
+          description: Updated block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DoctorScheduleDay"
+
+  /schedule/doctor/{doctorId}/weekly/{day}:
+    delete:
+      operationId: deleteWeeklyBlock
+      tags: [schedule]
+      summary: Remove a day from a doctor's weekly template
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: day
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sunday, monday, tuesday, wednesday, thursday, friday, saturday]
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /schedule/doctor/{doctorId}/override:
+    post:
+      operationId: upsertScheduleOverride
+      tags: [schedule]
+      summary: Add or update a date-specific schedule override
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertOverrideBody"
+      responses:
+        "201":
+          description: Override created or updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleOverride"
+
+  /schedule/doctor/{doctorId}/override/{date}:
+    delete:
+      operationId: deleteScheduleOverride
+      tags: [schedule]
+      summary: Remove a date-specific override
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+
+  /schedule/availability/{doctorId}:
+    get:
+      operationId: getDoctorAvailability
+      tags: [schedule]
+      summary: Get available appointment slots for a doctor on a specific date
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Availability response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilityResponse"
+
+  /schedule/week:
+    get:
+      operationId: getScheduleWeek
+      tags: [schedule]
+      summary: Get 7-day schedule summary for a doctor
+      parameters:
+        - name: doctorId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: weekStart
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Week schedule summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeekResponse"
 
 components:
   schemas:
@@ -1726,6 +2057,14 @@ components:
         status:
           type: string
           enum: [scheduled, checked_in, in_triage, ready_for_doctor, in_consultation, awaiting_diagnostics, pending_payment, completed, cancelled, no_show, in_progress]
+        bookingSource:
+          type: string
+          enum: [online, phone, walk_in]
+          nullable: true
+        triagePriority:
+          type: string
+          enum: [normal, urgent, critical]
+          nullable: true
         cancellationReason:
           type: string
           nullable: true
@@ -1763,6 +2102,9 @@ components:
           type: string
         notes:
           type: string
+        bookingSource:
+          type: string
+          enum: [online, phone, walk_in]
       required: [patientId, doctorId, scheduledAt, reason]
 
     UpdateAppointmentBody:
@@ -1782,6 +2124,12 @@ components:
           type: string
         notes:
           type: string
+        triagePriority:
+          type: string
+          enum: [normal, urgent, critical]
+        bookingSource:
+          type: string
+          enum: [online, phone, walk_in]
 
     TodayAppointments:
       type: object
@@ -2060,6 +2408,78 @@ components:
       required: [patientId, requestedById, bodyPart]
 
     UpdateXrayBody:
+      type: object
+      properties:
+        performedById:
+          type: integer
+        imageUrl:
+          type: string
+        imageFileName:
+          type: string
+        report:
+          type: string
+        status:
+          type: string
+          enum: [pending, uploaded, reviewed]
+        notes:
+          type: string
+
+    UltrasoundRecord:
+      type: object
+      properties:
+        id:
+          type: integer
+        patientId:
+          type: integer
+        requestedById:
+          type: integer
+        performedById:
+          type: integer
+          nullable: true
+        patient:
+          $ref: "#/components/schemas/Patient"
+        requestedBy:
+          $ref: "#/components/schemas/User"
+        examType:
+          type: string
+        bodyPart:
+          type: string
+        imageUrl:
+          type: string
+          nullable: true
+        imageFileName:
+          type: string
+          nullable: true
+        report:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, uploaded, reviewed]
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, patientId, requestedById, examType, bodyPart, status, createdAt]
+
+    CreateUltrasoundBody:
+      type: object
+      properties:
+        patientId:
+          type: integer
+        requestedById:
+          type: integer
+        examType:
+          type: string
+        bodyPart:
+          type: string
+        notes:
+          type: string
+      required: [patientId, requestedById, examType, bodyPart]
+
+    UpdateUltrasoundBody:
       type: object
       properties:
         performedById:
@@ -2404,7 +2824,7 @@ components:
           type: string
         type:
           type: string
-          enum: [patient_arrived, lab_ready, xray_ready, general]
+          enum: [patient_arrived, lab_ready, xray_ready, ultrasound_ready, general]
         isRead:
           type: boolean
         createdAt:
@@ -2451,6 +2871,8 @@ components:
           type: integer
         todayRevenue:
           type: number
+        yesterdayRevenue:
+          type: number
         pendingInvoices:
           type: integer
         scheduledOperations:
@@ -2461,7 +2883,18 @@ components:
           type: integer
         totalDoctors:
           type: integer
-      required: [todayAppointments, checkedInPatients, pendingLabTests, pendingXrays, todayRevenue, pendingInvoices, scheduledOperations, lowStockItems, totalPatients, totalDoctors]
+      required: [todayAppointments, checkedInPatients, pendingLabTests, pendingXrays, todayRevenue, yesterdayRevenue, pendingInvoices, scheduledOperations, lowStockItems, totalPatients, totalDoctors]
+
+    DepartmentLoadItem:
+      type: object
+      properties:
+        doctorId:
+          type: integer
+        doctorName:
+          type: string
+        count:
+          type: integer
+      required: [doctorId, doctorName, count]
 
     ActivityItem:
       type: object
@@ -2535,3 +2968,215 @@ components:
                 type: integer
             required: [date, revenue, invoices]
       required: [totalRevenue, totalInvoices, paidInvoices, averageInvoiceValue, byDay]
+
+    DoctorScheduleDay:
+      type: object
+      properties:
+        id:
+          type: integer
+        doctorId:
+          type: integer
+        dayOfWeek:
+          type: string
+          enum: [sunday, monday, tuesday, wednesday, thursday, friday, saturday]
+        startTime:
+          type: string
+        endTime:
+          type: string
+        slotMinutes:
+          type: integer
+        maxPatients:
+          type: integer
+        status:
+          type: string
+          enum: [active, inactive]
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, doctorId, dayOfWeek, startTime, endTime, slotMinutes, maxPatients, status, createdAt, updatedAt]
+
+    ScheduleOverride:
+      type: object
+      properties:
+        id:
+          type: integer
+        doctorId:
+          type: integer
+        overrideDate:
+          type: string
+          format: date
+        isBlocked:
+          type: boolean
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, doctorId, overrideDate, isBlocked, createdAt, updatedAt]
+
+    DoctorScheduleSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        fullNameAr:
+          type: string
+          nullable: true
+        specialty:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        isOnShift:
+          type: boolean
+        weeklyTemplate:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorScheduleDay"
+      required: [id, fullName, isOnShift, weeklyTemplate]
+
+    DoctorScheduleDetail:
+      type: object
+      properties:
+        doctor:
+          $ref: "#/components/schemas/DoctorScheduleSummary"
+        weeklyTemplate:
+          type: array
+          items:
+            $ref: "#/components/schemas/DoctorScheduleDay"
+        overrides:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleOverride"
+      required: [doctor, weeklyTemplate, overrides]
+
+    UpsertWeeklyBlockBody:
+      type: object
+      properties:
+        dayOfWeek:
+          type: string
+          enum: [sunday, monday, tuesday, wednesday, thursday, friday, saturday]
+        startTime:
+          type: string
+        endTime:
+          type: string
+        slotMinutes:
+          type: integer
+        maxPatients:
+          type: integer
+        notes:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive]
+      required: [dayOfWeek, startTime, endTime]
+
+    UpsertOverrideBody:
+      type: object
+      properties:
+        overrideDate:
+          type: string
+          format: date
+        isBlocked:
+          type: boolean
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        reason:
+          type: string
+      required: [overrideDate]
+
+    AvailabilitySlot:
+      type: object
+      properties:
+        time:
+          type: string
+        available:
+          type: boolean
+        datetime:
+          type: string
+      required: [time, available, datetime]
+
+    AvailabilityResponse:
+      type: object
+      properties:
+        available:
+          type: boolean
+        date:
+          type: string
+          format: date
+        reason:
+          type: string
+          nullable: true
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/AvailabilitySlot"
+      required: [available, date, slots]
+
+    WeekDay:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        dayName:
+          type: string
+        isWorking:
+          type: boolean
+        startTime:
+          type: string
+          nullable: true
+        endTime:
+          type: string
+          nullable: true
+        slotMinutes:
+          type: integer
+        totalSlots:
+          type: integer
+        bookedCount:
+          type: integer
+        availableSlots:
+          type: integer
+        overrideReason:
+          type: string
+          nullable: true
+        isToday:
+          type: boolean
+      required: [date, dayName, isWorking, slotMinutes, totalSlots, bookedCount, availableSlots, isToday]
+
+    WeekResponse:
+      type: object
+      properties:
+        doctorId:
+          type: integer
+        weekStart:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeekDay"
+      required: [doctorId, weekStart, days]

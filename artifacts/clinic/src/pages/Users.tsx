@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListUsers, useCreateUser, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,10 +19,10 @@ const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 async function apiFetch(path: string, method = "POST", body?: object) {
-  const token = localStorage.getItem("clinic_token");
   const res = await fetch(apiUrl(path), {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -43,6 +43,8 @@ export default function Users() {
   const [resetTarget, setResetTarget] = useState<{ id: number; fullName: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ fullName: "", fullNameAr: "", email: "", role: "", phone: "", isActive: true });
 
   const params = { role: filterRole as any || undefined };
   const { data: users, isLoading } = useListUsers(params, { query: { queryKey: getListUsersQueryKey(params) } });
@@ -67,6 +69,40 @@ export default function Users() {
       },
     }
   });
+
+  const updateMutation = useUpdateUser({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
+        setEditingUser(null);
+        toast({ title: "User updated" });
+      },
+      onError: (err: any) => {
+        const msg = err.response?.data?.error || "Failed to update user";
+        toast({ title: msg, variant: "destructive" });
+      }
+    }
+  });
+
+  const handleEdit = (u: any) => {
+    setEditingUser(u);
+    setEditForm({
+      fullName: u.fullName,
+      fullNameAr: u.fullNameAr || "",
+      email: u.email || "",
+      role: u.role,
+      phone: u.phone || "",
+      isActive: u.isActive
+    });
+  };
+
+  const handleUpdate = () => {
+    if (!editingUser) return;
+    updateMutation.mutate({
+      userId: editingUser.id,
+      data: editForm as any
+    });
+  };
 
   const canResetPasswords = currentUser?.role === "super_admin" || currentUser?.role === "admin";
 
@@ -159,6 +195,12 @@ export default function Users() {
                       <KeyRound className="w-3 h-3 me-1" /> Reset PW
                     </Button>
                   )}
+                  {u.isActive ? (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
+                      onClick={(e) => { e.stopPropagation(); handleEdit(u); }}>
+                      Edit
+                    </Button>
+                  ) : null}
                   {u.isActive ? (
                     <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive"
                       onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ userId: u.id }); }}
@@ -253,6 +295,67 @@ export default function Users() {
               </Button>
               <Button size="sm" onClick={handleResetPassword} disabled={!newPassword || resetLoading} className="bg-amber-500 hover:bg-amber-600 text-white">
                 {resetLoading ? t("loading") : "Reset Password"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Edit User Dialog */}
+      <Dialog open={!!editingUser} onOpenChange={v => !v && setEditingUser(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Edit Staff Member</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("name")} (EN) *</Label>
+                <Input value={editForm.fullName} onChange={e => setEditForm(f => ({ ...f, fullName: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("name")} (AR)</Label>
+                <Input value={editForm.fullNameAr} onChange={e => setEditForm(f => ({ ...f, fullNameAr: e.target.value }))} dir="rtl" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">{t("role")} *</Label>
+                <Select
+                  value={editForm.role}
+                  onValueChange={v => setEditForm(f => ({ ...f, role: v }))}
+                  disabled={editingUser?.id === currentUser?.id || currentUser?.role !== "super_admin" && currentUser?.role !== "admin"}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{roles.map(r => <SelectItem key={r} value={r}>{t(r as any)}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("phone")}</Label>
+                <Input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("email")}</Label>
+              <Input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
+            </div>
+
+            {/* Admin only fields */}
+            {(currentUser?.role === "admin" || currentUser?.role === "super_admin") && (
+              <div className="flex items-center gap-2 pt-2">
+                <input
+                  type="checkbox"
+                  id="editIsActive"
+                  checked={editForm.isActive}
+                  onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
+                  disabled={editingUser?.id === currentUser?.id}
+                  className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                />
+                <Label htmlFor="editIsActive" className="text-sm cursor-pointer">{t("active")}</Label>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setEditingUser(null)}>{t("cancel")}</Button>
+              <Button size="sm" onClick={handleUpdate} disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? t("loading") : t("save")}
               </Button>
             </div>
           </div>

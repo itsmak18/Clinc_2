@@ -13,15 +13,16 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Activity, User, ArrowRight, ClipboardList } from "lucide-react";
 import { useAuth } from "@/hooks/auth";
+import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 async function apiFetch(path: string, method = "POST", body?: object) {
-  const token = localStorage.getItem("clinic_token");
   const res = await fetch(apiUrl(path), {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -38,6 +39,25 @@ interface VitalsForm {
   notes: string;
 }
 
+type Priority = "normal" | "urgent" | "critical";
+
+const PRIORITY_STYLES: Record<Priority, { pill: string; border: string; label: string }> = {
+  normal:   { pill: "bg-muted text-muted-foreground",                          border: "border-border",         label: "Normal"   },
+  urgent:   { pill: "bg-orange-100 text-orange-700 border border-orange-300",  border: "border-orange-400",     label: "Urgent"   },
+  critical: { pill: "bg-destructive/15 text-destructive border border-destructive/40", border: "border-destructive", label: "Critical" },
+};
+
+const PRIORITY_ORDER: Record<Priority, number> = { critical: 0, urgent: 1, normal: 2 };
+
+function sortByPriority(appts: any[]): any[] {
+  return [...appts].sort((a, b) => {
+    const pa = PRIORITY_ORDER[(a.triagePriority as Priority) ?? "normal"] ?? 2;
+    const pb = PRIORITY_ORDER[(b.triagePriority as Priority) ?? "normal"] ?? 2;
+    if (pa !== pb) return pa - pb;
+    return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+  });
+}
+
 export default function Triage() {
   const { t } = useI18n();
   const { toast } = useToast();
@@ -49,6 +69,8 @@ export default function Triage() {
   });
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [quickVitals, setQuickVitals] = useState<Record<number, { bp: string; temp: string; pulse: string }>>({});
+  const [quickSaving, setQuickSaving] = useState<number | null>(null);
 
   const { data, isLoading } = useGetTodayAppointments({
     query: { queryKey: getGetTodayAppointmentsQueryKey(), refetchInterval: 15000 }
@@ -63,9 +85,9 @@ export default function Triage() {
       a.patient?.mrn?.toLowerCase().includes(q)
     );
   };
-  const waiting = allAppts.filter(a => a.status === "checked_in" && matchesSearch(a));
-  const inTriage = allAppts.filter(a => a.status === "in_triage" && matchesSearch(a));
-  const readyForDoctor = allAppts.filter(a => a.status === "ready_for_doctor" && matchesSearch(a));
+  const waiting = sortByPriority(allAppts.filter(a => a.status === "checked_in" && matchesSearch(a)));
+  const inTriage = sortByPriority(allAppts.filter(a => a.status === "in_triage" && matchesSearch(a)));
+  const readyForDoctor = sortByPriority(allAppts.filter(a => a.status === "ready_for_doctor" && matchesSearch(a)));
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
@@ -86,6 +108,42 @@ export default function Triage() {
   const handleContinueTriage = (appt: any) => {
     setSelectedAppt(appt);
     setVitals({ bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: "", notes: "" });
+  };
+
+  const handleSetPriority = async (appt: any, priority: Priority) => {
+    try {
+      await apiFetch(`appointments/${appt.id}`, "PATCH", { triagePriority: priority });
+      invalidate();
+    } catch {
+      toast({ title: "Failed to update priority", variant: "destructive" });
+    }
+  };
+
+  const handleQuickVitalsSave = async (appt: any) => {
+    const qv = quickVitals[appt.id];
+    if (!qv) return;
+    setQuickSaving(appt.id);
+    try {
+      await apiFetch(`medical-records`, "POST", {
+        patientId: appt.patientId,
+        doctorId: appt.doctorId,
+        appointmentId: appt.id,
+        chiefComplaint: "Quick vitals recorded",
+        diagnosis: "Pending — triage only",
+        treatment: "Pending",
+        vitals: {
+          bloodPressure: qv.bp || undefined,
+          heartRate: qv.pulse ? parseInt(qv.pulse) : undefined,
+          temperature: qv.temp ? parseFloat(qv.temp) : undefined,
+        },
+      });
+      toast({ title: "Quick vitals saved" });
+      setQuickVitals(prev => { const next = { ...prev }; delete next[appt.id]; return next; });
+    } catch {
+      toast({ title: "Failed to save vitals", variant: "destructive" });
+    } finally {
+      setQuickSaving(null);
+    }
   };
 
   const handleCompleteVitals = async () => {
@@ -125,28 +183,120 @@ export default function Triage() {
 
   const canTriage = user?.role === "nurse" || user?.role === "admin" || user?.role === "super_admin";
 
-  const AppointmentCard = ({ appt, action }: { appt: any; action?: React.ReactNode }) => (
-    <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-muted/30 transition-colors">
-      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-        <User className="w-4 h-4 text-primary" />
+  const PriorityToggle = ({ appt }: { appt: any }) => {
+    const current: Priority = (appt.triagePriority as Priority) ?? "normal";
+    return (
+      <div className="flex gap-1 mt-1.5">
+        {(["normal", "urgent", "critical"] as Priority[]).map(p => (
+          <button
+            key={p}
+            onClick={() => handleSetPriority(appt, p)}
+            className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded font-medium transition-opacity",
+              current === p ? PRIORITY_STYLES[p].pill : "bg-muted/50 text-muted-foreground/60 hover:opacity-80"
+            )}
+          >
+            {PRIORITY_STYLES[p].label}
+          </button>
+        ))}
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-sm truncate">{appt.patient?.fullName || `Patient #${appt.patientId}`}</p>
-        <p className="text-xs text-muted-foreground font-mono">{appt.patient?.mrn}</p>
-        <p className="text-xs text-muted-foreground truncate">{appt.doctor?.fullName}</p>
-        {appt.patient?.allergies && (
-          <div className="flex items-center gap-1 mt-1">
-            <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
-            <p className="text-xs text-destructive truncate">{appt.patient.allergies}</p>
+    );
+  };
+
+  const AppointmentCard = ({ appt, action, showQuickVitals }: { appt: any; action?: React.ReactNode; showQuickVitals?: boolean }) => {
+    const priority: Priority = (appt.triagePriority as Priority) ?? "normal";
+    const styles = PRIORITY_STYLES[priority];
+    const qv = quickVitals[appt.id] ?? { bp: "", temp: "", pulse: "" };
+
+    return (
+      <div className={cn(
+        "flex flex-col gap-2 p-3 rounded-lg border-l-4 bg-card hover:bg-muted/30 transition-colors",
+        styles.border
+      )}>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <User className="w-4 h-4 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-sm truncate">{appt.patient?.fullName || `Patient #${appt.patientId}`}</p>
+            <p className="text-xs text-muted-foreground font-mono">{appt.patient?.mrn}</p>
+            <p className="text-xs text-muted-foreground truncate">{appt.doctor?.fullName}</p>
+            {appt.patient?.allergies && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
+                <p className="text-xs text-destructive truncate">{appt.patient.allergies}</p>
+              </div>
+            )}
+            {canTriage && <PriorityToggle appt={appt} />}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {priority !== "normal" && (
+              <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", styles.pill)}>
+                {styles.label}
+              </span>
+            )}
+            <StatusBadge status={appt.status} />
+            {action}
+          </div>
+        </div>
+
+        {/* Inline Quick Vitals — only on in_triage cards for nurses */}
+        {showQuickVitals && canTriage && (
+          <div className="border-t border-border/50 pt-2 mt-0.5">
+            <p className="text-[10px] text-muted-foreground mb-1.5 font-medium uppercase tracking-wide">Quick Vitals</p>
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="space-y-0.5">
+                <Label className="text-[10px]">BP</Label>
+                <Input
+                  className="h-7 text-xs w-24"
+                  placeholder="120/80"
+                  value={qv.bp}
+                  onChange={e => setQuickVitals(prev => ({ ...prev, [appt.id]: { ...qv, bp: e.target.value } }))}
+                />
+              </div>
+              <div className="space-y-0.5">
+                <Label className="text-[10px]">Temp °C</Label>
+                <Input
+                  className="h-7 text-xs w-20"
+                  type="number"
+                  step="0.1"
+                  placeholder="36.6"
+                  value={qv.temp}
+                  onChange={e => setQuickVitals(prev => ({ ...prev, [appt.id]: { ...qv, temp: e.target.value } }))}
+                />
+              </div>
+              <div className="space-y-0.5">
+                <Label className="text-[10px]">Pulse</Label>
+                <Input
+                  className="h-7 text-xs w-20"
+                  type="number"
+                  placeholder="75"
+                  value={qv.pulse}
+                  onChange={e => setQuickVitals(prev => ({ ...prev, [appt.id]: { ...qv, pulse: e.target.value } }))}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-7 text-xs px-3"
+                disabled={quickSaving === appt.id || (!qv.bp && !qv.temp && !qv.pulse)}
+                onClick={() => handleQuickVitalsSave(appt)}
+              >
+                {quickSaving === appt.id ? "Saving…" : "Save"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2"
+                onClick={() => handleContinueTriage(appt)}
+              >
+                More fields
+              </Button>
+            </div>
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <StatusBadge status={appt.status} />
-        {action}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -201,10 +351,10 @@ export default function Triage() {
           <CardContent className="px-4 pb-4 space-y-2">
             {!isLoading && inTriage.length === 0 && <p className="text-xs text-muted-foreground">No patients in triage</p>}
             {inTriage.map(appt => (
-              <AppointmentCard key={appt.id} appt={appt} action={
+              <AppointmentCard key={appt.id} appt={appt} showQuickVitals action={
                 canTriage ? (
                   <Button size="sm" variant="outline" className="h-7 text-xs px-3" onClick={() => handleContinueTriage(appt)}>
-                    <ClipboardList className="w-3 h-3 me-1" /> Vitals
+                    <ClipboardList className="w-3 h-3 me-1" /> Full Vitals
                   </Button>
                 ) : undefined
               } />
@@ -230,7 +380,7 @@ export default function Triage() {
         </Card>
       </div>
 
-      {/* Vitals Dialog */}
+      {/* Full Vitals Dialog */}
       <Dialog open={!!selectedAppt} onOpenChange={open => { if (!open) setSelectedAppt(null); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

@@ -5,19 +5,50 @@ import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
+import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { safeParseInt } from "../lib/validators";
+import { todayBoundary } from "../lib/dateUtils"; // L-03
 
 const router = Router();
 router.use(requireAuth);
 // Lab/xray staff need appointment visibility to see scheduled patients for their services
 router.use("/appointments", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff"));
 
-router.get("/appointments", async (req, res) => {
+router.get("/appointments", async (req: AuthRequest, res) => {
   const status = req.query.status as string | undefined;
   const date = req.query.date as string | undefined;
   const doctorId = req.query.doctorId as string | undefined;
   const patientId = req.query.patientId as string | undefined;
-  const limit = (req.query.limit as string) ?? "50";
-  const offset = (req.query.offset as string) ?? "0";
+  const lim = Math.min(parseInt((req.query.limit as string) ?? "50") || 50, 200);
+  const off = parseInt((req.query.offset as string) ?? "0") || 0;
+
+  const conditions: any[] = [];
+
+  if (isDoctorScoped(req.user?.role)) {
+    const scopedPatientIds = await getDoctorPatientScope(req.user!.userId);
+    if (scopedPatientIds.length === 0) { res.json([]); return; }
+    conditions.push(inArray(appointmentsTable.patientId, scopedPatientIds));
+  }
+
+  if (status) conditions.push(eq(appointmentsTable.status, status as any));
+  if (date) {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) { res.status(400).json({ error: "Invalid date format" }); return; }
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+    const dayEnd   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+    conditions.push(gte(appointmentsTable.scheduledAt, dayStart));
+    conditions.push(lte(appointmentsTable.scheduledAt, dayEnd));
+  }
+  if (doctorId) {
+    const did = safeParseInt(doctorId);
+    if (!did) { res.status(400).json({ error: "Invalid doctorId" }); return; }
+    conditions.push(eq(appointmentsTable.doctorId, did));
+  }
+  if (patientId) {
+    const pid = safeParseInt(patientId);
+    if (!pid) { res.status(400).json({ error: "Invalid patientId" }); return; }
+    conditions.push(eq(appointmentsTable.patientId, pid));
+  }
 
   const rows = await db.select({
     id: appointmentsTable.id,
@@ -37,41 +68,57 @@ router.get("/appointments", async (req, res) => {
   }).from(appointmentsTable)
     .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+    .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(appointmentsTable.scheduledAt))
-    .limit(parseInt(limit as string))
-    .offset(parseInt(offset as string));
+    .limit(lim)
+    .offset(off);
 
-  let results = rows;
-  if (status) results = results.filter(r => r.status === status);
-  if (date) {
-    const d = new Date(date as string);
-    const start = new Date(d.setHours(0, 0, 0, 0));
-    const end = new Date(d.setHours(23, 59, 59, 999));
-    results = results.filter(r => r.scheduledAt >= start && r.scheduledAt <= end);
-  }
-  if (doctorId) results = results.filter(r => r.doctorId === parseInt(doctorId as string));
-  if (patientId) results = results.filter(r => r.patientId === parseInt(patientId as string));
-
-  res.json(results);
+  res.json(rows);
 });
 
 router.post("/appointments", async (req: AuthRequest, res) => {
-  const { patientId, doctorId, scheduledAt, reason, notes } = req.body;
+  const { patientId, doctorId, scheduledAt, reason, notes, bookingSource } = req.body;
   if (!patientId || !doctorId || !scheduledAt || !reason) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
+
+  const scheduledDate = new Date(scheduledAt);
+  if (isNaN(scheduledDate.getTime())) {
+    res.status(400).json({ error: "Invalid scheduledAt date" });
+    return;
+  }
+
+  const conflict = await db.select({ id: appointmentsTable.id })
+    .from(appointmentsTable)
+    .where(
+      and(
+        eq(appointmentsTable.doctorId, doctorId),
+        eq(appointmentsTable.scheduledAt, scheduledDate),
+        sql`${appointmentsTable.status} NOT IN ('cancelled', 'no_show')`
+      )
+    )
+    .limit(1);
+
+  if (conflict.length > 0) {
+    res.status(409).json({ error: "This doctor already has an appointment at that time" });
+    return;
+  }
+
   const [appt] = await db.insert(appointmentsTable).values({
-    patientId, doctorId, scheduledAt: new Date(scheduledAt), reason, notes,
+    patientId,
+    doctorId,
+    scheduledAt: scheduledDate,
+    reason,
+    notes,
+    bookingSource: bookingSource ?? "walk_in",
   }).returning();
   await logAudit(req, "CREATE", "appointment", appt.id);
   res.status(201).json(appt);
 });
 
-router.get("/appointments/flow", async (_req, res) => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+router.get("/appointments/flow", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"), async (_req: AuthRequest, res) => {
+  const { start, end } = todayBoundary(); // L-03: timezone-aware boundary
 
   const rows = await db.select({
     status: appointmentsTable.status,
@@ -123,9 +170,7 @@ router.get("/appointments/flow", async (_req, res) => {
 });
 
 router.get("/appointments/today", async (_req, res) => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  const { start, end } = todayBoundary(); // L-03: timezone-aware boundary
 
   const appointments = await db.select({
     id: appointmentsTable.id,
@@ -153,26 +198,64 @@ router.get("/appointments/today", async (_req, res) => {
 });
 
 router.get("/appointments/:appointmentId", async (req, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
   if (!appt) { res.status(404).json({ error: "Not found" }); return; }
   res.json(appt);
 });
 
-router.patch("/appointments/:appointmentId", async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
-  const { status, notes, reason, cancellationReason, doctorId, scheduledAt } = req.body;
-  const before = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
-  const [appt] = await db.update(appointmentsTable)
-    .set({ status, notes, reason, cancellationReason, doctorId, scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined, updatedAt: new Date() })
-    .where(eq(appointmentsTable.id, id))
-    .returning();
-  await logAudit(req, "UPDATE", "appointment", appt.id, { before: before[0], after: appt });
-  res.json(appt);
-});
+router.patch(
+  "/appointments/:appointmentId",
+  requireRole("super_admin", "admin", "front_desk", "doctor", "nurse"),
+  async (req: AuthRequest, res) => {
+    const id = safeParseInt(req.params.appointmentId);
+    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
 
-router.delete("/appointments/:appointmentId", async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+    const role = req.user!.role;
+
+    const allowed: Record<string, string[]> = {
+      super_admin: ["status", "doctorId", "scheduledAt", "reason", "notes", "cancellationReason"],
+      admin:       ["status", "doctorId", "scheduledAt", "reason", "notes", "cancellationReason"],
+      front_desk:  ["doctorId", "scheduledAt", "reason", "cancellationReason"],
+      nurse:       ["notes"],
+      doctor:      ["notes"],
+    };
+
+    const PATCH_ALLOWED_STATUSES = ["cancelled"];
+    if (req.body.status && !PATCH_ALLOWED_STATUSES.includes(req.body.status)) {
+      res.status(400).json({ error: "Use the dedicated state machine endpoints to advance appointment status" });
+      return;
+    }
+
+    const permittedFields = allowed[role] ?? [];
+    const update: Record<string, any> = { updatedAt: new Date() };
+    for (const field of permittedFields) {
+      if (req.body[field] !== undefined) {
+        update[field] = field === "scheduledAt" ? new Date(req.body[field]) : req.body[field];
+      }
+    }
+
+    if (Object.keys(update).length === 1) {
+      res.status(400).json({ error: "No permitted fields provided for your role" });
+      return;
+    }
+
+    const before = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+    if (!before.length) { res.status(404).json({ error: "Not found" }); return; }
+
+    const [appt] = await db.update(appointmentsTable)
+      .set(update)
+      .where(eq(appointmentsTable.id, id))
+      .returning();
+    await logAudit(req, "UPDATE", "appointment", appt.id, { before: before[0], after: appt });
+    res.json(appt);
+  }
+);
+
+router.delete("/appointments/:appointmentId", requireRole("super_admin", "admin", "front_desk"), async (req: AuthRequest, res) => {
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const { cancellationReason } = req.body || {};
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "cancelled", cancellationReason: cancellationReason || null, updatedAt: new Date() })
@@ -183,8 +266,9 @@ router.delete("/appointments/:appointmentId", async (req: AuthRequest, res) => {
 });
 
 // Check-in (Front Desk → checked_in)
-router.post("/appointments/:appointmentId/checkin", async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+router.post("/appointments/:appointmentId/checkin", requireRole("super_admin", "admin", "front_desk", "nurse"), async (req: AuthRequest, res) => {
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
   if (existing.status !== "scheduled") {
@@ -213,7 +297,8 @@ router.post("/appointments/:appointmentId/checkin", async (req: AuthRequest, res
 
 // Triage (Nurse → in_triage)
 router.post("/appointments/:appointmentId/triage", requireRole("super_admin", "admin", "nurse"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "in_triage", triageStartedAt: new Date(), updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -224,7 +309,8 @@ router.post("/appointments/:appointmentId/triage", requireRole("super_admin", "a
 
 // Ready for Doctor (Nurse → ready_for_doctor)
 router.post("/appointments/:appointmentId/ready", requireRole("super_admin", "admin", "nurse"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "ready_for_doctor", updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -245,7 +331,8 @@ router.post("/appointments/:appointmentId/ready", requireRole("super_admin", "ad
 
 // Start consultation (Doctor → in_consultation)
 router.post("/appointments/:appointmentId/consult", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "in_consultation", consultationStartedAt: new Date(), updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -256,7 +343,8 @@ router.post("/appointments/:appointmentId/consult", requireRole("super_admin", "
 
 // Awaiting Diagnostics (Doctor → awaiting_diagnostics)
 router.post("/appointments/:appointmentId/diagnostics", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "awaiting_diagnostics", updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -267,7 +355,8 @@ router.post("/appointments/:appointmentId/diagnostics", requireRole("super_admin
 
 // Pending Payment (Doctor/Nurse → pending_payment)
 router.post("/appointments/:appointmentId/payment", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "pending_payment", updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -278,7 +367,8 @@ router.post("/appointments/:appointmentId/payment", requireRole("super_admin", "
 
 // Complete (Front Desk/Admin → completed)
 router.post("/appointments/:appointmentId/complete", requireRole("super_admin", "admin", "front_desk"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "completed", updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
@@ -289,7 +379,8 @@ router.post("/appointments/:appointmentId/complete", requireRole("super_admin", 
 
 // Discharge summary for a specific appointment visit
 router.get("/appointments/:appointmentId/discharge", async (req, res) => {
-  const id = parseInt(req.params.appointmentId as string);
+  const id = safeParseInt(req.params.appointmentId);
+  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
 
   const [appt] = await db.select({
     id: appointmentsTable.id,
@@ -324,16 +415,22 @@ router.get("/appointments/:appointmentId/discharge", async (req, res) => {
     ? await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.recordId, medicalRecord.id))
     : [];
 
-  // Lab tests & X-rays for this patient created on the same day as the appointment
+  // Lab tests & X-rays: prefer appointmentId FK (M-05), fallback to date-range for legacy records
   const apptDay = new Date(appt.scheduledAt);
   const dayStart = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate());
   const dayEnd = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate(), 23, 59, 59);
 
   const labTests = await db.select().from(labTestsTable)
-    .where(and(eq(labTestsTable.patientId, appt.patientId), gte(labTestsTable.createdAt, dayStart), lte(labTestsTable.createdAt, dayEnd)));
+    .where(and(
+      eq(labTestsTable.patientId, appt.patientId),
+      sql`(${labTestsTable.appointmentId} = ${id} OR (${labTestsTable.appointmentId} IS NULL AND ${labTestsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`
+    ));
 
   const xrays = await db.select().from(xrayRecordsTable)
-    .where(and(eq(xrayRecordsTable.patientId, appt.patientId), gte(xrayRecordsTable.createdAt, dayStart), lte(xrayRecordsTable.createdAt, dayEnd)));
+    .where(and(
+      eq(xrayRecordsTable.patientId, appt.patientId),
+      sql`(${xrayRecordsTable.appointmentId} = ${id} OR (${xrayRecordsTable.appointmentId} IS NULL AND ${xrayRecordsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`
+    ));
 
   // Most recent invoice for patient
   const [invoice] = await db.select().from(invoicesTable)

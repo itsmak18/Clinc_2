@@ -1,8 +1,9 @@
-import { pgTable, serial, text, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
+import { appointmentsTable } from "./appointments";
 
 export const labTestStatusEnum = pgEnum("lab_test_status", [
   "requested",
@@ -16,6 +17,7 @@ export const labTestsTable = pgTable("lab_tests", {
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   requestedById: integer("requested_by_id").notNull().references(() => usersTable.id),
   performedById: integer("performed_by_id").references(() => usersTable.id),
+  appointmentId: integer("appointment_id").references(() => appointmentsTable.id), // M-05: FK for accurate discharge linking
   testName: text("test_name").notNull(),
   results: text("results"),
   status: labTestStatusEnum("status").notNull().default("requested"),
@@ -23,7 +25,12 @@ export const labTestsTable = pgTable("lab_tests", {
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [
+  index("lab_patient_idx").on(t.patientId),
+  index("lab_appt_idx").on(t.appointmentId), // M-05
+  index("lab_created_idx").on(t.createdAt),
+  index("lab_status_idx").on(t.status),
+]);
 
 export const insertLabTestSchema = createInsertSchema(labTestsTable).omit({
   id: true,

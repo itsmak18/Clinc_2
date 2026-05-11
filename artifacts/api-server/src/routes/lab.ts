@@ -1,17 +1,39 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
-import { eq, isNull, desc } from "drizzle-orm";
+import { eq, isNull, desc, and, inArray } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
-import { logAudit } from "../lib/audit";
+import { logAudit, logRead } from "../lib/audit";
+import { safeParseInt } from "../lib/validators";
 import { emitToUser } from "../lib/sse";
+import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 
 const router = Router();
 router.use(requireAuth);
-router.use("/lab", requireRole("super_admin", "admin", "doctor", "lab_staff"));
+router.use("/lab", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"));
 
-router.get("/lab/tests", async (req, res) => {
+router.get("/lab/tests", async (req: AuthRequest, res) => {
   const { status, patientId } = req.query;
+  const lim = Math.min(parseInt((req.query.limit as string) ?? "50") || 50, 200);
+  const off = parseInt((req.query.offset as string) ?? "0") || 0;
+
+  // Build SQL conditions BEFORE .limit() — no JS post-filtering (C-05)
+  const conditions: any[] = [isNull(labTestsTable.deletedAt)];
+
+  // Doctor scope applied at SQL level
+  if (isDoctorScoped(req.user?.role)) {
+    const allowed = await getDoctorPatientScope(req.user!.userId);
+    if (allowed.length === 0) { res.json([]); return; }
+    conditions.push(inArray(labTestsTable.patientId, allowed));
+  }
+
+  if (status) conditions.push(eq(labTestsTable.status, status as any));
+  if (patientId) {
+    const pid = safeParseInt(patientId as string); // N-04: safeParseInt
+    if (!pid) { res.status(400).json({ error: "Invalid patientId" }); return; }
+    conditions.push(eq(labTestsTable.patientId, pid));
+  }
+
   const rows = await db.select({
     id: labTestsTable.id,
     patientId: labTestsTable.patientId,
@@ -27,40 +49,64 @@ router.get("/lab/tests", async (req, res) => {
   }).from(labTestsTable)
     .leftJoin(patientsTable, eq(labTestsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(labTestsTable.requestedById, usersTable.id))
-    .where(isNull(labTestsTable.deletedAt))
-    .orderBy(desc(labTestsTable.createdAt));
+    .where(and(...conditions))
+    .orderBy(desc(labTestsTable.createdAt))
+    .limit(lim)
+    .offset(off);
 
-  let results = rows;
-  if (status) results = results.filter(r => r.status === status);
-  if (patientId) results = results.filter(r => r.patientId === parseInt(patientId as string));
-  res.json(results);
+  void logAudit(req, "READ_LIST", "lab_test", undefined, { count: rows.length });
+  res.json(rows);
 });
 
-router.post("/lab/tests", async (req: AuthRequest, res) => {
-  const { patientId, requestedById, testName, notes } = req.body;
+router.post("/lab/tests", requireRole("super_admin", "admin", "doctor", "lab_staff"), async (req: AuthRequest, res) => {
+  const { patientId, requestedById, testName, notes, appointmentId } = req.body; // M-05: accept appointmentId
   if (!patientId || !requestedById || !testName) {
     res.status(400).json({ error: "Missing required fields" });
     return;
   }
   const [test] = await db.insert(labTestsTable).values({
     patientId, requestedById, testName, notes,
+    appointmentId: appointmentId ?? null, // M-05: persist FK when provided
   }).returning();
   await logAudit(req, "CREATE", "lab_test", test.id);
   res.status(201).json(test);
 });
 
-router.get("/lab/tests/:testId", async (req, res) => {
-  const [test] = await db.select().from(labTestsTable).where(eq(labTestsTable.id, parseInt(req.params.testId as string)));
-  if (!test) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(test);
-});
+router.get("/lab/tests/:testId",
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"),
+  async (req: AuthRequest, res) => {
+    const testId = safeParseInt(req.params.testId);
+    if (!testId) { res.status(400).json({ error: "Invalid test ID" }); return; }
+    const [test] = await db.select().from(labTestsTable).where(eq(labTestsTable.id, testId));
+    if (!test) { res.status(404).json({ error: "Not found" }); return; }
 
-router.patch("/lab/tests/:testId", async (req: AuthRequest, res) => {
+    if (isDoctorScoped(req.user?.role)) {
+      const allowed = await getDoctorPatientScope(req.user!.userId);
+      if (!allowed.includes(test.patientId)) {
+        res.status(403).json({ error: "Forbidden" }); return;
+      }
+    }
+
+    void logRead(req, "lab_test", testId);
+    res.json(test);
+  }
+);
+
+router.patch("/lab/tests/:testId", requireRole("super_admin", "admin", "lab_staff"), async (req: AuthRequest, res) => {
+  const testId = safeParseInt(req.params.testId);
+  if (!testId) { res.status(400).json({ error: "Invalid test ID" }); return; }
+
   const { results, status, performedById } = req.body;
+
   const [test] = await db.update(labTestsTable)
     .set({ results, status, performedById, updatedAt: new Date() })
-    .where(eq(labTestsTable.id, parseInt(req.params.testId as string)))
+    .where(eq(labTestsTable.id, testId))
     .returning();
+
+  if (!test) {
+    res.status(404).json({ error: "Lab test not found" });
+    return;
+  }
 
   if (status === "completed") {
     const notifData = {

@@ -7,6 +7,7 @@ import appointmentsRouter from "./appointments";
 import medicalRecordsRouter from "./medical_records";
 import prescriptionsRouter from "./prescriptions";
 import xrayRouter from "./xray";
+import ultrasoundRouter from "./ultrasound";
 import labRouter from "./lab";
 import billingRouter from "./billing";
 import operationsRouter from "./operations";
@@ -16,6 +17,7 @@ import auditRouter from "./audit";
 import dashboardRouter from "./dashboard";
 import reportsRouter from "./reports";
 import searchRouter from "./search";
+import scheduleRouter from "./schedule";
 
 const router: IRouter = Router();
 
@@ -27,6 +29,7 @@ router.use(appointmentsRouter);
 router.use(medicalRecordsRouter);
 router.use(prescriptionsRouter);
 router.use(xrayRouter);
+router.use(ultrasoundRouter);
 router.use(labRouter);
 router.use(billingRouter);
 router.use(operationsRouter);
@@ -36,5 +39,6 @@ router.use(auditRouter);
 router.use(dashboardRouter);
 router.use(reportsRouter);
 router.use(searchRouter);
+router.use(scheduleRouter);
 
 export default router;

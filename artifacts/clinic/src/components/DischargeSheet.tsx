@@ -52,9 +52,8 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
     setData(null);
     setError(null);
     setLoading(true);
-    const token = localStorage.getItem("clinic_token");
     fetch(apiUrl(`appointments/${appointmentId}/discharge`), {
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
     })
       .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
       .then(setData)

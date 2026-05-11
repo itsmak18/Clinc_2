@@ -6,10 +6,8 @@ export interface AuthRequest extends Request {
 }
 
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  // NOTE: query-param token (`?token=`) intentionally removed — tokens in URLs
-  // appear in server logs and browser history, which is a security risk.
-  const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  // Read token from HttpOnly cookie — never from Authorization header
+  const rawToken = req.cookies?.clinic_token ?? null;
   if (!rawToken) {
     res.status(401).json({ error: "Unauthorized" });
     return;

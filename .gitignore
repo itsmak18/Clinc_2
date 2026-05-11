@@ -47,3 +47,11 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Environment — never commit real credentials
+.env
+.env.local
+.env.*.local
+
+# Plaintext credential backup — must never be committed
+credentials-backup.md

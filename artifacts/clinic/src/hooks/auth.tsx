@@ -15,50 +15,42 @@ export interface AuthUser {
 
 interface AuthContextType {
   user: AuthUser | null;
-  token: string | null;
-  login: (user: AuthUser, token: string) => void;
+  login: (user: AuthUser) => void;
   logout: () => void;
   isAuthenticated: boolean;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
 
+  // On mount: restore session by calling /auth/me — HttpOnly cookie is sent automatically
   useEffect(() => {
-    const storedToken = localStorage.getItem("clinic_token");
-    const storedUser = localStorage.getItem("clinic_user");
-    if (storedToken && storedUser) {
-      try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem("clinic_token");
-        localStorage.removeItem("clinic_user");
-      }
-    }
+    fetch("/api/auth/me", { credentials: "include" })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data && data.id) setUser(data as AuthUser);
+      })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const login = (user: AuthUser, token: string) => {
+  const login = (user: AuthUser) => {
     setUser(user);
-    setToken(token);
-    localStorage.setItem("clinic_token", token);
-    localStorage.setItem("clinic_user", JSON.stringify(user));
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     setUser(null);
-    setToken(null);
-    localStorage.removeItem("clinic_token");
-    localStorage.removeItem("clinic_user");
     queryClient.clear();
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

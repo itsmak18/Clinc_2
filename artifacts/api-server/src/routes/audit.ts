@@ -28,8 +28,8 @@ router.get("/audit-logs", async (req: AuthRequest, res) => {
     end.setHours(23, 59, 59, 999);
     conditions.push(lte(auditLogsTable.createdAt, end));
   }
-  if (action)     conditions.push(eq(auditLogsTable.action,     action as string));
-  if (entityType) conditions.push(eq(auditLogsTable.entityType, entityType as string));
+  if (action)     conditions.push(eq(auditLogsTable.action,     String(action)));
+  if (entityType) conditions.push(eq(auditLogsTable.entityType, String(entityType)));
   if (userId)     conditions.push(eq(auditLogsTable.userId,     parseInt(userId as string)));
 
   const rows = await db
@@ -40,6 +40,7 @@ router.get("/audit-logs", async (req: AuthRequest, res) => {
       entityType: auditLogsTable.entityType,
       entityId:   auditLogsTable.entityId,
       ipAddress:  auditLogsTable.ipAddress,
+      userAgent:  auditLogsTable.userAgent,
       details:    auditLogsTable.details,
       createdAt:  auditLogsTable.createdAt,
       user: {
@@ -55,6 +56,42 @@ router.get("/audit-logs", async (req: AuthRequest, res) => {
     .orderBy(desc(auditLogsTable.createdAt))
     .limit(Math.min(parseInt(limit as string), 500))
     .offset(parseInt(offset as string));
+
+  res.json(rows);
+});
+
+router.get("/audit-logs/entity/:entityType/:entityId", async (req: AuthRequest, res) => {
+  const entityType = String(req.params.entityType);
+  const entityId = parseInt(String(req.params.entityId));
+
+  if (!entityType || isNaN(entityId)) {
+    res.status(400).json({ error: "Invalid entity type or ID" });
+    return;
+  }
+
+  const rows = await db
+    .select({
+      id:         auditLogsTable.id,
+      userId:     auditLogsTable.userId,
+      action:     auditLogsTable.action,
+      entityType: auditLogsTable.entityType,
+      entityId:   auditLogsTable.entityId,
+      ipAddress:  auditLogsTable.ipAddress,
+      userAgent:  auditLogsTable.userAgent,
+      details:    auditLogsTable.details,
+      createdAt:  auditLogsTable.createdAt,
+      user: {
+        id:       usersTable.id,
+        fullName: usersTable.fullName,
+        username: usersTable.username,
+        role:     usersTable.role,
+      },
+    })
+    .from(auditLogsTable)
+    .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
+    .where(and(eq(auditLogsTable.entityType, entityType), eq(auditLogsTable.entityId, entityId)))
+    .orderBy(desc(auditLogsTable.createdAt))
+    .limit(100);
 
   res.json(rows);
 });

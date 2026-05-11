@@ -23,6 +23,8 @@ export const usersTable = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   isOnShift: boolean("is_on_shift").notNull().default(false),
   phone: text("phone"),
+  specialty: text("specialty"),   // N-06: nullable, meaningful for role=doctor
+  department: text("department"), // N-06: nullable, for any role
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

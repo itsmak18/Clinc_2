@@ -180,6 +180,26 @@ export const AppointmentStatus = {
   in_progress: "in_progress",
 } as const;
 
+export type AppointmentBookingSource =
+  | (typeof AppointmentBookingSource)[keyof typeof AppointmentBookingSource]
+  | null;
+
+export const AppointmentBookingSource = {
+  online: "online",
+  phone: "phone",
+  walk_in: "walk_in",
+} as const;
+
+export type AppointmentTriagePriority =
+  | (typeof AppointmentTriagePriority)[keyof typeof AppointmentTriagePriority]
+  | null;
+
+export const AppointmentTriagePriority = {
+  normal: "normal",
+  urgent: "urgent",
+  critical: "critical",
+} as const;
+
 export interface Appointment {
   id: number;
   patientId: number;
@@ -189,6 +209,8 @@ export interface Appointment {
   scheduledAt: string;
   reason: string;
   status: AppointmentStatus;
+  bookingSource?: AppointmentBookingSource;
+  triagePriority?: AppointmentTriagePriority;
   cancellationReason?: string | null;
   notes?: string | null;
   checkedInAt?: string | null;
@@ -278,12 +300,22 @@ export interface PatientSummary {
   outstandingBalance: number;
 }
 
+export type CreateAppointmentBodyBookingSource =
+  (typeof CreateAppointmentBodyBookingSource)[keyof typeof CreateAppointmentBodyBookingSource];
+
+export const CreateAppointmentBodyBookingSource = {
+  online: "online",
+  phone: "phone",
+  walk_in: "walk_in",
+} as const;
+
 export interface CreateAppointmentBody {
   patientId: number;
   doctorId: number;
   scheduledAt: string;
   reason: string;
   notes?: string;
+  bookingSource?: CreateAppointmentBodyBookingSource;
 }
 
 export type UpdateAppointmentBodyStatus =
@@ -303,6 +335,24 @@ export const UpdateAppointmentBodyStatus = {
   in_progress: "in_progress",
 } as const;
 
+export type UpdateAppointmentBodyTriagePriority =
+  (typeof UpdateAppointmentBodyTriagePriority)[keyof typeof UpdateAppointmentBodyTriagePriority];
+
+export const UpdateAppointmentBodyTriagePriority = {
+  normal: "normal",
+  urgent: "urgent",
+  critical: "critical",
+} as const;
+
+export type UpdateAppointmentBodyBookingSource =
+  (typeof UpdateAppointmentBodyBookingSource)[keyof typeof UpdateAppointmentBodyBookingSource];
+
+export const UpdateAppointmentBodyBookingSource = {
+  online: "online",
+  phone: "phone",
+  walk_in: "walk_in",
+} as const;
+
 export interface UpdateAppointmentBody {
   doctorId?: number;
   scheduledAt?: string;
@@ -310,6 +360,8 @@ export interface UpdateAppointmentBody {
   status?: UpdateAppointmentBodyStatus;
   cancellationReason?: string;
   notes?: string;
+  triagePriority?: UpdateAppointmentBodyTriagePriority;
+  bookingSource?: UpdateAppointmentBodyBookingSource;
 }
 
 export interface TodayAppointments {
@@ -457,6 +509,58 @@ export interface UpdateXrayBody {
   imageFileName?: string;
   report?: string;
   status?: UpdateXrayBodyStatus;
+  notes?: string;
+}
+
+export type UltrasoundRecordStatus =
+  (typeof UltrasoundRecordStatus)[keyof typeof UltrasoundRecordStatus];
+
+export const UltrasoundRecordStatus = {
+  pending: "pending",
+  uploaded: "uploaded",
+  reviewed: "reviewed",
+} as const;
+
+export interface UltrasoundRecord {
+  id: number;
+  patientId: number;
+  requestedById: number;
+  performedById?: number | null;
+  patient?: Patient;
+  requestedBy?: User;
+  examType: string;
+  bodyPart: string;
+  imageUrl?: string | null;
+  imageFileName?: string | null;
+  report?: string | null;
+  status: UltrasoundRecordStatus;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface CreateUltrasoundBody {
+  patientId: number;
+  requestedById: number;
+  examType: string;
+  bodyPart: string;
+  notes?: string;
+}
+
+export type UpdateUltrasoundBodyStatus =
+  (typeof UpdateUltrasoundBodyStatus)[keyof typeof UpdateUltrasoundBodyStatus];
+
+export const UpdateUltrasoundBodyStatus = {
+  pending: "pending",
+  uploaded: "uploaded",
+  reviewed: "reviewed",
+} as const;
+
+export interface UpdateUltrasoundBody {
+  performedById?: number;
+  imageUrl?: string;
+  imageFileName?: string;
+  report?: string;
+  status?: UpdateUltrasoundBodyStatus;
   notes?: string;
 }
 
@@ -616,6 +720,7 @@ export const NotificationType = {
   patient_arrived: "patient_arrived",
   lab_ready: "lab_ready",
   xray_ready: "xray_ready",
+  ultrasound_ready: "ultrasound_ready",
   general: "general",
 } as const;
 
@@ -649,11 +754,18 @@ export interface DashboardSummary {
   pendingLabTests: number;
   pendingXrays: number;
   todayRevenue: number;
+  yesterdayRevenue: number;
   pendingInvoices: number;
   scheduledOperations: number;
   lowStockItems: number;
   totalPatients: number;
   totalDoctors: number;
+}
+
+export interface DepartmentLoadItem {
+  doctorId: number;
+  doctorName: string;
+  count: number;
 }
 
 export interface ActivityItem {
@@ -693,6 +805,141 @@ export interface RevenueReport {
   paidInvoices: number;
   averageInvoiceValue: number;
   byDay: RevenueReportByDayItem[];
+}
+
+export type DoctorScheduleDayDayOfWeek =
+  (typeof DoctorScheduleDayDayOfWeek)[keyof typeof DoctorScheduleDayDayOfWeek];
+
+export const DoctorScheduleDayDayOfWeek = {
+  sunday: "sunday",
+  monday: "monday",
+  tuesday: "tuesday",
+  wednesday: "wednesday",
+  thursday: "thursday",
+  friday: "friday",
+  saturday: "saturday",
+} as const;
+
+export type DoctorScheduleDayStatus =
+  (typeof DoctorScheduleDayStatus)[keyof typeof DoctorScheduleDayStatus];
+
+export const DoctorScheduleDayStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export interface DoctorScheduleDay {
+  id: number;
+  doctorId: number;
+  dayOfWeek: DoctorScheduleDayDayOfWeek;
+  startTime: string;
+  endTime: string;
+  slotMinutes: number;
+  maxPatients: number;
+  status: DoctorScheduleDayStatus;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleOverride {
+  id: number;
+  doctorId: number;
+  overrideDate: string;
+  isBlocked: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
+  reason?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DoctorScheduleSummary {
+  id: number;
+  fullName: string;
+  fullNameAr?: string | null;
+  specialty?: string | null;
+  department?: string | null;
+  isOnShift: boolean;
+  weeklyTemplate: DoctorScheduleDay[];
+}
+
+export interface DoctorScheduleDetail {
+  doctor: DoctorScheduleSummary;
+  weeklyTemplate: DoctorScheduleDay[];
+  overrides: ScheduleOverride[];
+}
+
+export type UpsertWeeklyBlockBodyDayOfWeek =
+  (typeof UpsertWeeklyBlockBodyDayOfWeek)[keyof typeof UpsertWeeklyBlockBodyDayOfWeek];
+
+export const UpsertWeeklyBlockBodyDayOfWeek = {
+  sunday: "sunday",
+  monday: "monday",
+  tuesday: "tuesday",
+  wednesday: "wednesday",
+  thursday: "thursday",
+  friday: "friday",
+  saturday: "saturday",
+} as const;
+
+export type UpsertWeeklyBlockBodyStatus =
+  (typeof UpsertWeeklyBlockBodyStatus)[keyof typeof UpsertWeeklyBlockBodyStatus];
+
+export const UpsertWeeklyBlockBodyStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export interface UpsertWeeklyBlockBody {
+  dayOfWeek: UpsertWeeklyBlockBodyDayOfWeek;
+  startTime: string;
+  endTime: string;
+  slotMinutes?: number;
+  maxPatients?: number;
+  notes?: string;
+  status?: UpsertWeeklyBlockBodyStatus;
+}
+
+export interface UpsertOverrideBody {
+  overrideDate: string;
+  isBlocked?: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
+  reason?: string;
+}
+
+export interface AvailabilitySlot {
+  time: string;
+  available: boolean;
+  datetime: string;
+}
+
+export interface AvailabilityResponse {
+  available: boolean;
+  date: string;
+  reason?: string | null;
+  slots: AvailabilitySlot[];
+}
+
+export interface WeekDay {
+  date: string;
+  dayName: string;
+  isWorking: boolean;
+  startTime?: string | null;
+  endTime?: string | null;
+  slotMinutes: number;
+  totalSlots: number;
+  bookedCount: number;
+  availableSlots: number;
+  overrideReason?: string | null;
+  isToday: boolean;
+}
+
+export interface WeekResponse {
+  doctorId: number;
+  weekStart: string;
+  days: WeekDay[];
 }
 
 export type ListUsersParams = {
@@ -765,6 +1012,20 @@ export type ListXrayImagesStatus =
   (typeof ListXrayImagesStatus)[keyof typeof ListXrayImagesStatus];
 
 export const ListXrayImagesStatus = {
+  pending: "pending",
+  uploaded: "uploaded",
+  reviewed: "reviewed",
+} as const;
+
+export type ListUltrasoundRecordsParams = {
+  patientId?: number;
+  status?: ListUltrasoundRecordsStatus;
+};
+
+export type ListUltrasoundRecordsStatus =
+  (typeof ListUltrasoundRecordsStatus)[keyof typeof ListUltrasoundRecordsStatus];
+
+export const ListUltrasoundRecordsStatus = {
   pending: "pending",
   uploaded: "uploaded",
   reviewed: "reviewed",
@@ -849,4 +1110,33 @@ export type GetAppointmentReportParams = {
 export type GetRevenueReportParams = {
   dateFrom?: string;
   dateTo?: string;
+};
+
+export type UpdateWeeklyBlockStatusBodyStatus =
+  (typeof UpdateWeeklyBlockStatusBodyStatus)[keyof typeof UpdateWeeklyBlockStatusBodyStatus];
+
+export const UpdateWeeklyBlockStatusBodyStatus = {
+  active: "active",
+  inactive: "inactive",
+} as const;
+
+export type UpdateWeeklyBlockStatusBody = {
+  status: UpdateWeeklyBlockStatusBodyStatus;
+};
+
+export type DeleteWeeklyBlock200 = {
+  success?: boolean;
+};
+
+export type DeleteScheduleOverride200 = {
+  success?: boolean;
+};
+
+export type GetDoctorAvailabilityParams = {
+  date: string;
+};
+
+export type GetScheduleWeekParams = {
+  doctorId: number;
+  weekStart: string;
 };

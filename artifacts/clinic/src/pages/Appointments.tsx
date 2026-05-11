@@ -8,23 +8,25 @@ import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
 import DischargeSheet from "@/components/DischargeSheet";
 import DayScheduleView from "@/components/DayScheduleView";
+import GlobalSearch from "@/components/GlobalSearch";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime, exportToCSV } from "@/lib/api";
-import { Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List } from "lucide-react";
+import { Phone, Globe, Building2, Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 async function apiFetch(path: string, method = "POST", body?: object) {
-  const token = localStorage.getItem("clinic_token");
   const res = await fetch(apiUrl(path), {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(await res.text());
@@ -42,14 +44,15 @@ export default function Appointments() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const isFrontDeskUser = user?.role === "front_desk";
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [search, setSearch] = useState("");
   const [transitionLoading, setTransitionLoading] = useState<number | null>(null);
-  const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
+  const [form, setForm] = useState({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "", bookingSource: "walk_in" });
   const [dischargeApptId, setDischargeApptId] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "day">("list");
+  const [viewMode, setViewMode] = useState<"list" | "day">(isFrontDeskUser ? "day" : "list");
   const todayStr = new Date().toISOString().split("T")[0];
   const dayViewDate = filterDate || todayStr;
 
@@ -76,7 +79,7 @@ export default function Appointments() {
       onSuccess: () => {
         invalidateAll();
         setShowCreate(false);
-        setForm({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "" });
+        setForm({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "", bookingSource: "walk_in" });
         toast({ title: "Appointment created" });
       },
       onError: () => toast({ title: "Failed to create appointment", variant: "destructive" }),
@@ -113,8 +116,19 @@ export default function Appointments() {
   const isDoctor = role === "doctor" || role === "admin" || role === "super_admin";
   const isFrontDesk = role === "front_desk" || role === "admin" || role === "super_admin";
 
+  const bookingSourceBadge = (source: string | null | undefined) => {
+    if (!source || source === "walk_in") return <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5"><Building2 className="w-2.5 h-2.5" /> Walk-in</Badge>;
+    if (source === "phone") return <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 border-orange-300 text-orange-700 bg-orange-50"><Phone className="w-2.5 h-2.5" /> Phone</Badge>;
+    return <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 border-blue-300 text-blue-700 bg-blue-50"><Globe className="w-2.5 h-2.5" /> Online</Badge>;
+  };
+
   return (
     <div>
+      {isFrontDeskUser && (
+        <div className="px-6 pt-4 pb-0">
+          <GlobalSearch />
+        </div>
+      )}
       <PageHeader
         title={t("appointments")}
         subtitle={`${appointments?.length ?? 0} appointments`}
@@ -190,13 +204,14 @@ export default function Appointments() {
             columns={[
               { key: "patient", header: "Patient", render: a => (
                 <div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</span>
                     {(a.patient as any)?.allergies && (
                       <span title={`Allergies: ${(a.patient as any).allergies}`}>
                         <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
                       </span>
                     )}
+                    {bookingSourceBadge((a as any).bookingSource)}
                   </div>
                   {a.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{a.patient.mrn}</div>}
                   {(a.patient as any)?.allergies && (
@@ -315,6 +330,19 @@ export default function Appointments() {
               <Label className="text-xs">{t("notes")}</Label>
               <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
+            {isFrontDeskUser && (
+              <div className="space-y-1">
+                <Label className="text-xs">Booking Source</Label>
+                <Select value={form.bookingSource} onValueChange={v => setForm(f => ({ ...f, bookingSource: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="walk_in"><Building2 className="w-3.5 h-3.5 inline me-1.5" />Walk-in</SelectItem>
+                    <SelectItem value="phone"><Phone className="w-3.5 h-3.5 inline me-1.5" />Phone</SelectItem>
+                    <SelectItem value="online"><Globe className="w-3.5 h-3.5 inline me-1.5" />Online</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
               <Button size="sm" onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), scheduledAt: new Date(form.scheduledAt).toISOString() } as any })} disabled={createMutation.isPending} data-testid="button-save-appointment">

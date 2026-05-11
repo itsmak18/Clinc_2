@@ -18,9 +18,6 @@ export function useNotificationsStream() {
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("clinic_token");
-    if (!token) return;
-
     function connect() {
       if (esRef.current) {
         esRef.current.close();
@@ -28,7 +25,7 @@ export function useNotificationsStream() {
       }
 
       const url = `${BASE}api/notifications/stream`.replace(/\/+/g, "/");
-      const es = new EventSource(`${url}?token=${encodeURIComponent(token!)}`, { withCredentials: false });
+      const es = new EventSource(url, { withCredentials: true });
       esRef.current = es;
 
       es.addEventListener("notification", (e: MessageEvent) => {
