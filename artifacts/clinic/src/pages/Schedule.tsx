@@ -26,7 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  CalendarRange, Plus, Pencil, Trash2, ChevronLeft, ChevronRight,
+  Plus, Pencil, Trash2, ChevronLeft, ChevronRight,
   CalendarOff, Clock, Users, CheckCircle2, XCircle,
 } from "lucide-react";
 
@@ -116,16 +116,16 @@ export default function Schedule() {
   // ── Queries ──────────────────────────────────────────
   const { data: doctorsList = [], isLoading: loadingDoctors } = useListScheduleDoctors();
 
-  const activeDoctorId = isDoctor ? user?.userId ?? null : selectedDoctorId;
+  const activeDoctorId = isDoctor ? user?.id ?? null : selectedDoctorId;
 
   const { data: scheduleDetail, isLoading: loadingDetail } = useGetDoctorSchedule(
     activeDoctorId!,
-    { query: { enabled: !!activeDoctorId } }
+    { query: { enabled: !!activeDoctorId, queryKey: getGetDoctorScheduleQueryKey(activeDoctorId!) } }
   );
 
   const { data: weekData } = useGetScheduleWeek(
     { doctorId: activeDoctorId!, weekStart },
-    { query: { enabled: !!activeDoctorId } }
+    { query: { enabled: !!activeDoctorId, queryKey: getGetScheduleWeekQueryKey({ doctorId: activeDoctorId!, weekStart }) } }
   );
 
   // ── Mutations ────────────────────────────────────────
@@ -240,7 +240,6 @@ export default function Schedule() {
     <div className="flex flex-col gap-4 p-4">
       <PageHeader
         title={t("schedule")}
-        icon={<CalendarRange className="w-5 h-5" />}
         actions={
           canEdit && activeDoctorId ? (
             <div className="flex gap-2">

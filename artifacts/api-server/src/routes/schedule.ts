@@ -397,7 +397,7 @@ router.patch(
   async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
-    const day = req.params.day as string;
+    const day = String(req.params.day);
     const { status } = req.body;
     if (status !== "active" && status !== "inactive") {
       res.status(400).json({ error: "status must be 'active' or 'inactive'" });
@@ -430,7 +430,7 @@ router.delete(
   async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
-    const day = req.params.day as string;
+    const day = String(req.params.day);
 
     const [row] = await db
       .delete(doctorSchedulesTable)
@@ -501,7 +501,7 @@ router.delete(
   async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
-    const date = req.params.date;
+    const date = String(req.params.date);
 
     const [row] = await db
       .delete(scheduleOverridesTable)

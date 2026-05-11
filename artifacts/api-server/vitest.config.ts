@@ -1,5 +1,10 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Resolve the actual zod package from the pnpm store
+const zodRoot = path.resolve(__dirname, "../../node_modules/.pnpm/zod@3.25.76/node_modules/zod");
 
 export default defineConfig({
   test: {
@@ -23,6 +28,9 @@ export default defineConfig({
     alias: {
       // Workspace packages resolved to source for tests
       "@workspace/db": path.resolve(__dirname, "../../lib/db/src"),
+      // zod/v4 subpath — resolve to the actual installed zod package
+      "zod/v4": path.join(zodRoot, "v4"),
+      "zod": zodRoot,
     },
   },
 });
