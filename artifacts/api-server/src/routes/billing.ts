@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { invoicesTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, count, sum, sql } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit, logRead } from "../lib/audit";
 import { safeParseInt } from "../lib/validators";
@@ -69,7 +69,7 @@ router.post("/billing/invoices", requireRole("super_admin", "admin", "front_desk
     res.status(400).json({ error: "Invalid items format", details: parsedItems.error.flatten() });
     return;
   }
-  const subtotal = parsedItems.data.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  const subtotal = parsedItems.data.reduce((s: number, i: { quantity: number; unitPrice: number }) => s + i.quantity * i.unitPrice, 0);
   const total = subtotal - discount;
   const invoiceNumber = await generateInvoiceNumber();
   const [invoice] = await db.insert(invoicesTable).values({

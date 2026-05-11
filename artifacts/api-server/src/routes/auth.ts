@@ -6,6 +6,7 @@ import { signToken } from "../lib/auth";
 import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrength } from "../lib/password";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { checkAllowed, recordFailure, recordSuccess, getRemainingAttempts } from "../middlewares/rateLimiter";
+import { setCsrfCookie, clearCsrfCookie } from "../middlewares/csrf";
 
 const router = Router();
 
@@ -110,6 +111,9 @@ router.post("/auth/login", async (req: AuthRequest, res) => {
     path: "/",
   });
 
+  // Set CSRF double-submit cookie (non-HttpOnly — JS must read it)
+  setCsrfCookie(res);
+
   res.json({
     user: {
       id: user.id,
@@ -141,6 +145,7 @@ router.post("/auth/logout", requireAuth, async (req: AuthRequest, res) => {
     sameSite: "strict",
     path: "/",
   });
+  clearCsrfCookie(res); // Clear CSRF cookie alongside auth cookie
 
   res.json({ success: true });
 });

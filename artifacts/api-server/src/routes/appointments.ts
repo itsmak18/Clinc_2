@@ -8,6 +8,7 @@ import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { safeParseInt } from "../lib/validators";
 import { todayBoundary } from "../lib/dateUtils"; // L-03
+import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
 
 const router = Router();
 router.use(requireAuth);
@@ -299,8 +300,12 @@ router.post("/appointments/:appointmentId/checkin", requireRole("super_admin", "
 router.post("/appointments/:appointmentId/triage", requireRole("super_admin", "admin", "nurse"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("triage", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "in_triage", triageStartedAt: new Date(), updatedAt: new Date() })
+    .set({ status: transition.toStatus, triageStartedAt: new Date(), updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
   await logAudit(req, "TRIAGE_START", "appointment", appt.id);
@@ -311,8 +316,12 @@ router.post("/appointments/:appointmentId/triage", requireRole("super_admin", "a
 router.post("/appointments/:appointmentId/ready", requireRole("super_admin", "admin", "nurse"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("ready", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "ready_for_doctor", updatedAt: new Date() })
+    .set({ status: transition.toStatus, updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
 
@@ -333,8 +342,12 @@ router.post("/appointments/:appointmentId/ready", requireRole("super_admin", "ad
 router.post("/appointments/:appointmentId/consult", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("consult", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "in_consultation", consultationStartedAt: new Date(), updatedAt: new Date() })
+    .set({ status: transition.toStatus, consultationStartedAt: new Date(), updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
   await logAudit(req, "CONSULTATION_START", "appointment", appt.id);
@@ -345,8 +358,12 @@ router.post("/appointments/:appointmentId/consult", requireRole("super_admin", "
 router.post("/appointments/:appointmentId/diagnostics", requireRole("super_admin", "admin", "doctor"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("diagnostics", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "awaiting_diagnostics", updatedAt: new Date() })
+    .set({ status: transition.toStatus, updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
   await logAudit(req, "DIAGNOSTICS_REQUESTED", "appointment", appt.id);
@@ -357,8 +374,12 @@ router.post("/appointments/:appointmentId/diagnostics", requireRole("super_admin
 router.post("/appointments/:appointmentId/payment", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("payment", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "pending_payment", updatedAt: new Date() })
+    .set({ status: transition.toStatus, updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
   await logAudit(req, "PENDING_PAYMENT", "appointment", appt.id);
@@ -369,8 +390,12 @@ router.post("/appointments/:appointmentId/payment", requireRole("super_admin", "
 router.post("/appointments/:appointmentId/complete", requireRole("super_admin", "admin", "front_desk"), async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Appointment not found" }); return; }
+  const transition = validateTransition("complete", existing.status as AppointmentStatus, req.user!.role);
+  if (!transition.ok) { res.status(transition.status).json({ error: transition.error, detail: transition.detail }); return; }
   const [appt] = await db.update(appointmentsTable)
-    .set({ status: "completed", updatedAt: new Date() })
+    .set({ status: transition.toStatus, updatedAt: new Date() })
     .where(eq(appointmentsTable.id, id))
     .returning();
   await logAudit(req, "COMPLETE", "appointment", appt.id);
