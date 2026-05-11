@@ -25,7 +25,8 @@
     "express-rate-limit": "^8.4.1",
     "helmet": "^8.1.0",
     "pino": "^9",
-    "pino-http": "^10"
+    "pino-http": "^10",
+    "prom-client": "^15.1.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
