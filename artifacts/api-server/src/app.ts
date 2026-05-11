@@ -7,6 +7,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
 import { csrfProtect } from "./middlewares/csrf";
+import { metricsMiddleware, getMetrics } from "./lib/metrics";
 
 const app: Express = express();
 
@@ -72,6 +73,12 @@ app.use(
     },
   }),
 );
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+app.use(metricsMiddleware);
+app.get("/metrics", (req: Request, res: Response) => {
+  getMetrics(req, res).catch(() => res.status(500).end());
+});
 
 // ── Body parsing with size cap ────────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));

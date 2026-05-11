@@ -53,6 +53,20 @@ If the system detects a spike in 429 Too Many Requests errors:
 *   **Users cannot log in:** Verify the DB connection. Check if the user is locked out due to rate limiting.
 *   **Performance degradation:** Check memory usage and DB pool stats in the readiness probe. Review slow query logs in PostgreSQL.
 
-## 5. Contact Information
+## 5. Service Level Agreement (SLA) & Uptime Target
+
+MediCore maintains a **99.9% uptime target** for all critical API endpoints (e.g., patient lookup, appointment booking, authentication).
+*   **Target uptime:** 99.9% (~43m of acceptable downtime per month).
+*   **RTO (Recovery Time Objective):** 1 hour for SEV-1 incidents.
+*   **RPO (Recovery Point Objective):** 24 hours maximum (based on daily backups).
+
+## 6. On-Call Rotation
+
+The engineering team utilizes a primary and secondary on-call rotation.
+*   **Primary On-Call:** Acknowledges page within 5 minutes. Leads incident response.
+*   **Secondary On-Call:** Backs up the primary. Escalated to if primary does not acknowledge within 10 minutes.
+*   **Escalation Policy:** Primary -> Secondary -> Engineering Manager -> CTO.
+
+## 7. Contact Information
 
 (Add specific contact info for on-call engineers, management, and vendors here).
