@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { usersTable, appointmentsTable } from "@workspace/db";
+import { eq, isNull, and, gte, lte } from "drizzle-orm";
+import { todayBoundary } from "../lib/dateUtils";
 import { hashPassword, validatePasswordStrength } from "../lib/password";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -145,13 +146,40 @@ router.patch("/users/:userId", requireRole("super_admin", "admin"), async (req: 
 router.post("/users/:userId/toggle-shift", requireRole("super_admin", "admin"), async (req: AuthRequest, res) => {
   const userId = safeParseInt(req.params.userId);
   if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
-  const [current] = await db.select({ isOnShift: usersTable.isOnShift }).from(usersTable).where(eq(usersTable.id, userId));
+  const [current] = await db.select({ isOnShift: usersTable.isOnShift, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, userId));
   if (!current) { res.status(404).json({ error: "Not found" }); return; }
+
+  const newShiftState = !current.isOnShift;
   const [user] = await db.update(usersTable)
-    .set({ isOnShift: !current.isOnShift, updatedAt: new Date() })
+    .set({ isOnShift: newShiftState, updatedAt: new Date() })
     .where(eq(usersTable.id, userId))
     .returning();
   await logAudit(req, "TOGGLE_SHIFT", "user", userId, { isOnShift: user.isOnShift });
+
+  // Generate shift handover report if a doctor is clocking out
+  if (!newShiftState && current.role === "doctor") {
+    const { start, end } = todayBoundary();
+    const appointments = await db.select({ status: appointmentsTable.status })
+      .from(appointmentsTable)
+      .where(
+        and(
+          eq(appointmentsTable.doctorId, userId),
+          gte(appointmentsTable.scheduledAt, start),
+          lte(appointmentsTable.scheduledAt, end)
+        )
+      );
+
+    const summary = {
+      total: appointments.length,
+      completed: appointments.filter(a => a.status === "completed").length,
+      cancelled: appointments.filter(a => a.status === "cancelled").length,
+      remaining: appointments.filter(a => !["completed", "cancelled", "no_show"].includes(a.status)).length,
+    };
+    
+    res.json({ ...user, shiftSummary: summary });
+    return;
+  }
+
   res.json(user);
 });
 

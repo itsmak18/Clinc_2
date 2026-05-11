@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, and, inArray } from "drizzle-orm";
+import { z } from "zod";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { logAudit, logRead } from "../lib/audit";
 import { safeParseInt } from "../lib/validators";

@@ -9,6 +9,7 @@ import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { safeParseInt } from "../lib/validators";
 import { todayBoundary } from "../lib/dateUtils"; // L-03
 import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
+import { checkDoctorAvailability } from "../lib/schedule-validator";
 
 const router = Router();
 router.use(requireAuth);
@@ -90,19 +91,9 @@ router.post("/appointments", async (req: AuthRequest, res) => {
     return;
   }
 
-  const conflict = await db.select({ id: appointmentsTable.id })
-    .from(appointmentsTable)
-    .where(
-      and(
-        eq(appointmentsTable.doctorId, doctorId),
-        eq(appointmentsTable.scheduledAt, scheduledDate),
-        sql`${appointmentsTable.status} NOT IN ('cancelled', 'no_show')`
-      )
-    )
-    .limit(1);
-
-  if (conflict.length > 0) {
-    res.status(409).json({ error: "This doctor already has an appointment at that time" });
+  const availability = await checkDoctorAvailability(doctorId, scheduledDate);
+  if (!availability.available) {
+    res.status(409).json({ error: availability.reason });
     return;
   }
 
@@ -244,6 +235,17 @@ router.patch(
 
     const before = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
     if (!before.length) { res.status(404).json({ error: "Not found" }); return; }
+
+    const targetDoctorId = update.doctorId !== undefined ? update.doctorId : before[0].doctorId;
+    const targetScheduledAt = update.scheduledAt !== undefined ? update.scheduledAt : new Date(before[0].scheduledAt);
+
+    if (update.doctorId !== undefined || update.scheduledAt !== undefined) {
+      const availability = await checkDoctorAvailability(targetDoctorId, targetScheduledAt);
+      if (!availability.available) {
+        res.status(409).json({ error: availability.reason });
+        return;
+      }
+    }
 
     const [appt] = await db.update(appointmentsTable)
       .set(update)
