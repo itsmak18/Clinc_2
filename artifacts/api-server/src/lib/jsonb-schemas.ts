@@ -11,7 +11,7 @@
  *  - medications    → prescriptions.medications  (array)
  *  - staffAssigned  → operations.staffAssigned   (array of user refs)
  */
-import { z } from "zod/v4";
+import { z } from "zod";
 
 // ── vitals ────────────────────────────────────────────────────────────────────
 // Stored on medical_records.vitals (jsonb, nullable).
