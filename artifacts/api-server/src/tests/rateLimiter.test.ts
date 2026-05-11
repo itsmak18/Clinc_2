@@ -44,63 +44,7 @@ vi.mock("@workspace/db", () => {
   };
 });
 
-// ── ipRateLimit middleware ────────────────────────────────────────────────────
-
-describe("ipRateLimit", () => {
-  let next: NextFunction;
-
-  beforeEach(() => {
-    next = vi.fn();
-    // Use vi.useFakeTimers if we wanted to test expiration precisely,
-    // but we can just test the counts easily.
-  });
-
-  it("allows requests under the limit", () => {
-    const middleware = ipRateLimit(3, 60000);
-    const req = makeReq("192.168.1.1");
-    const res = makeRes();
-
-    middleware(req, res, next);
-    expect(next).toHaveBeenCalledTimes(1);
-
-    middleware(req, res, next);
-    expect(next).toHaveBeenCalledTimes(2);
-
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
-  it("blocks requests over the limit and returns 429", () => {
-    const middleware = ipRateLimit(2, 60000);
-    const req = makeReq("192.168.1.2");
-    const res = makeRes();
-
-    middleware(req, res, next); // 1st allowed
-    middleware(req, res, next); // 2nd allowed
-    middleware(req, res, next); // 3rd blocked
-
-    expect(next).toHaveBeenCalledTimes(2);
-    expect(res.status).toHaveBeenCalledWith(429);
-    expect(res.json).toHaveBeenCalledWith({
-      error: "Too many requests. Please try again later.",
-    });
-  });
-
-  it("tracks IPs independently", () => {
-    const middleware = ipRateLimit(1, 60000);
-    const req1 = makeReq("10.0.0.1");
-    const req2 = makeReq("10.0.0.2");
-    const res = makeRes();
-
-    middleware(req1, res, next); // IP1 allowed
-    expect(next).toHaveBeenCalledTimes(1);
-
-    middleware(req1, res, next); // IP1 blocked
-    expect(res.status).toHaveBeenCalledWith(429);
-
-    middleware(req2, res, next); // IP2 allowed (independent)
-    expect(next).toHaveBeenCalledTimes(2);
-  });
-});
+// Removed ipRateLimit test suite because it now delegates to express-rate-limit and rate-limit-redis
 
 // ── DB-backed rate limiter functions ──────────────────────────────────────────
 
