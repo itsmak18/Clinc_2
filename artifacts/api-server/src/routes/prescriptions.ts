@@ -3,9 +3,10 @@ import { db } from "@workspace/db";
 import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, and, inArray } from "drizzle-orm";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
-import { logAudit } from "../lib/audit";
+import { logAudit, logRead } from "../lib/audit";
 import { safeParseInt } from "../lib/validators";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { medicationsSchema } from "../lib/jsonb-schemas";
 
 const router = Router();
 router.use(requireAuth);
@@ -61,19 +62,30 @@ router.post("/prescriptions",
   requireRole("super_admin", "admin", "doctor"),
   async (req: AuthRequest, res) => {
     const { patientId, doctorId, recordId, medications, notes } = req.body;
-    if (!patientId || !doctorId || !medications?.length) {
+    if (!patientId || !doctorId) {
       res.status(400).json({ error: "Missing required fields: patientId, doctorId, medications" });
+      return;
+    }
+
+    // ── JSONB guard: validate medications before any DB write ─────────────
+    const parsedMeds = medicationsSchema.safeParse(medications);
+    if (!parsedMeds.success) {
+      res.status(422).json({
+        error: "Invalid medications format",
+        details: parsedMeds.error.flatten(),
+      });
       return;
     }
 
     // Validate patient exists
     const pid = safeParseInt(String(patientId));
     if (!pid) { res.status(400).json({ error: "Invalid patientId" }); return; }
-    const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable).where(eq(patientsTable.id, pid));
+    const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
+      .where(and(eq(patientsTable.id, pid), isNull(patientsTable.deletedAt)));
     if (!patient) { res.status(404).json({ error: "Patient not found" }); return; }
 
     const [prescription] = await db.insert(prescriptionsTable).values({
-      patientId: pid, doctorId, recordId, medications, notes,
+      patientId: pid, doctorId, recordId, medications: parsedMeds.data, notes,
     }).returning();
     await logAudit(req, "CREATE", "prescription", prescription.id);
     res.status(201).json(prescription);
@@ -83,11 +95,14 @@ router.post("/prescriptions",
 // ── Read single ──────────────────────────────────────────────────────────
 router.get("/prescriptions/:prescriptionId",
   requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"),
-  async (req, res) => {
+  async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.prescriptionId);
     if (!id) { res.status(400).json({ error: "Invalid prescription ID" }); return; }
-    const [prescription] = await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.id, id));
+    // isNull guard: never surface soft-deleted records
+    const [prescription] = await db.select().from(prescriptionsTable)
+      .where(and(eq(prescriptionsTable.id, id), isNull(prescriptionsTable.deletedAt)));
     if (!prescription) { res.status(404).json({ error: "Not found" }); return; }
+    void logRead(req, "prescription", id); // PHI audit
     res.json(prescription);
   }
 );
