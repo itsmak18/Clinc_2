@@ -288,7 +288,7 @@ router.post("/appointments/:appointmentId/checkin", requireRole("super_admin", "
   const notifData = {
     userId: appt.doctorId,
     title: "Patient Arrived",
-    message: `${patient?.fullName || "Patient"} has checked in for their appointment`,
+    message: `A patient has checked in for their appointment (ID: ${appt.id})`,
     type: "patient_arrived" as const,
   };
   const [notif] = await db.insert(notificationsTable).values(notifData).returning();
