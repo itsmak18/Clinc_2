@@ -98,7 +98,7 @@ router.post("/auth/login", async (req: AuthRequest, res) => {
   // Credentials valid — clear lockout counters and issue token
   await Promise.all([recordSuccess(keyByIp), recordSuccess(keyByUsername)]);
 
-  const token = signToken({ userId: user.id, username: user.username, role: user.role });
+  const token = await signToken({ userId: user.id, username: user.username, role: user.role });
   await logLoginEvent(req, "LOGIN_SUCCESS", user.id, { ip, role: user.role });
 
   const isProduction = process.env.NODE_ENV === "production";

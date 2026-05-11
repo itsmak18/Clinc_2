@@ -3,7 +3,6 @@ import { db } from "@workspace/db";
 import { notificationsTable } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
-import { verifyToken } from "../lib/auth";
 import { addSSEClient, removeSSEClient } from "../lib/sse";
 
 const router = Router();
