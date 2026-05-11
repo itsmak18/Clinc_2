@@ -5,10 +5,12 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { correlationId } from "./middlewares/correlationId";
 
 const app: Express = express();
 
 // ── Security headers ────────────────────────────────────────────────────────
+app.use(correlationId); // Must be first: attaches req.id for all subsequent middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {

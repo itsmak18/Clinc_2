@@ -141,6 +141,8 @@ export const navItems: NavItem[] = [
 ];
 
 export function canAccessRoute(href: string, role: UserRole): boolean {
+  // super_admin MUST bypass ALL route guards — architectural invariant.
+  if (role === "super_admin") return true;
   const item = navItems.find(n => {
     if (n.href === "/dashboard") return href === "/" || href === "/dashboard";
     return href === n.href || href.startsWith(n.href + "/");
