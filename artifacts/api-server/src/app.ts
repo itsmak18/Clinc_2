@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
+import { csrfProtect } from "./middlewares/csrf";
 
 const app: Express = express();
 
@@ -52,7 +53,7 @@ app.use(cors({
     }
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  allowedHeaders: ["Content-Type", "X-CSRF-Token"], // X-CSRF-Token required for CSRF protection
   credentials: true,
   maxAge: 86400,
 }));
@@ -76,6 +77,11 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
+
+// ── CSRF protection (double-submit cookie) ─────────────────────────────────────
+// Mounted after cookieParser (needs req.cookies), before routes.
+// safe methods (GET/HEAD/OPTIONS) and /api/auth/login are automatically excluded.
+app.use("/api", csrfProtect);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api", router);

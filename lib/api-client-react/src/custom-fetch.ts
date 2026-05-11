@@ -360,6 +360,19 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
+  // ── CSRF: attach token header for all mutation methods ─────────────────────
+  // The _csrf cookie is non-HttpOnly so JS can read it.
+  // Server validates that cookie value === header value (double-submit pattern).
+  const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+  if (MUTATION_METHODS.has(method) && typeof document !== "undefined") {
+    const csrfCookie = document.cookie
+      .split("; ")
+      .find(row => row.startsWith("_csrf="));
+    if (csrfCookie) {
+      headers.set("X-CSRF-Token", csrfCookie.split("=")[1]);
+    }
+  }
+
   const response = await fetch(input, { ...init, method, headers, credentials: "include" });
 
   if (!response.ok) {
