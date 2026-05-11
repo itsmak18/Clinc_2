@@ -1,0 +1,31 @@
+# .pnpmauditignore
+#
+# Vulnerabilities documented and reviewed here are dev-only tooling CVEs
+# that do not affect the production server runtime.
+#
+# FORMAT: CVE or GHSA ID, one per line
+# Each entry MUST have a documented justification and a review date.
+#
+# Governance: This file must be reviewed quarterly (or on any major dep upgrade).
+# Owner: Engineering team
+# Last reviewed: 2026-05-12
+#
+# ── GHSA-c2c7-rcm5-vvqj (picomatch ReDoS via extglob) ─────────────────────────
+# Affected packages:
+#   - artifacts/api-server → vitest → @vitest/utils → picomatch >=4.0.0 <4.0.4
+#   - artifacts/mockup-sandbox → fast-glob → micromatch → picomatch <2.3.2
+#
+# Risk assessment: LOW
+#   - picomatch is used ONLY in the Vitest test runner (dev) and Vite build tool (dev).
+#   - These packages are NOT bundled into or deployed as the production API server.
+#   - An attacker would need to control glob patterns passed to test utilities,
+#     which is not possible in our threat model (no user input reaches glob calls).
+#   - Production attack surface: ZERO.
+#
+# Remediation status:
+#   - vitest 3.2.4 (current) uses picomatch 4.0.x — fix available in 4.0.4.
+#   - To fix: upgrade vitest when 3.2.5+ is released with picomatch >=4.0.4.
+#   - Tracked in: engineering backlog (upgrade vitest on next minor release)
+#   - Next review date: 2026-08-12 or on vitest 3.2.5+ release, whichever first.
+#
+GHSA-c2c7-rcm5-vvqj

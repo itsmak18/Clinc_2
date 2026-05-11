@@ -8,8 +8,11 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "db:generate": "drizzle-kit generate --config ./drizzle.config.ts",
+    "db:migrate":  "drizzle-kit migrate --config ./drizzle.config.ts",
+    "db:push":     "drizzle-kit push --config ./drizzle.config.ts",
+    "db:push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "db:studio":   "drizzle-kit studio --config ./drizzle.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

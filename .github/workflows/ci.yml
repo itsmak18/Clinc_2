@@ -124,7 +124,7 @@ jobs:
     steps:
       - name: Check all jobs passed
         run: |
-          if [[ "${{ needs.typecheck.result }}" != "success" ||
+          if [["${{ needs.typecheck.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
                 "${{ needs.audit.result }}" != "success" ||
                 "${{ needs.build.result }}" != "success" ]]; then
