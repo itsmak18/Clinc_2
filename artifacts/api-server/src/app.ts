@@ -98,10 +98,12 @@ app.use("/api", csrfProtect);
 // Global rate limiting for all mutation endpoints
 const globalMutationLimiter = ipRateLimit(100, 15 * 60 * 1000);
 app.use("/api", (req, res, next) => {
-  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+  // /auth/login has its own DB-backed rate limiter — skip Redis limiter to avoid
+  // Redis dependency on an unauthenticated, pre-session endpoint.
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && req.path !== "/auth/login") {
     return globalMutationLimiter(req, res, next);
   }
-  next();
+  return next();
 });
 app.use("/api", router);
 

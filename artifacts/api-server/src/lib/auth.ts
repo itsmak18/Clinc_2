@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { randomUUID } from "crypto";
-import { redisClient } from "./redis";
+import { runtime } from "./runtime";
 
 // ---------------------------------------------------------------------------
 // JWT Configuration
@@ -23,7 +23,7 @@ export interface TokenPayload {
   role: string;
   iat: number;
   exp: number;
-  jti: string; // Added JWT ID for tracking/revocation
+  jti: string;
 }
 
 export async function signToken(payload: Omit<TokenPayload, "iat" | "exp" | "jti">): Promise<string> {
@@ -34,30 +34,35 @@ export async function signToken(payload: Omit<TokenPayload, "iat" | "exp" | "jti
     .setExpirationTime("8h")
     .setJti(jti)
     .sign(JWT_SECRET);
-    
+
   return token;
 }
 
 export async function verifyToken(token: string): Promise<TokenPayload> {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET, {
-      algorithms: ["HS256"], // Prevent algorithm confusion attacks
+      algorithms: ["HS256"],
     });
-    
+
     // Check if the user's tokens were revoked after this token was issued
-    const revokedAtStr = await redisClient.get(`revoked_tokens_for_user:${payload.userId}`);
-    if (revokedAtStr) {
-      const revokedAt = parseInt(revokedAtStr, 10);
-      if (payload.iat && payload.iat <= revokedAt) {
+    try {
+      const revokedAt = await runtime.revocationStore.getRevokedAt(payload.userId as number);
+      if (revokedAt !== null && payload.iat && payload.iat <= revokedAt) {
         throw new Error("Token revoked due to privilege change");
       }
+    } catch (storeErr) {
+      if (storeErr instanceof Error && storeErr.message === "Token revoked due to privilege change") {
+        throw storeErr;
+      }
+      // Fail-open: if the store is unavailable, allow the token but warn
+      console.warn("Revocation store unavailable during token check", storeErr);
     }
-    
+
     return payload as unknown as TokenPayload;
   } catch (err) {
     if (err instanceof Error) {
-      if (err.name === 'JWTExpired') throw new Error("Token expired");
-      if (err.message === 'Token revoked due to privilege change') throw err;
+      if (err.name === "JWTExpired") throw new Error("Token expired");
+      if (err.message === "Token revoked due to privilege change") throw err;
     }
     throw new Error("Invalid token");
   }
@@ -65,6 +70,5 @@ export async function verifyToken(token: string): Promise<TokenPayload> {
 
 export async function revokeAllTokensForUser(userId: number): Promise<void> {
   const nowUnix = Math.floor(Date.now() / 1000);
-  // Set revocation timestamp with an 8h expiry (matching max token lifetime)
-  await redisClient.set(`revoked_tokens_for_user:${userId}`, nowUnix.toString(), "EX", 8 * 3600);
+  await runtime.revocationStore.revoke(userId, nowUnix);
 }

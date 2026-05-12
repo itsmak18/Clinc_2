@@ -25,7 +25,7 @@ const CSRF_HEADER_NAME = "x-csrf-token";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Endpoints that are excluded from CSRF checks (pre-auth)
-const CSRF_EXEMPT_PATHS = new Set(["/api/auth/login"]);
+const CSRF_EXEMPT_PATHS = new Set(["/auth/login"]);
 
 /**
  * Generate a CSRF token and set it as a readable (non-HttpOnly) cookie.

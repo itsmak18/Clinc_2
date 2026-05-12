@@ -13,10 +13,10 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
     "bcrypt": "^6.0.0",
-    "zod": "catalog:",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "date-fns-tz": "^3.2.0",
@@ -24,13 +24,14 @@
     "express": "^5",
     "express-rate-limit": "^8.4.1",
     "helmet": "^8.1.0",
+    "ioredis": "^5.3.2",
+    "jose": "^5.2.3",
+    "node-cron": "^3.0.3",
     "pino": "^9",
     "pino-http": "^10",
     "prom-client": "^15.1.0",
-    "node-cron": "^3.0.3",
-    "ioredis": "^5.3.2",
     "rate-limit-redis": "^4.0.0",
-    "jose": "^5.2.3"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -38,12 +39,12 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",
+    "@types/node-cron": "^3.0.11",
+    "@vitest/coverage-v8": "^3.2.2",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
     "thread-stream": "3.1.0",
-    "vitest": "^3.2.2",
-    "@vitest/coverage-v8": "^3.2.2",
-    "@types/node-cron": "^3.0.11"
+    "vitest": "^3.2.2"
   }
 }
