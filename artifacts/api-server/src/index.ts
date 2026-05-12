@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startCronJobs } from "./cron";
+import { runtime } from "./lib/runtime";
 
 const rawPort = process.env["PORT"];
 
@@ -31,7 +32,6 @@ const server = app.listen(port, (err) => {
 async function gracefulShutdown(signal: string) {
   logger.info({ signal }, `Received ${signal}, starting graceful shutdown`);
 
-  // 1. Stop accepting new HTTP requests and finish in-flight ones
   server.close(async (err) => {
     if (err) {
       logger.error({ err }, "Error during HTTP server closure");
@@ -40,16 +40,11 @@ async function gracefulShutdown(signal: string) {
     }
 
     try {
-      // 2. Disconnect Redis clients
-      const { redisClient, redisPublisher, redisSubscriber } = await import("./lib/redis");
-      await Promise.all([
-        redisClient.quit(),
-        redisPublisher.quit(),
-        redisSubscriber.quit(),
-      ]);
-      logger.info("Redis clients gracefully disconnected");
+      // Dispose the runtime (flushes/closes Redis clients or clears memory stores)
+      await runtime.dispose();
+      logger.info("Runtime disposed");
 
-      // 3. Drain Database connection pool
+      // Drain database connection pool
       const { pool } = await import("@workspace/db");
       await pool.end();
       logger.info("PostgreSQL database pool drained");
@@ -69,6 +64,5 @@ async function gracefulShutdown(signal: string) {
   }, 10000).unref();
 }
 
-// Listen for termination signals (from Docker/Kubernetes/Replit)
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));

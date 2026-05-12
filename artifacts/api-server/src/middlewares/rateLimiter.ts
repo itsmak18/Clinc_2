@@ -3,8 +3,7 @@ import { db } from "@workspace/db";
 import { loginAttemptsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import rateLimit from "express-rate-limit";
-import RedisStore from "rate-limit-redis";
-import { redisClient } from "../lib/redis";
+import { runtime } from "../lib/runtime";
 
 const WINDOW_MS    = 15 * 60 * 1000;  // 15-minute sliding window
 const MAX_ATTEMPTS = 5;
@@ -80,7 +79,7 @@ export async function getRemainingAttempts(key: string): Promise<number> {
 
 /**
  * General-purpose IP rate limiter middleware for non-login endpoints.
- * Uses Redis to synchronize rate limits across horizontally scaled instances.
+ * Uses the runtime store — Redis in production, MemoryStore in local dev.
  */
 export function ipRateLimit(maxPerWindow: number, windowMs: number) {
   return rateLimit({
@@ -89,11 +88,6 @@ export function ipRateLimit(maxPerWindow: number, windowMs: number) {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests. Please try again later." },
-    store: new RedisStore({
-      sendCommand: (...args: string[]) => {
-        const [command, ...rest] = args;
-        return redisClient.call(command, ...rest) as any;
-      },
-    }),
+    store: runtime.rateStore.createExpressStore(),
   });
 }
