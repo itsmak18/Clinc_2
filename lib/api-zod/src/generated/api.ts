@@ -43,7 +43,6 @@ export const LoginResponse = zod.object({
     phone: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
-  token: zod.string(),
 });
 
 /**

@@ -1833,9 +1833,7 @@ components:
       properties:
         user:
           $ref: "#/components/schemas/User"
-        token:
-          type: string
-      required: [user, token]
+      required: [user]
 
     User:
       type: object
