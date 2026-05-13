@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm run build && pnpm run start",
     "build": "node ./build.mjs",
-    "start": "node --enable-source-maps ./dist/index.mjs",
+    "start": "node --enable-source-maps --env-file-if-exists=../../.env ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -35,6 +35,8 @@
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.1.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

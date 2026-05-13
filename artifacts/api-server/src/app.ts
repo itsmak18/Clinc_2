@@ -9,23 +9,14 @@ import { correlationId } from "./middlewares/correlationId";
 import { csrfProtect } from "./middlewares/csrf";
 import { metricsMiddleware, getMetrics } from "./lib/metrics";
 import { ipRateLimit } from "./middlewares/rateLimiter";
+import { cspDirectives } from "./lib/csp";
 
 const app: Express = express();
 
 // ── Security headers ────────────────────────────────────────────────────────
 app.use(correlationId); // Must be first: attaches req.id for all subsequent middleware
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc:  ["'self'"],
-      styleSrc:   ["'self'", "'unsafe-inline'"],
-      imgSrc:     ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      frameSrc:   ["'none'"],
-      objectSrc:  ["'none'"],
-    },
-  },
+  contentSecurityPolicy: { directives: cspDirectives },
   crossOriginEmbedderPolicy: false, // Relaxed for Replit proxy
 }));
 

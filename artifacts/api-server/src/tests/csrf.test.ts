@@ -127,8 +127,10 @@ describe("csrfProtect", () => {
 
   // ── Exempt paths ───────────────────────────────────────────────────────────
 
-  it("skips check for /api/auth/login (pre-auth exempt)", () => {
-    const req = makeReq({ method: "POST", path: "/api/auth/login", cookies: {}, headers: {} });
+  it("skips check for /auth/login (pre-auth exempt, path as seen after Express strips /api prefix)", () => {
+    // app.use("/api", csrfProtect) causes Express to strip the "/api" mount prefix
+    // before calling this middleware, so req.path is "/auth/login", not "/api/auth/login".
+    const req = makeReq({ method: "POST", path: "/auth/login", cookies: {}, headers: {} });
     const res = makeRes();
     csrfProtect(req, res, next);
     expect(next).toHaveBeenCalledOnce();

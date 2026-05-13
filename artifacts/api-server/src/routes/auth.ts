@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, auditLogsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
-import { signToken } from "../lib/auth";
+import { signToken, revokeAllTokensForUser } from "../lib/auth";
 import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrength } from "../lib/password";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { checkAllowed, recordFailure, recordSuccess, getRemainingAttempts } from "../middlewares/rateLimiter";
@@ -138,6 +138,12 @@ router.post("/auth/logout", requireAuth, async (req: AuthRequest, res) => {
       details: null,
     });
   } catch { /* non-blocking */ }
+
+  try {
+    await revokeAllTokensForUser(req.user!.userId);
+  } catch (err) {
+    req.log?.warn({ err, userId: req.user!.userId }, "logout revocation failed; clearing cookie anyway");
+  }
 
   res.clearCookie("clinic_token", {
     httpOnly: true,

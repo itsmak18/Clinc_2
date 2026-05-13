@@ -44,7 +44,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
+    const csrfToken = typeof document !== "undefined"
+      ? document.cookie.split("; ").find(row => row.startsWith("_csrf="))?.split("=")[1]
+      : undefined;
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+      headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+    }).catch(() => {});
     setUser(null);
     queryClient.clear();
   };
