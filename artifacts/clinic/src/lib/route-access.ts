@@ -60,7 +60,7 @@ export const navItems: NavItem[] = [
     href: "/prescriptions",
     icon: Pill,
     labelKey: "prescriptions",
-    roles: ["super_admin", "admin", "doctor", "nurse", "lab_staff"],
+    roles: ["super_admin", "admin", "doctor", "nurse", "lab_staff", "pharmacist"],
   },
   {
     key: "xray",
@@ -88,7 +88,7 @@ export const navItems: NavItem[] = [
     href: "/billing",
     icon: Receipt,
     labelKey: "billing",
-    roles: ["super_admin", "admin", "front_desk"],
+    roles: ["super_admin", "admin", "front_desk", "billing_manager"],
   },
   {
     key: "operations",
@@ -129,7 +129,7 @@ export const navItems: NavItem[] = [
     href: "/audit",
     icon: Shield,
     labelKey: "audit",
-    roles: ["super_admin"],
+    roles: ["super_admin", "compliance_officer"],
   },
   {
     key: "settings",

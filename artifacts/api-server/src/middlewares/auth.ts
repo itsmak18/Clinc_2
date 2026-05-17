@@ -13,7 +13,10 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     return;
   }
   try {
-    const payload = await verifyToken(rawToken);
+    const payload = await verifyToken(rawToken, {
+      "user-agent": req.headers["user-agent"],
+      "accept-language": req.headers["accept-language"],
+    });
     req.user = { userId: payload.userId, username: payload.username, role: payload.role };
     next();
   } catch {

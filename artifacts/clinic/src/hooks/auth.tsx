@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-export type UserRole = "super_admin" | "admin" | "doctor" | "nurse" | "front_desk" | "xray_staff" | "lab_staff";
+export type UserRole = "super_admin" | "admin" | "doctor" | "nurse" | "front_desk" | "xray_staff" | "lab_staff" | "compliance_officer" | "billing_manager" | "pharmacist";
 
 export interface AuthUser {
   id: number;
