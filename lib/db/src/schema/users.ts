@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, pgEnum, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -10,6 +10,9 @@ export const userRoleEnum = pgEnum("user_role", [
   "front_desk",
   "xray_staff",
   "lab_staff",
+  "compliance_officer",
+  "billing_manager",
+  "pharmacist",
 ]);
 
 export const usersTable = pgTable("users", {
@@ -25,6 +28,9 @@ export const usersTable = pgTable("users", {
   phone: text("phone"),
   specialty: text("specialty"),   // N-06: nullable, meaningful for role=doctor
   department: text("department"), // N-06: nullable, for any role
+  mfaSecret: text("mfa_secret"),
+  mfaEnrolledAt: timestamp("mfa_enrolled_at"),
+  mfaRecoveryCodesHash: jsonb("mfa_recovery_codes_hash").$type<string[]>(),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

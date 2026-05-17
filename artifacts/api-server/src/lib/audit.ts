@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db";
 import type { Request } from "express";
 
-export async function logRead(req: Request, entityType: string, entityId: number) {
+export async function logRead(req: Request, entityType: string, entityId?: number) {
   return logAudit(req, "READ", entityType, entityId);
 }
 

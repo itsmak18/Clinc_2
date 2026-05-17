@@ -46,6 +46,13 @@ async function seed() {
     { username: "lab_tech", passwordHash: await hashPassword("lab123"), fullName: "Nora Al-Shammari", fullNameAr: "نورة الشمري", email: "nora@medicore.com", role: "lab_staff" },
   ]).returning();
 
+  // New role seed users
+  await db.insert(usersTable).values([
+    { username: "compliance", passwordHash: await hashPassword("comply123"), fullName: "Compliance Officer", fullNameAr: "ضابط الامتثال", email: "compliance@medicore.com", role: "compliance_officer" },
+    { username: "billing_mgr", passwordHash: await hashPassword("billing123"), fullName: "Billing Manager", fullNameAr: "مدير الفواتير", email: "billing@medicore.com", role: "billing_manager" },
+    { username: "pharmacist1", passwordHash: await hashPassword("pharma123"), fullName: "Pharmacist Al-Jabri", fullNameAr: "صيدلاني الجابري", email: "pharmacy@medicore.com", role: "pharmacist" },
+  ]);
+
   console.log("Users created.");
 
   // Patients
