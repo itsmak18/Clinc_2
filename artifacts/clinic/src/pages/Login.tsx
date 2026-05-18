@@ -3,26 +3,29 @@ import { useLocation } from "wouter";
 import { useLogin } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/auth";
 import { useI18n } from "@/hooks/i18n";
+import { getLandingRoute } from "@/lib/route-access";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Activity, Eye, EyeOff } from "lucide-react";
+import { Activity, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const { login } = useAuth();
   const { t } = useI18n();
   const { toast } = useToast();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
   const loginMutation = useLogin({
     mutation: {
-      onSuccess: (data) => {
-        login(data.user as any);
-        setLocation("/dashboard");
+      onSuccess: (data: any) => {
+        login(data.user);
+        setLocation(getLandingRoute(data.user.role));
       },
       onError: () => {
         toast({ title: "Login failed", description: "Invalid username or password", variant: "destructive" });
@@ -34,6 +37,8 @@ export default function Login() {
     e.preventDefault();
     loginMutation.mutate({ data: { username, password } });
   };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen flex bg-background">

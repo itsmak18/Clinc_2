@@ -25,9 +25,11 @@ if (process.env["NODE_ENV"] === "production" && sessionStore === "memory") {
   );
 }
 
-function buildRuntime(): Runtime {
+// Uses dynamic import() instead of require() so this module works correctly
+// under both Vitest (native ESM, no banner shim) and the esbuild prod bundle.
+async function buildRuntime(): Promise<Runtime> {
   if (sessionStore === "redis") {
-    const Redis = require("ioredis") as typeof import("ioredis").default;
+    const { default: Redis } = await import("ioredis");
     const REDIS_URL = process.env["REDIS_URL"] || "redis://localhost:6379";
     const opts = { maxRetriesPerRequest: null, enableReadyCheck: false };
 
@@ -35,9 +37,9 @@ function buildRuntime(): Runtime {
     const subscriber = new Redis(REDIS_URL, opts);
     const client = new Redis(REDIS_URL, opts);
 
-    const { createRedisEventBus } = require("./redis/event-bus") as typeof import("./redis/event-bus");
-    const { createRedisRateStore } = require("./redis/rate-store") as typeof import("./redis/rate-store");
-    const { createRedisRevocationStore } = require("./redis/revocation-store") as typeof import("./redis/revocation-store");
+    const { createRedisEventBus } = await import("./redis/event-bus");
+    const { createRedisRateStore } = await import("./redis/rate-store");
+    const { createRedisRevocationStore } = await import("./redis/revocation-store");
 
     const eventBus = createRedisEventBus(publisher, subscriber);
     const rateStore = createRedisRateStore(client);
@@ -58,9 +60,9 @@ function buildRuntime(): Runtime {
     };
   }
 
-  const { createMemoryEventBus } = require("./memory/event-bus") as typeof import("./memory/event-bus");
-  const { createMemoryRateStore } = require("./memory/rate-store") as typeof import("./memory/rate-store");
-  const { createMemoryRevocationStore } = require("./memory/revocation-store") as typeof import("./memory/revocation-store");
+  const { createMemoryEventBus } = await import("./memory/event-bus");
+  const { createMemoryRateStore } = await import("./memory/rate-store");
+  const { createMemoryRevocationStore } = await import("./memory/revocation-store");
 
   const eventBus = createMemoryEventBus();
   const rateStore = createMemoryRateStore();
@@ -82,4 +84,7 @@ function buildRuntime(): Runtime {
   };
 }
 
-export const runtime = buildRuntime();
+// Top-level await — valid in ESM (package.json "type": "module", target: "es2022").
+// This fixes the Vitest ESM mode failure caused by require() calls that only
+// worked under the esbuild banner shim in the prod build.
+export const runtime = await buildRuntime();

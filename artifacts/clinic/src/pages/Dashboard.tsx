@@ -1,4 +1,10 @@
 import DoctorDashboard from "./DoctorDashboard";
+import ComplianceDashboard from "./ComplianceDashboard";
+import BillingDashboard from "./BillingDashboard";
+import PharmacistDashboard from "./PharmacistDashboard";
+import NurseDashboard from "./NurseDashboard";
+import FrontDeskDashboard from "./FrontDeskDashboard";
+import ImagingDashboard from "./ImagingDashboard";
 import {
   useGetDashboardSummary,
   useGetRecentActivity,
@@ -79,7 +85,14 @@ export default function Dashboard() {
   const { t, language } = useI18n();
   const { user } = useAuth();
 
-  if (user?.role === "doctor") return <DoctorDashboard />;
+  if (user?.role === "doctor")             return <DoctorDashboard />;
+  if (user?.role === "compliance_officer") return <ComplianceDashboard />;
+  if (user?.role === "billing_manager")    return <BillingDashboard />;
+  if (user?.role === "pharmacist")         return <PharmacistDashboard />;
+  if (user?.role === "nurse")              return <NurseDashboard />;
+  if (user?.role === "front_desk")         return <FrontDeskDashboard />;
+  if (user?.role === "xray_staff")         return <ImagingDashboard domain="xray" />;
+  if (user?.role === "lab_staff")          return <ImagingDashboard domain="lab" />;
 
   const qc = useQueryClient();
   const [, navigate] = useLocation();
@@ -160,7 +173,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title={t("dashboard")}
-        subtitle={`Welcome back, ${user?.fullName}`}
+        subtitle={`${t("welcome")}, ${user?.fullName}`}
       />
       <div className="p-6 space-y-6">
 
@@ -208,7 +221,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
           {loadingSummary
             ? Array.from({ length: 10 }).map((_, i) => (
                 <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
@@ -251,10 +264,10 @@ export default function Dashboard() {
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Activity className="w-4 h-4 text-primary" />
-              Live Patient Flow
+              {t("livePatientFlow")}
               {flow && (
                 <span className="ms-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-medium">
-                  {flow.activePatients} active
+                  {flow.activePatients} {t("activeCount")}
                 </span>
               )}
               <div className="ms-auto flex items-center gap-2 text-xs font-normal text-muted-foreground">
@@ -263,13 +276,13 @@ export default function Dashboard() {
                 ) : (
                   <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {secAgo < 5 ? "just now" : `${secAgo}s ago`}
+                    {secAgo < 5 ? t("justNow") : `${secAgo}${t("secondsAgo")}`}
                   </span>
                 )}
                 <button
                   onClick={handleManualRefresh}
                   className="p-1 rounded hover:bg-muted transition-colors"
-                  title="Refresh now"
+                  title={t("refreshNow")}
                 >
                   <RefreshCw className="w-3 h-3" />
                 </button>
@@ -310,21 +323,21 @@ export default function Dashboard() {
               <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground border-t border-border/50 pt-3">
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span className="font-medium text-foreground">Arrival → Triage:</span>
+                  <span className="font-medium text-foreground">{t("arrivalToTriage")}:</span>
                   {fmtWait(flow.avgWaitMins.arrivalToTriage)}
                 </span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span className="font-medium text-foreground">Triage → Consultation:</span>
+                  <span className="font-medium text-foreground">{t("triageToConsultation")}:</span>
                   {fmtWait(flow.avgWaitMins.triageToConsultation)}
                 </span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span className="font-medium text-foreground">Consultation → Done:</span>
+                  <span className="font-medium text-foreground">{t("consultationToDone")}:</span>
                   {fmtWait(flow.avgWaitMins.consultationToPayment)}
                 </span>
                 <span className="ms-auto text-[11px]">
-                  {flow.totalToday} patients today · {flow.stageCounts.completed} completed · {flow.stageCounts.cancelled} cancelled
+                  {flow.totalToday} {t("patientsToday")} · {flow.stageCounts.completed} {t("doneShort")} · {flow.stageCounts.cancelled} {t("cancelledCount")}
                 </span>
               </div>
             )}
@@ -462,15 +475,15 @@ export default function Dashboard() {
                 {t("todayAppointments")}
                 {todayAppts && (
                   <span className="ms-auto flex gap-3 text-xs font-normal text-muted-foreground">
-                    <span className="text-yellow-600">{todayAppts.checkedIn} checked in</span>
-                    <span className="text-green-600">{todayAppts.completed} done</span>
+                    <span className="text-yellow-600">{todayAppts.checkedIn} {t("checkedInShort")}</span>
+                    <span className="text-green-600">{todayAppts.completed} {t("doneShort")}</span>
                   </span>
                 )}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               {!todayAppts?.appointments?.length ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">No appointments today</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{t("noAppointmentsToday")}</p>
               ) : (
                 <div className="space-y-2">
                   {todayAppts.appointments.slice(0, 8).map((apt, i) => (
@@ -503,7 +516,7 @@ export default function Dashboard() {
                   ))}
                 </div>
               ) : !activity?.length ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">No recent activity</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{t("noRecentActivity")}</p>
               ) : (
                 <div className="space-y-2">
                   {activity.slice(0, 10).map((item, i) => (

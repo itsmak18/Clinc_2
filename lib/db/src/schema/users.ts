@@ -28,9 +28,6 @@ export const usersTable = pgTable("users", {
   phone: text("phone"),
   specialty: text("specialty"),   // N-06: nullable, meaningful for role=doctor
   department: text("department"), // N-06: nullable, for any role
-  mfaSecret: text("mfa_secret"),
-  mfaEnrolledAt: timestamp("mfa_enrolled_at"),
-  mfaRecoveryCodesHash: jsonb("mfa_recovery_codes_hash").$type<string[]>(),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

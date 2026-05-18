@@ -6,11 +6,83 @@ import { useIdleTimeout } from "@/hooks/use-idle-timeout";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { useListNotifications, getListNotificationsQueryKey } from "@workspace/api-client-react";
-import { LogOut, Globe, Activity, CalendarDays, Moon, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  useListNotifications, getListNotificationsQueryKey,
+  useGetNurseDashboard, getGetNurseDashboardQueryKey,
+  useGetFrontDeskDashboard, getGetFrontDeskDashboardQueryKey,
+  useGetBillingDashboard, getGetBillingDashboardQueryKey,
+} from "@workspace/api-client-react";
+import { LogOut, Globe, Activity, CalendarDays, Moon, Sun, UserPlus, CalendarPlus, Stethoscope } from "lucide-react";
 import GlobalSearch from "@/components/GlobalSearch";
-import { navItems } from "@/lib/route-access";
+import { navItems, navPinnedByRole } from "@/lib/route-access";
 import { useEffect, useState } from "react";
+
+function NurseContextLine() {
+  const { t } = useI18n();
+  const { data } = useGetNurseDashboard({ query: { queryKey: getGetNurseDashboardQueryKey(), staleTime: 30000 } });
+  if (!data) return null;
+  const waiting = data.vitalsPending?.length ?? 0;
+  return <span className="text-xs text-muted-foreground">{waiting} {t("nurseVitalsPending")}</span>;
+}
+
+function FrontDeskContextLine() {
+  const { t } = useI18n();
+  const { data } = useGetFrontDeskDashboard({ query: { queryKey: getGetFrontDeskDashboardQueryKey(), staleTime: 30000 } });
+  if (!data) return null;
+  return <span className="text-xs text-muted-foreground">{data.totalToday} {t("frontDeskTotalToday").toLowerCase()}</span>;
+}
+
+function BillingContextLine() {
+  const { t } = useI18n();
+  const { data } = useGetBillingDashboard({ query: { queryKey: getGetBillingDashboardQueryKey(), staleTime: 30000 } });
+  if (!data) return null;
+  return <span className="text-xs text-muted-foreground">{data.pendingCount} {t("billingPendingInvoices").toLowerCase()}</span>;
+}
+
+function RoleContextLine({ role }: { role: string }) {
+  if (role === "nurse")           return <NurseContextLine />;
+  if (role === "front_desk")      return <FrontDeskContextLine />;
+  if (role === "billing_manager") return <BillingContextLine />;
+  return null;
+}
+
+function RoleQuickActions({ role }: { role: string }) {
+  const { t } = useI18n();
+  const [, setLocation] = useLocation();
+
+  if (role === "nurse") {
+    return (
+      <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 gap-1" onClick={() => setLocation("/triage")}>
+        <Stethoscope className="w-3 h-3" />
+        {t("triage")}
+      </Button>
+    );
+  }
+  if (role === "front_desk") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 gap-1" onClick={() => setLocation("/appointments?new=1")}>
+          <CalendarPlus className="w-3 h-3" />
+          {t("newAppointment")}
+        </Button>
+        <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 gap-1" onClick={() => setLocation("/patients?new=1")}>
+          <UserPlus className="w-3 h-3" />
+          {t("newPatient")}
+        </Button>
+      </div>
+    );
+  }
+  if (role === "billing_manager") {
+    return (
+      <Button size="sm" variant="outline" className="h-6 text-[11px] px-2 gap-1" onClick={() => setLocation("/billing")}>
+        <Activity className="w-3 h-3" />
+        {t("billing")}
+      </Button>
+    );
+  }
+  return null;
+}
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -45,10 +117,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   );
   const unreadCount = notifications?.length ?? 0;
 
-  const visibleItems = navItems.filter(item => {
-    if (!item.roles) return true;
-    return user && item.roles.includes(user.role);
-  });
+  const visibleItems = (() => {
+    const filtered = navItems.filter(item => {
+      if (!item.roles) return true;
+      return user && item.roles.includes(user.role);
+    });
+    if (!user) return filtered;
+    const pinned = navPinnedByRole[user.role] ?? [];
+    if (!pinned.length) return filtered;
+    const pinnedItems = pinned
+      .map(key => filtered.find(i => i.key === key))
+      .filter(Boolean) as typeof filtered;
+    const rest = filtered.filter(i => !pinned.includes(i.key));
+    return [...rest.slice(0, 1), ...pinnedItems, ...rest.slice(1)];
+  })();
 
   const isActive = (href: string) => {
     if (href === "/dashboard") return location === "/" || location === "/dashboard";
@@ -138,9 +220,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Top bar */}
         {user && (
           <div className="h-10 px-4 flex items-center justify-between border-b border-border bg-background/80 backdrop-blur-sm flex-shrink-0">
-            <span className="text-xs text-muted-foreground">
-              {t("welcome")}, <span className="font-medium text-foreground">{user.fullName}</span>
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                {t("welcome")}, <span className="font-medium text-foreground">{user.fullName}</span>
+              </span>
+              <RoleContextLine role={user.role} />
+              <RoleQuickActions role={user.role} />
+            </div>
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <CalendarDays className="w-3.5 h-3.5" />
               {new Date().toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}

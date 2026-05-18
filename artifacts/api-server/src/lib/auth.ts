@@ -40,6 +40,9 @@ const ROLE_TTL: Record<string, string> = {
   pharmacist:         "4h",
 };
 
+/** The longest per-role JWT TTL in seconds. Used by revocation stores to bound sweep/eviction windows. */
+export { MAX_ROLE_TTL_SEC } from "./auth-constants";
+
 export function fingerprintRequest(userAgent: string | undefined, acceptLang: string | undefined): string {
   return createHash("sha256")
     .update(`${userAgent ?? ""}|${acceptLang ?? ""}`)
@@ -86,8 +89,8 @@ export async function verifyToken(
       if (storeErr instanceof Error && storeErr.message === "Token revoked due to privilege change") {
         throw storeErr;
       }
-      // Fail-open: if the store is unavailable, allow the token but warn
-      console.warn("Revocation store unavailable during token check", storeErr);
+      // Fail-closed: revocation store unavailable → reject token (aligns with v7 kernel)
+      throw new Error("Token verification unavailable — try again");
     }
 
     // Fingerprint binding: reject if token has fph and it doesn't match current request

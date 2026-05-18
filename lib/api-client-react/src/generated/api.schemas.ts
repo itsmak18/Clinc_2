@@ -776,6 +776,166 @@ export interface ActivityItem {
   createdAt: string;
 }
 
+export type FrontDeskDashboardStatusCounts = {
+  scheduled: number;
+  checked_in: number;
+  completed: number;
+  cancelled: number;
+  no_show: number;
+  in_progress: number;
+};
+
+export type FrontDeskDashboardSourceCounts = {
+  walk_in: number;
+  phone: number;
+  online: number;
+};
+
+export interface FrontDeskDashboard {
+  totalToday: number;
+  statusCounts: FrontDeskDashboardStatusCounts;
+  sourceCounts: FrontDeskDashboardSourceCounts;
+  noShowCount: number;
+  pendingInvoiceCount: number;
+  pendingInvoiceSum: number;
+}
+
+export type NurseDashboardTriageCounts = {
+  checked_in: number;
+  in_triage: number;
+  ready_for_doctor: number;
+  in_consultation: number;
+};
+
+export type NurseDashboardPriorityCounts = {
+  critical: number;
+  urgent: number;
+  normal: number;
+};
+
+export type NurseDashboardVitalsPendingItem = {
+  id: number;
+  patientId: number;
+  priority: string;
+  checkedInAt?: string | null;
+};
+
+export interface NurseDashboard {
+  triageCounts: NurseDashboardTriageCounts;
+  priorityCounts: NurseDashboardPriorityCounts;
+  vitalsPending: NurseDashboardVitalsPendingItem[];
+  todayTotal: number;
+  todayCheckedIn: number;
+}
+
+export type PharmacistDashboardRecentPrescriptionsItem = {
+  id: number;
+  patientId: number;
+  doctorName: string;
+  medicationCount: number;
+  createdAt: string;
+};
+
+export type PharmacistDashboardLowStockItemsItem = {
+  id: number;
+  name: string;
+  category: string;
+  quantity: number;
+  minimumStock: number;
+  unit: string;
+};
+
+export interface PharmacistDashboard {
+  todayCount: number;
+  weekCount: number;
+  recentPrescriptions: PharmacistDashboardRecentPrescriptionsItem[];
+  lowStockItems: PharmacistDashboardLowStockItemsItem[];
+}
+
+export type BillingDashboardRecentPaymentsItem = {
+  id: number;
+  invoiceNumber: string;
+  total: number;
+  paidAt?: string | null;
+};
+
+export type BillingDashboardRecentCancellationsItem = {
+  id: number;
+  invoiceNumber: string;
+  total: number;
+  updatedAt: string;
+};
+
+export type BillingDashboardDailyRevenueItem = {
+  day: string;
+  amount: number;
+};
+
+export interface BillingDashboard {
+  todayRevenue: number;
+  weekRevenue: number;
+  monthRevenue: number;
+  pendingCount: number;
+  pendingSum: number;
+  recentPayments: BillingDashboardRecentPaymentsItem[];
+  recentCancellations: BillingDashboardRecentCancellationsItem[];
+  dailyRevenue: BillingDashboardDailyRevenueItem[];
+}
+
+export type ComplianceDashboardTopEntitiesItem = {
+  entityType: string;
+  count: number;
+};
+
+export type ComplianceDashboardTopUsersItem = {
+  userId: number;
+  fullName: string;
+  role: string;
+  count: number;
+};
+
+export type ComplianceDashboardRecentDeniedItem = {
+  id: number;
+  action: string;
+  entityType: string;
+  entityId?: number | null;
+  createdAt: string;
+  userName: string;
+  userRole: string;
+};
+
+export type ComplianceDashboardDailyTrendItem = {
+  day: string;
+  count: number;
+};
+
+export interface ComplianceDashboard {
+  todayEvents: number;
+  todayDenied: number;
+  weekEvents: number;
+  deniedRate: number;
+  topEntities: ComplianceDashboardTopEntitiesItem[];
+  topUsers: ComplianceDashboardTopUsersItem[];
+  recentDenied: ComplianceDashboardRecentDeniedItem[];
+  dailyTrend: ComplianceDashboardDailyTrendItem[];
+}
+
+export type ImagingDashboardRecentItemsItem = {
+  id: number;
+  patientId: number;
+  status: string;
+  createdAt: string;
+};
+
+export interface ImagingDashboard {
+  firstCount: number;
+  secondCount: number;
+  thirdCount: number;
+  todayCount: number;
+  weekCount: number;
+  recentItems: ImagingDashboardRecentItemsItem[];
+}
+
 export type AppointmentReportByDoctorItem = {
   doctorId: number;
   doctorName: string;

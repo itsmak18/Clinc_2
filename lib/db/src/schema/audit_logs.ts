@@ -12,6 +12,7 @@ export const auditLogsTable = pgTable("audit_logs", {
   ipAddress: text("ip_address").notNull(),
   userAgent: text("user_agent"),
   details: jsonb("details"),
+  requestId: text("request_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => {
   return {

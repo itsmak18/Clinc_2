@@ -140,9 +140,35 @@ export const navItems: NavItem[] = [
   },
 ];
 
+export function getLandingRoute(role: UserRole): string {
+  switch (role) {
+    case "nurse":              return "/triage";
+    case "front_desk":         return "/appointments";
+    case "xray_staff":         return "/xray";
+    case "lab_staff":          return "/lab";
+    case "compliance_officer": return "/audit";
+    case "billing_manager":    return "/billing";
+    case "pharmacist":         return "/prescriptions";
+    default:                   return "/dashboard";
+  }
+}
+
+export const navPinnedByRole: Partial<Record<UserRole, string[]>> = {
+  nurse:              ["triage", "patients", "appointments"],
+  front_desk:         ["appointments", "patients", "billing"],
+  xray_staff:         ["xray", "patients", "appointments"],
+  lab_staff:          ["lab", "patients", "appointments"],
+  compliance_officer: ["audit"],
+  billing_manager:    ["billing"],
+  pharmacist:         ["prescriptions"],
+  doctor:             ["patients", "appointments", "medical-records"],
+};
+
 export function canAccessRoute(href: string, role: UserRole): boolean {
   // super_admin MUST bypass ALL route guards — architectural invariant.
   if (role === "super_admin") return true;
+  // /mfa-setup is always accessible — any authenticated user may need it.
+  if (href === "/mfa-setup") return true;
   const item = navItems.find(n => {
     if (n.href === "/dashboard") return href === "/" || href === "/dashboard";
     return href === n.href || href.startsWith(n.href + "/");
@@ -150,3 +176,4 @@ export function canAccessRoute(href: string, role: UserRole): boolean {
   if (!item || !item.roles) return true;
   return item.roles.includes(role);
 }
+

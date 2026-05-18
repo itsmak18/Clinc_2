@@ -53,7 +53,21 @@ If the system detects a spike in 429 Too Many Requests errors:
 *   **Users cannot log in:** Verify the DB connection. Check if the user is locked out due to rate limiting.
 *   **Performance degradation:** Check memory usage and DB pool stats in the readiness probe. Review slow query logs in PostgreSQL.
 
-## 5. Service Level Agreement (SLA) & Uptime Target
+## 5. Symptom: Users Logged Out Unexpectedly Mid-Session
+
+**Likely cause**: Browser auto-update changed the `User-Agent` header → `fph` fingerprint mismatch → server rejects token with error code `1004` (`AUTH_TOKEN_FINGERPRINT_MISMATCH`). The frontend shows a toast: *"Your session was invalidated because your browser changed."*
+
+**Recovery**: User logs in again. The session was **not compromised** — the fingerprint binding is working as designed.
+
+**If widespread (e.g., Chrome pushed a silent update across all workstations)**:
+1. Set `FINGERPRINT_BINDING=disabled` in the environment.
+2. Restart the API server.
+3. Notify affected staff to log in again.
+4. Re-enable `FINGERPRINT_BINDING` (remove the env var) after the update wave completes and all users have re-authenticated.
+
+**Note**: Fingerprint binding only applies to tokens that were originally issued with an `fph` claim. Tokens without `fph` (e.g., issued before fingerprint binding was enabled) are unaffected.
+
+## 6. Service Level Agreement (SLA) & Uptime Target
 
 MediCore maintains a **99.9% uptime target** for all critical API endpoints (e.g., patient lookup, appointment booking, authentication).
 *   **Target uptime:** 99.9% (~43m of acceptable downtime per month).

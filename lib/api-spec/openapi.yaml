@@ -1531,6 +1531,97 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityItem"
 
+  /dashboard/front-desk:
+    get:
+      operationId: getFrontDeskDashboard
+      tags: [dashboard]
+      summary: Get front desk dashboard stats
+      responses:
+        "200":
+          description: Front desk dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FrontDeskDashboard"
+
+  /dashboard/nurse:
+    get:
+      operationId: getNurseDashboard
+      tags: [dashboard]
+      summary: Get nurse dashboard stats
+      responses:
+        "200":
+          description: Nurse dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NurseDashboard"
+
+  /dashboard/pharmacy:
+    get:
+      operationId: getPharmacistDashboard
+      tags: [dashboard]
+      summary: Get pharmacist dashboard stats
+      responses:
+        "200":
+          description: Pharmacist dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PharmacistDashboard"
+
+  /dashboard/billing:
+    get:
+      operationId: getBillingDashboard
+      tags: [dashboard]
+      summary: Get billing manager dashboard stats
+      responses:
+        "200":
+          description: Billing dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDashboard"
+
+  /dashboard/compliance:
+    get:
+      operationId: getComplianceDashboard
+      tags: [dashboard]
+      summary: Get compliance officer dashboard stats
+      responses:
+        "200":
+          description: Compliance dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceDashboard"
+
+  /dashboard/imaging:
+    get:
+      operationId: getImagingDashboard
+      tags: [dashboard]
+      summary: Get X-ray imaging dashboard stats
+      responses:
+        "200":
+          description: Imaging dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagingDashboard"
+
+  /dashboard/lab:
+    get:
+      operationId: getLabDashboard
+      tags: [dashboard]
+      summary: Get lab dashboard stats
+      responses:
+        "200":
+          description: Lab dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagingDashboard"
+
   /reports/appointments:
     get:
       operationId: getAppointmentReport
@@ -2911,6 +3002,291 @@ components:
           type: string
           format: date-time
       required: [id, type, description, userId, userName, createdAt]
+
+    FrontDeskDashboard:
+      type: object
+      properties:
+        totalToday:
+          type: integer
+        statusCounts:
+          type: object
+          properties:
+            scheduled:
+              type: integer
+            checked_in:
+              type: integer
+            completed:
+              type: integer
+            cancelled:
+              type: integer
+            no_show:
+              type: integer
+            in_progress:
+              type: integer
+          required: [scheduled, checked_in, completed, cancelled, no_show, in_progress]
+        sourceCounts:
+          type: object
+          properties:
+            walk_in:
+              type: integer
+            phone:
+              type: integer
+            online:
+              type: integer
+          required: [walk_in, phone, online]
+        noShowCount:
+          type: integer
+        pendingInvoiceCount:
+          type: integer
+        pendingInvoiceSum:
+          type: number
+      required: [totalToday, statusCounts, sourceCounts, noShowCount, pendingInvoiceCount, pendingInvoiceSum]
+
+    NurseDashboard:
+      type: object
+      properties:
+        triageCounts:
+          type: object
+          properties:
+            checked_in:
+              type: integer
+            in_triage:
+              type: integer
+            ready_for_doctor:
+              type: integer
+            in_consultation:
+              type: integer
+          required: [checked_in, in_triage, ready_for_doctor, in_consultation]
+        priorityCounts:
+          type: object
+          properties:
+            critical:
+              type: integer
+            urgent:
+              type: integer
+            normal:
+              type: integer
+          required: [critical, urgent, normal]
+        vitalsPending:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              patientId:
+                type: integer
+              priority:
+                type: string
+              checkedInAt:
+                type: string
+                format: date-time
+                nullable: true
+            required: [id, patientId, priority]
+        todayTotal:
+          type: integer
+        todayCheckedIn:
+          type: integer
+      required: [triageCounts, priorityCounts, vitalsPending, todayTotal, todayCheckedIn]
+
+    PharmacistDashboard:
+      type: object
+      properties:
+        todayCount:
+          type: integer
+        weekCount:
+          type: integer
+        recentPrescriptions:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              patientId:
+                type: integer
+              doctorName:
+                type: string
+              medicationCount:
+                type: integer
+              createdAt:
+                type: string
+                format: date-time
+            required: [id, patientId, doctorName, medicationCount, createdAt]
+        lowStockItems:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              category:
+                type: string
+              quantity:
+                type: integer
+              minimumStock:
+                type: integer
+              unit:
+                type: string
+            required: [id, name, category, quantity, minimumStock, unit]
+      required: [todayCount, weekCount, recentPrescriptions, lowStockItems]
+
+    BillingDashboard:
+      type: object
+      properties:
+        todayRevenue:
+          type: number
+        weekRevenue:
+          type: number
+        monthRevenue:
+          type: number
+        pendingCount:
+          type: integer
+        pendingSum:
+          type: number
+        recentPayments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              invoiceNumber:
+                type: string
+              total:
+                type: number
+              paidAt:
+                type: string
+                format: date-time
+                nullable: true
+            required: [id, invoiceNumber, total]
+        recentCancellations:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              invoiceNumber:
+                type: string
+              total:
+                type: number
+              updatedAt:
+                type: string
+                format: date-time
+            required: [id, invoiceNumber, total, updatedAt]
+        dailyRevenue:
+          type: array
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+              amount:
+                type: number
+            required: [day, amount]
+      required: [todayRevenue, weekRevenue, monthRevenue, pendingCount, pendingSum, recentPayments, recentCancellations, dailyRevenue]
+
+    ComplianceDashboard:
+      type: object
+      properties:
+        todayEvents:
+          type: integer
+        todayDenied:
+          type: integer
+        weekEvents:
+          type: integer
+        deniedRate:
+          type: integer
+        topEntities:
+          type: array
+          items:
+            type: object
+            properties:
+              entityType:
+                type: string
+              count:
+                type: integer
+            required: [entityType, count]
+        topUsers:
+          type: array
+          items:
+            type: object
+            properties:
+              userId:
+                type: integer
+              fullName:
+                type: string
+              role:
+                type: string
+              count:
+                type: integer
+            required: [userId, fullName, role, count]
+        recentDenied:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              action:
+                type: string
+              entityType:
+                type: string
+              entityId:
+                type: integer
+                nullable: true
+              createdAt:
+                type: string
+                format: date-time
+              userName:
+                type: string
+              userRole:
+                type: string
+            required: [id, action, entityType, createdAt, userName, userRole]
+        dailyTrend:
+          type: array
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+              count:
+                type: integer
+            required: [day, count]
+      required: [todayEvents, todayDenied, weekEvents, deniedRate, topEntities, topUsers, recentDenied, dailyTrend]
+
+    ImagingDashboard:
+      type: object
+      properties:
+        firstCount:
+          type: integer
+        secondCount:
+          type: integer
+        thirdCount:
+          type: integer
+        todayCount:
+          type: integer
+        weekCount:
+          type: integer
+        recentItems:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              patientId:
+                type: integer
+              status:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+            required: [id, patientId, status, createdAt]
+      required: [firstCount, secondCount, thirdCount, todayCount, weekCount, recentItems]
 
     AppointmentReport:
       type: object

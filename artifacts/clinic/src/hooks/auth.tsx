@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/hooks/i18n";
 
 export type UserRole = "super_admin" | "admin" | "doctor" | "nurse" | "front_desk" | "xray_staff" | "lab_staff" | "compliance_officer" | "billing_manager" | "pharmacist";
 
@@ -27,17 +29,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { t } = useI18n();
 
   // On mount: restore session by calling /auth/me — HttpOnly cookie is sent automatically
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
-      .then(res => res.ok ? res.json() : null)
+      .then(async res => {
+        if (res.ok) return res.json();
+        // Check for fingerprint mismatch — show a helpful message instead of silent logout
+        if (res.status === 401) {
+          const body = await res.json().catch(() => ({}));
+          if (body?.error_code === 1004) {
+            toast({
+              title: "Session Invalidated",
+              description: t("fingerprintMismatch"),
+              variant: "destructive",
+            });
+          }
+        }
+        return null;
+      })
       .then(data => {
-        if (data && data.id) setUser(data as AuthUser);
+        if (data && data.id) {
+          setUser(data as AuthUser);
+        }
       })
       .catch(() => {})
       .finally(() => setIsLoading(false));
   }, []);
+
 
   const login = (user: AuthUser) => {
     setUser(user);

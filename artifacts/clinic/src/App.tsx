@@ -115,6 +115,7 @@ function ProtectedRoutes() {
   if (isLoading) return null;
   if (!isAuthenticated || !user) return <Login />;
 
+
   const role = user.role;
 
   return (
