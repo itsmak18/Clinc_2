@@ -6,15 +6,26 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
-import { csrfProtect } from "./middlewares/csrf";
 import { metricsMiddleware, getMetrics } from "./lib/metrics";
 import { ipRateLimit } from "./middlewares/rateLimiter";
 import { cspDirectives } from "./lib/csp";
+import { loginShield, loginIpRateLimit } from "./middlewares/login-shield";
 
 const app: Express = express();
 
 // ── Security headers ────────────────────────────────────────────────────────
 app.use(correlationId); // Must be first: attaches req.id for all subsequent middleware
+
+// Strip inbound auth-state headers — these are SERVER-asserted only. A client
+// must never be able to inject X-Session-State / X-Security-Flags and have
+// downstream code trust them. authGate also strips defensively; this runs
+// first to protect any middleware that consults headers before the gate.
+app.use((req, _res, next) => {
+  delete req.headers["x-session-state"];
+  delete req.headers["x-security-flags"];
+  next();
+});
+
 app.use(helmet({
   contentSecurityPolicy: { directives: cspDirectives },
   crossOriginEmbedderPolicy: false, // Relaxed for Replit proxy
@@ -80,17 +91,21 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(cookieParser());
 
-// ── CSRF protection (double-submit cookie) ─────────────────────────────────────
-// Mounted after cookieParser (needs req.cookies), before routes.
-// safe methods (GET/HEAD/OPTIONS) and /api/auth/login are automatically excluded.
-app.use("/api", csrfProtect);
+// ── CSRF protection ─────────────────────────────────────────────────────────
+// No global csrfProtect mount: CSRF is now enforced inside the auth kernel
+// (`lib/policy.ts` → `evaluate`) on write/privileged scopes for mutation
+// methods. The legacy `middlewares/csrf.ts` is deleted.
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 // Global rate limiting for all mutation endpoints
 const globalMutationLimiter = ipRateLimit(100, 15 * 60 * 1000);
 app.use("/api", (req, res, next) => {
-  // /auth/login has its own DB-backed rate limiter — skip Redis limiter to avoid
-  // Redis dependency on an unauthenticated, pre-session endpoint.
+  // /auth/login: apply the login shield (hygiene + IP rate limit) before
+  // the global mutation limiter, so abuse is rejected earliest.
+  if (req.method === "POST" && req.path === "/auth/login") {
+    return loginShield(req, res, () => loginIpRateLimit(req, res, next));
+  }
+  // All other mutations: global rate limiter (skip Redis on unauthenticated login).
   if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && req.path !== "/auth/login") {
     return globalMutationLimiter(req, res, next);
   }

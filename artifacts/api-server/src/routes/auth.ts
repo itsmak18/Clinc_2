@@ -1,21 +1,48 @@
 import { Router } from "express";
+import { z } from "zod/v4";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
+import { authGate } from "../middlewares/auth-gate";
 import { asyncHandler } from "../middlewares/asyncHandler";
-import { setCsrfCookie, clearCsrfCookie } from "../middlewares/csrf";
+import { setCsrfCookie, clearCsrfCookie } from "../lib/csrf-cookie";
+import { signToken } from "../lib/auth";
 import { loginUser, logoutUser, getMe, changePassword } from "../services/auth.service";
-import {
-  enrollMfa, confirmMfaEnrollment, verifyMfaToken, consumeRecoveryCode, disableMfa,
-} from "../services/mfa.service";
 import { logAudit } from "../lib/audit";
+import { ipRateLimit } from "../middlewares/rateLimiter";
 
 const router = Router();
 
+// Zod schema for login body — enforces length limits to prevent abuse
+const loginSchema = z.object({
+  username: z.string().min(1).max(64),
+  password: z.string().min(1).max(256),
+});
+
+
+// Shared helper: build and set the session cookie for a user after full auth
+const COOKIE_TTL_MS: Record<string, number> = {
+  super_admin:        15 * 60 * 1000,
+  admin:          1 * 60 * 60 * 1000,
+  doctor:         2 * 60 * 60 * 1000,
+  nurse:          2 * 60 * 60 * 1000,
+  compliance_officer: 2 * 60 * 60 * 1000,
+  billing_manager: 4 * 60 * 60 * 1000,
+  front_desk:      4 * 60 * 60 * 1000,
+  xray_staff:      4 * 60 * 60 * 1000,
+  lab_staff:       4 * 60 * 60 * 1000,
+  pharmacist:      4 * 60 * 60 * 1000,
+};
+
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
 router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    res.status(400).json({ error: "Username and password required" });
+  const parsed = loginSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Username and password required (max 64 / 256 chars)" });
     return;
   }
+  const { username, password } = parsed.data;
 
   let result;
   try {
@@ -25,7 +52,6 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
       acceptLanguage: req.headers["accept-language"],
     });
   } catch (err: any) {
-    // Rate-limit and credential errors carry status + extra fields — pass them through
     if (err.status === 429) {
       res.status(429).json({ error: err.message, retryAfterSecs: err.retryAfterSecs });
       return;
@@ -37,19 +63,8 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
     throw err;
   }
 
+  // Full session — set cookies
   const isProduction = process.env.NODE_ENV === "production";
-  const COOKIE_TTL_MS: Record<string, number> = {
-    super_admin:        15 * 60 * 1000,
-    admin:          1 * 60 * 60 * 1000,
-    doctor:         2 * 60 * 60 * 1000,
-    nurse:          2 * 60 * 60 * 1000,
-    compliance_officer: 2 * 60 * 60 * 1000,
-    billing_manager: 4 * 60 * 60 * 1000,
-    front_desk:      4 * 60 * 60 * 1000,
-    xray_staff:      4 * 60 * 60 * 1000,
-    lab_staff:       4 * 60 * 60 * 1000,
-    pharmacist:      4 * 60 * 60 * 1000,
-  };
   const cookieMaxAge = COOKIE_TTL_MS[result.user.role] ?? 4 * 60 * 60 * 1000;
   res.cookie("clinic_token", result.token, {
     httpOnly: true,
@@ -62,6 +77,10 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
 
   res.json({ user: result.user });
 }));
+
+
+// Logout / session
+// ---------------------------------------------------------------------------
 
 router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   try {
@@ -92,59 +111,6 @@ router.post("/auth/change-password", requireAuth, asyncHandler(async (req: AuthR
     return;
   }
   await changePassword(req.user!.userId, currentPassword, newPassword, req.ip || "unknown");
-  res.json({ success: true });
-}));
-
-// ---------------------------------------------------------------------------
-// MFA endpoints — all require an authenticated session
-// ---------------------------------------------------------------------------
-
-// Step 1: start enrolment — returns QR code + plaintext secret (show once)
-router.post("/auth/mfa/enroll", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  const { qrDataUrl, secret, recoveryCodes } = await enrollMfa(req.user!.userId);
-  res.json({ qrDataUrl, secret, recoveryCodes });
-}));
-
-// Step 2: confirm enrolment by submitting a valid TOTP token + the recovery codes to hash+store
-router.post("/auth/mfa/confirm", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  const { token, recoveryCodes } = req.body;
-  if (!token || !Array.isArray(recoveryCodes) || recoveryCodes.length !== 10) {
-    res.status(400).json({ error: "token and 10 recoveryCodes are required" });
-    return;
-  }
-  await confirmMfaEnrollment(req.user!.userId, String(token), recoveryCodes);
-  void logAudit(req, "MFA_ENROLLED", "user", req.user!.userId);
-  res.json({ success: true });
-}));
-
-// Verify a TOTP code (used during login second-step if implemented; also useful for sensitive ops)
-router.post("/auth/mfa/verify", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  const { token } = req.body;
-  if (!token) { res.status(400).json({ error: "token is required" }); return; }
-  const valid = await verifyMfaToken(req.user!.userId, String(token));
-  if (!valid) {
-    void logAudit(req, "MFA_VERIFY_FAILED", "user", req.user!.userId);
-    res.status(401).json({ error: "Invalid or expired TOTP code" });
-    return;
-  }
-  void logAudit(req, "MFA_VERIFIED", "user", req.user!.userId);
-  res.json({ success: true });
-}));
-
-// Consume a one-time recovery code
-router.post("/auth/mfa/recovery", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  const { code } = req.body;
-  if (!code) { res.status(400).json({ error: "code is required" }); return; }
-  await consumeRecoveryCode(req.user!.userId, String(code));
-  void logAudit(req, "MFA_RECOVERY_USED", "user", req.user!.userId);
-  res.json({ success: true });
-}));
-
-// Disable MFA (self: always allowed; other user: super_admin only)
-router.post("/auth/mfa/disable", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  const targetId = req.body.userId ? parseInt(req.body.userId) : req.user!.userId;
-  await disableMfa(targetId, req.user!.userId, req.user!.role);
-  void logAudit(req, "MFA_DISABLED", "user", targetId);
   res.json({ success: true });
 }));
 

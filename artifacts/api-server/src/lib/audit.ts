@@ -22,6 +22,7 @@ export async function logAudit(req: Request, action: string, entityType: string,
       ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
       userAgent: req.headers["user-agent"] || null,
       details: details ?? null,
+      requestId: req.id != null ? String(req.id) : null,
     });
   } catch {
     // Audit failures should not break main flow

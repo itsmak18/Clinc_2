@@ -105,7 +105,7 @@ export default function DoctorDashboard() {
     <div>
       <PageHeader
         title={t("dashboard")}
-        subtitle={`Welcome back, ${user?.fullName}`}
+        subtitle={`${t("welcome")}, ${user?.fullName}`}
       />
       <div className="p-6 space-y-6">
 
@@ -163,7 +163,7 @@ export default function DoctorDashboard() {
                 {t("todayQueue")}
                 {todayData && (
                   <span className="ms-auto text-xs font-normal text-muted-foreground">
-                    {todayData.total} total · {todayData.completed} done
+                    {todayData.total} {t("patientsToday")} · {todayData.completed} {t("doneShort")}
                   </span>
                 )}
               </CardTitle>
@@ -291,7 +291,7 @@ export default function DoctorDashboard() {
           </CardHeader>
           <CardContent className="px-4 pb-4">
             {!recentPatients.length ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">{t("noAppointmentsToday")}</p>
+              <p className="text-sm text-muted-foreground py-4 text-center">{t("noRecentPatients")}</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {recentPatients.map(apt => (

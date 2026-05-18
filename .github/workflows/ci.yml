@@ -56,6 +56,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Validate error code registry
+        run: pnpm --filter @workspace/api-server run validate:errors
+
       - name: Run unit tests
         run: pnpm --filter @workspace/api-server run test
 
@@ -124,7 +127,7 @@ jobs:
     steps:
       - name: Check all jobs passed
         run: |
-          if [["${{ needs.typecheck.result }}" != "success" ||
+          if [[ "${{ needs.typecheck.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
                 "${{ needs.audit.result }}" != "success" ||
                 "${{ needs.build.result }}" != "success" ]]; then

@@ -2,10 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- CSP meta tag covers prod static hosting where response headers aren't set by Express.
-         frame-ancestors is omitted — browsers ignore it in meta tags (header-only directive).
-         Keep in sync with artifacts/api-server/src/lib/csp.ts cspMetaString. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+    <!-- CSP meta tag is injected during production build via vite.config.ts to allow Vite HMR in dev -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>Clinic Management System</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

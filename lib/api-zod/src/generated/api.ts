@@ -3643,6 +3643,195 @@ export const GetRecentActivityResponse = zod.array(
 );
 
 /**
+ * @summary Get front desk dashboard stats
+ */
+export const GetFrontDeskDashboardResponse = zod.object({
+  totalToday: zod.number(),
+  statusCounts: zod.object({
+    scheduled: zod.number(),
+    checked_in: zod.number(),
+    completed: zod.number(),
+    cancelled: zod.number(),
+    no_show: zod.number(),
+    in_progress: zod.number(),
+  }),
+  sourceCounts: zod.object({
+    walk_in: zod.number(),
+    phone: zod.number(),
+    online: zod.number(),
+  }),
+  noShowCount: zod.number(),
+  pendingInvoiceCount: zod.number(),
+  pendingInvoiceSum: zod.number(),
+});
+
+/**
+ * @summary Get nurse dashboard stats
+ */
+export const GetNurseDashboardResponse = zod.object({
+  triageCounts: zod.object({
+    checked_in: zod.number(),
+    in_triage: zod.number(),
+    ready_for_doctor: zod.number(),
+    in_consultation: zod.number(),
+  }),
+  priorityCounts: zod.object({
+    critical: zod.number(),
+    urgent: zod.number(),
+    normal: zod.number(),
+  }),
+  vitalsPending: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      priority: zod.string(),
+      checkedInAt: zod.coerce.date().nullish(),
+    }),
+  ),
+  todayTotal: zod.number(),
+  todayCheckedIn: zod.number(),
+});
+
+/**
+ * @summary Get pharmacist dashboard stats
+ */
+export const GetPharmacistDashboardResponse = zod.object({
+  todayCount: zod.number(),
+  weekCount: zod.number(),
+  recentPrescriptions: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      doctorName: zod.string(),
+      medicationCount: zod.number(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  lowStockItems: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      category: zod.string(),
+      quantity: zod.number(),
+      minimumStock: zod.number(),
+      unit: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get billing manager dashboard stats
+ */
+export const GetBillingDashboardResponse = zod.object({
+  todayRevenue: zod.number(),
+  weekRevenue: zod.number(),
+  monthRevenue: zod.number(),
+  pendingCount: zod.number(),
+  pendingSum: zod.number(),
+  recentPayments: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceNumber: zod.string(),
+      total: zod.number(),
+      paidAt: zod.coerce.date().nullish(),
+    }),
+  ),
+  recentCancellations: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceNumber: zod.string(),
+      total: zod.number(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  dailyRevenue: zod.array(
+    zod.object({
+      day: zod.string(),
+      amount: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get compliance officer dashboard stats
+ */
+export const GetComplianceDashboardResponse = zod.object({
+  todayEvents: zod.number(),
+  todayDenied: zod.number(),
+  weekEvents: zod.number(),
+  deniedRate: zod.number(),
+  topEntities: zod.array(
+    zod.object({
+      entityType: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  topUsers: zod.array(
+    zod.object({
+      userId: zod.number(),
+      fullName: zod.string(),
+      role: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  recentDenied: zod.array(
+    zod.object({
+      id: zod.number(),
+      action: zod.string(),
+      entityType: zod.string(),
+      entityId: zod.number().nullish(),
+      createdAt: zod.coerce.date(),
+      userName: zod.string(),
+      userRole: zod.string(),
+    }),
+  ),
+  dailyTrend: zod.array(
+    zod.object({
+      day: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get X-ray imaging dashboard stats
+ */
+export const GetImagingDashboardResponse = zod.object({
+  firstCount: zod.number(),
+  secondCount: zod.number(),
+  thirdCount: zod.number(),
+  todayCount: zod.number(),
+  weekCount: zod.number(),
+  recentItems: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      status: zod.string(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get lab dashboard stats
+ */
+export const GetLabDashboardResponse = zod.object({
+  firstCount: zod.number(),
+  secondCount: zod.number(),
+  thirdCount: zod.number(),
+  todayCount: zod.number(),
+  weekCount: zod.number(),
+  recentItems: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      status: zod.string(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
  * @summary Get appointment report
  */
 export const GetAppointmentReportQueryParams = zod.object({

@@ -31,17 +31,19 @@ export interface LoginContext {
   acceptLanguage?: string;
 }
 
+export interface AuthUser {
+  id: number;
+  username: string;
+  fullName: string;
+  fullNameAr: string | null;
+  email: string | null;
+  role: string;
+  isActive: boolean;
+}
+
 export interface LoginResult {
   token: string;
-  user: {
-    id: number;
-    username: string;
-    fullName: string;
-    fullNameAr: string | null;
-    email: string | null;
-    role: string;
-    isActive: boolean;
-  };
+  user: AuthUser;
 }
 
 export async function loginUser(
@@ -113,13 +115,8 @@ export async function loginUser(
   return {
     token,
     user: {
-      id: user.id,
-      username: user.username,
-      fullName: user.fullName,
-      fullNameAr: user.fullNameAr,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
+      id: user.id, username: user.username, fullName: user.fullName,
+      fullNameAr: user.fullNameAr, email: user.email, role: user.role, isActive: user.isActive,
     },
   };
 }

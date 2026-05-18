@@ -22,6 +22,8 @@ import type {
   AppointmentReport,
   AuditLog,
   AvailabilityResponse,
+  BillingDashboard,
+  ComplianceDashboard,
   CreateAppointmentBody,
   CreateInventoryItemBody,
   CreateInvoiceBody,
@@ -42,12 +44,14 @@ import type {
   DoctorScheduleDay,
   DoctorScheduleDetail,
   DoctorScheduleSummary,
+  FrontDeskDashboard,
   GetAppointmentReportParams,
   GetDailyBillingSummaryParams,
   GetDoctorAvailabilityParams,
   GetRevenueReportParams,
   GetScheduleWeekParams,
   HealthStatus,
+  ImagingDashboard,
   InventoryItem,
   Invoice,
   LabTest,
@@ -68,12 +72,14 @@ import type {
   LoginResponse,
   MedicalRecord,
   Notification,
+  NurseDashboard,
   Operation,
   PaginatedPatients,
   Patient,
   PatientFlow,
   PatientSummary,
   PayInvoiceBody,
+  PharmacistDashboard,
   Prescription,
   ResetPasswordBody,
   RevenueReport,
@@ -6434,6 +6440,533 @@ export function useGetRecentActivity<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetRecentActivityQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get front desk dashboard stats
+ */
+export const getGetFrontDeskDashboardUrl = () => {
+  return `/api/dashboard/front-desk`;
+};
+
+export const getFrontDeskDashboard = async (
+  options?: RequestInit,
+): Promise<FrontDeskDashboard> => {
+  return customFetch<FrontDeskDashboard>(getGetFrontDeskDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetFrontDeskDashboardQueryKey = () => {
+  return [`/api/dashboard/front-desk`] as const;
+};
+
+export const getGetFrontDeskDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getFrontDeskDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFrontDeskDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetFrontDeskDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getFrontDeskDashboard>>
+  > = ({ signal }) => getFrontDeskDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getFrontDeskDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetFrontDeskDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getFrontDeskDashboard>>
+>;
+export type GetFrontDeskDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get front desk dashboard stats
+ */
+
+export function useGetFrontDeskDashboard<
+  TData = Awaited<ReturnType<typeof getFrontDeskDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getFrontDeskDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetFrontDeskDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get nurse dashboard stats
+ */
+export const getGetNurseDashboardUrl = () => {
+  return `/api/dashboard/nurse`;
+};
+
+export const getNurseDashboard = async (
+  options?: RequestInit,
+): Promise<NurseDashboard> => {
+  return customFetch<NurseDashboard>(getGetNurseDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetNurseDashboardQueryKey = () => {
+  return [`/api/dashboard/nurse`] as const;
+};
+
+export const getGetNurseDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getNurseDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNurseDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetNurseDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getNurseDashboard>>
+  > = ({ signal }) => getNurseDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getNurseDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetNurseDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getNurseDashboard>>
+>;
+export type GetNurseDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get nurse dashboard stats
+ */
+
+export function useGetNurseDashboard<
+  TData = Awaited<ReturnType<typeof getNurseDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getNurseDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetNurseDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get pharmacist dashboard stats
+ */
+export const getGetPharmacistDashboardUrl = () => {
+  return `/api/dashboard/pharmacy`;
+};
+
+export const getPharmacistDashboard = async (
+  options?: RequestInit,
+): Promise<PharmacistDashboard> => {
+  return customFetch<PharmacistDashboard>(getGetPharmacistDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPharmacistDashboardQueryKey = () => {
+  return [`/api/dashboard/pharmacy`] as const;
+};
+
+export const getGetPharmacistDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPharmacistDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPharmacistDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPharmacistDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPharmacistDashboard>>
+  > = ({ signal }) => getPharmacistDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPharmacistDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPharmacistDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPharmacistDashboard>>
+>;
+export type GetPharmacistDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get pharmacist dashboard stats
+ */
+
+export function useGetPharmacistDashboard<
+  TData = Awaited<ReturnType<typeof getPharmacistDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getPharmacistDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPharmacistDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get billing manager dashboard stats
+ */
+export const getGetBillingDashboardUrl = () => {
+  return `/api/dashboard/billing`;
+};
+
+export const getBillingDashboard = async (
+  options?: RequestInit,
+): Promise<BillingDashboard> => {
+  return customFetch<BillingDashboard>(getGetBillingDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetBillingDashboardQueryKey = () => {
+  return [`/api/dashboard/billing`] as const;
+};
+
+export const getGetBillingDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getBillingDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetBillingDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getBillingDashboard>>
+  > = ({ signal }) => getBillingDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetBillingDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getBillingDashboard>>
+>;
+export type GetBillingDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get billing manager dashboard stats
+ */
+
+export function useGetBillingDashboard<
+  TData = Awaited<ReturnType<typeof getBillingDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getBillingDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetBillingDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get compliance officer dashboard stats
+ */
+export const getGetComplianceDashboardUrl = () => {
+  return `/api/dashboard/compliance`;
+};
+
+export const getComplianceDashboard = async (
+  options?: RequestInit,
+): Promise<ComplianceDashboard> => {
+  return customFetch<ComplianceDashboard>(getGetComplianceDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetComplianceDashboardQueryKey = () => {
+  return [`/api/dashboard/compliance`] as const;
+};
+
+export const getGetComplianceDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getComplianceDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getComplianceDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetComplianceDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getComplianceDashboard>>
+  > = ({ signal }) => getComplianceDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getComplianceDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetComplianceDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getComplianceDashboard>>
+>;
+export type GetComplianceDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get compliance officer dashboard stats
+ */
+
+export function useGetComplianceDashboard<
+  TData = Awaited<ReturnType<typeof getComplianceDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getComplianceDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetComplianceDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get X-ray imaging dashboard stats
+ */
+export const getGetImagingDashboardUrl = () => {
+  return `/api/dashboard/imaging`;
+};
+
+export const getImagingDashboard = async (
+  options?: RequestInit,
+): Promise<ImagingDashboard> => {
+  return customFetch<ImagingDashboard>(getGetImagingDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetImagingDashboardQueryKey = () => {
+  return [`/api/dashboard/imaging`] as const;
+};
+
+export const getGetImagingDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getImagingDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getImagingDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetImagingDashboardQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getImagingDashboard>>
+  > = ({ signal }) => getImagingDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getImagingDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetImagingDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getImagingDashboard>>
+>;
+export type GetImagingDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get X-ray imaging dashboard stats
+ */
+
+export function useGetImagingDashboard<
+  TData = Awaited<ReturnType<typeof getImagingDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getImagingDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetImagingDashboardQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get lab dashboard stats
+ */
+export const getGetLabDashboardUrl = () => {
+  return `/api/dashboard/lab`;
+};
+
+export const getLabDashboard = async (
+  options?: RequestInit,
+): Promise<ImagingDashboard> => {
+  return customFetch<ImagingDashboard>(getGetLabDashboardUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetLabDashboardQueryKey = () => {
+  return [`/api/dashboard/lab`] as const;
+};
+
+export const getGetLabDashboardQueryOptions = <
+  TData = Awaited<ReturnType<typeof getLabDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLabDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetLabDashboardQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getLabDashboard>>> = ({
+    signal,
+  }) => getLabDashboard({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getLabDashboard>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetLabDashboardQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getLabDashboard>>
+>;
+export type GetLabDashboardQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get lab dashboard stats
+ */
+
+export function useGetLabDashboard<
+  TData = Awaited<ReturnType<typeof getLabDashboard>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getLabDashboard>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetLabDashboardQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

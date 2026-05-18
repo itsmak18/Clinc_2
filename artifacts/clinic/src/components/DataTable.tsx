@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/hooks/i18n";
 
 interface Column<T> {
   key: string;
@@ -16,13 +17,18 @@ interface Props<T> {
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
   expandedRow?: (row: T) => ReactNode | null | undefined;
+  density?: "comfortable" | "compact";
 }
 
-export default function DataTable<T>({ columns, data, isLoading, emptyMessage, onRowClick, rowClassName, expandedRow }: Props<T>) {
+export default function DataTable<T>({ columns, data, isLoading, emptyMessage, onRowClick, rowClassName, expandedRow, density = "comfortable" }: Props<T>) {
+  const { t } = useI18n();
+  const cellPad = density === "compact" ? "px-3 py-1.5" : "px-4 py-2.5";
+  const headPad = density === "compact" ? "px-3 py-1.5" : "px-4 py-2.5";
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-        Loading...
+        {t("loading")}
       </div>
     );
   }
@@ -30,7 +36,7 @@ export default function DataTable<T>({ columns, data, isLoading, emptyMessage, o
   if (!data.length) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-        {emptyMessage || "No data found"}
+        {emptyMessage || t("noData")}
       </div>
     );
   }
@@ -43,7 +49,7 @@ export default function DataTable<T>({ columns, data, isLoading, emptyMessage, o
             {columns.map(col => (
               <th
                 key={col.key}
-                className={cn("px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide", col.className)}
+                className={cn(headPad, "text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide", col.className)}
               >
                 {col.header}
               </th>
@@ -66,7 +72,7 @@ export default function DataTable<T>({ columns, data, isLoading, emptyMessage, o
                   data-testid={`row-${i}`}
                 >
                   {columns.map(col => (
-                    <td key={col.key} className={cn("px-4 py-2.5 text-foreground", col.className)}>
+                    <td key={col.key} className={cn(cellPad, "text-foreground", col.className)}>
                       {col.render(row)}
                     </td>
                   ))}

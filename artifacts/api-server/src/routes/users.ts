@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
+import { authGate } from "../middlewares/auth-gate";
 import { asyncHandler } from "../middlewares/asyncHandler";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -56,7 +57,7 @@ router.get(
 
 router.patch(
   "/users/:userId",
-  requireRole("super_admin", "admin"),
+  authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
@@ -76,7 +77,7 @@ router.post(
 
 router.delete(
   "/users/:userId",
-  requireRole("super_admin", "admin"),
+  authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
@@ -87,7 +88,7 @@ router.delete(
 
 router.post(
   "/users/:userId/reset-password",
-  requireRole("super_admin", "admin"),
+  authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
