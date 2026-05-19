@@ -24,6 +24,13 @@ export const httpRequestsTotal = new client.Counter({
 });
 register.registerMetric(httpRequestsTotal);
 
+export const auditLogWriteFailuresTotal = new client.Counter({
+  name: "audit_log_write_failures_total",
+  help: "Audit log writes that failed at the DB layer (fire-and-forget policy)",
+  labelNames: ["action", "entity_type"],
+});
+register.registerMetric(auditLogWriteFailuresTotal);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",

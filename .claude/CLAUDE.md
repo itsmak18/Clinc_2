@@ -10,6 +10,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Related Docs
+
+- [Production Health Scorecard](../docs/HEALTH_STATUS.md) — scores, what moved the needle, remaining risks
+- [Changelog](../docs/CHANGELOG.md) — implemented features
+- [Roadmap](../docs/ROADMAP.md) — suggested future modules
+- [Migration Notes](../docs/MIGRATION_NOTES.md) — lessons learned, deprecated approaches
+- [Folder Structure](../docs/FOLDER_STRUCTURE.md) — detailed repo tree
+- [Security Architecture](../docs/SECURITY_ARCHITECTURE.md) — CVE response policy, secrets scanning
+
+---
+
 ## Project Context
 
 **MediCore** — internal-staff clinic management system. Bilingual (English + Arabic/RTL). No public-facing routes.
@@ -20,57 +31,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Runtime**: Node.js 24, TypeScript 5.9, React 19, Vite 7, Express 5, PostgreSQL 16, pnpm workspaces.
 
-**Infrastructure**: Local-first development (PostgreSQL 16 on localhost, no Redis required in dev). Production target: Replit autoscale or any Node host. No Docker. CI pipeline: `.github/workflows/ci.yml` (typecheck → validate:errors → tests).
+**Infrastructure**: Local-first development (PostgreSQL 16 on localhost, no Redis required in dev). Production target: Replit autoscale or any Node host. No Docker. CI pipeline: `.github/workflows/ci.yml` (typecheck → lint → validate:errors → test → audit → secrets-scan → build → ci-gate). Weekly `audit-weekly.yml` re-audits the locked dependency tree and opens a `security`-labeled issue on new HIGH/CRITICAL findings.
 
 > **MFA status**: TOTP MFA was fully designed, implemented, and then **completely removed** to restore single-step login. No MFA columns exist on `users`, no `mfa_sessions` table exists, no `mfa.service.ts` exists, and no MFA routes exist on `/auth`. Do not reference, implement, or invoke any MFA functionality until it is explicitly re-scoped.
-
----
-
-## Production Health Scorecard
-
-> Last assessed: **2026-05-18**. Re-score after each major release.
-
-| Dimension | Score | Verdict |
-|---|---|---|
-| **Architectural Quality** | **9.0**/10 | Monorepo + OpenAPI contract + Orval codegen. Single-function `evaluate()` kernel owns CSRF + identity + revocation + role; legacy split-middleware design retired. |
-| **Production Readiness** | **8.5**/10 | CI chain green (typecheck → validate:errors → 173 tests). Login-shield WAF-equivalent middleware active. |
-| **Scalability** | **7.0**/10 | SSE on pluggable EventBus (Redis Pub/Sub in prod). Rate limiting pluggable (Redis in prod). Serial PKs remain. |
-| **Maintainability** | **9.0**/10 | CLAUDE.md governance, ADRs, RBAC_GOVERNANCE.md, LOCAL_DEV.md current. Full service layer — all 19 route domains. Auth surface: 3 files (policy.ts, auth-gate.ts, auth.ts). |
-| **Operational Resilience** | **7.0**/10 | Prometheus + Grafana, alerting rules, RUNBOOK.md, DR backup script, POST_LAUNCH_PROCESS.md. |
-| **Security Posture** | **7.5**/10 | v7 auth kernel: CSRF inside evaluate(), per-role JWT TTL + fingerprint, jti replay defense, fail-closed revocation. Login-shield middleware. MFA removed — single-step login for all roles. Pen test + WAF pending. |
-| **Technical Debt** | **7.5**/10 | Drizzle `push` (not versioned migrations — schema drift risk). Legacy `requireAuth`/`requireRole` shims in 19 route files. Legacy HMAC password migration active. Serial PKs. |
-
-### What moved the needle
-- 🔴→🟢 **Auth**: Hand-rolled crypto → `jose` HS256 + `jti` revocation
-- 🔴→🟢 **Monitoring**: Zero → Prometheus/Grafana + alert rules
-- 🔴→🟢 **Backups**: None → `pg_dump` script + weekly verification
-- 🔴→🟢 **Audit**: Partial → 100% PHI coverage (`logRead`/`logAudit`/`logDenied`); `admin` removed from audit access
-- 🔴→🟢 **CSP**: API-only → real SPA coverage via Vite plugin + `<meta>` tag; Vitest regression guard
-- 🔴→🟢 **ESM runtime**: `require()` → `await import()` + top-level await in `runtime/index.ts`
-- 🔴→🟢 **Revocation fail-closed**: `verifyToken` throws on store error (was `console.warn` + allow)
-- 🟡→🟢 **Testing**: No tests → Vitest unit + Supertest integration suite (173 passing)
-- 🟡→🟢 **Auth kernel (v7)**: Single `evaluate(req, scope, allowedRoles?)` kernel — CSRF, identity, revocation, jti, fingerprint, role. Returns a `Decision` discriminated union. 25-test unit suite covers every branch.
-- 🟡→🟢 **JWT TTL**: Flat 8h → per-role (super_admin 15m, admin 1h, clinical 2h, operational 4h). Cookie `maxAge` aligned to per-role TTL.
-- 🟡→🟢 **Billing SoD**: front_desk creates; `billing_manager` pays/cancels; cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create
-- 🟡→🟢 **Privileged scope**: `PATCH/DELETE /users/:id`, `POST /users/:id/reset-password` use `authGate("privileged")` — jti consumed on use
-- 🟡→🟢 **TTL constants**: `MAX_ROLE_TTL_SEC` in `lib/auth-constants.ts` (re-exported from `lib/auth.ts`), imported by revocation stores to avoid ESM circular dependencies
-- 🟡→🟢 **Login shield**: `middlewares/login-shield.ts` — 4 KB body gate, Content-Type enforcement, empty UA rejection in prod, 20 req/15 min IP layer
-- 🟡→🟢 **CI pipeline**: `.github/workflows/ci.yml` — typecheck, validate:errors, api-server tests
-- 🟡→🟢 **Compliance Dashboard**: `GET /dashboard/compliance` + `ComplianceDashboard.tsx` — audit event counts, 7-day trend, top entities/users, denied events feed
-- 🟡→🟢 **Per-role UI/UX redesign (2026-05-18)**: All 10 roles now land on a dedicated workspace. 7 new dashboard endpoints + pages (Billing, Pharmacist, Nurse, FrontDesk, Imaging×2, Compliance). `getLandingRoute(role)` in `route-access.ts` drives post-login redirect. `navPinnedByRole` elevates each role's primary section in the sidebar. `RoleQuickActions` and `RoleContextLine` in the 40px top bar. `EmptyState` component. `DataTable` density prop. Status palette deduplicated + differentiated (scheduled→slate, requested→sky, in_consultation→violet, paid→emerald). Full EN+AR i18n for all new strings.
-- 🟢→🔴 **MFA removed**: TOTP, recovery codes, `mfa_sessions`, two-step gate — fully removed. Single-step login for all roles.
-
-### Remaining risks
-| Risk | Severity | Mitigation Path |
-|---|---|---|
-| No penetration test | HIGH | Schedule external pen-test before public launch |
-| No WAF | MEDIUM | Enable Cloudflare or Replit WAF (login-shield covers server-side) |
-| No MFA on login | HIGH | Re-scope as a dedicated feature track with proper enrolment UX |
-| `style-src 'unsafe-inline'` | LOW | Replace React `style={{}}` + Recharts inline styles with CSS modules + nonce |
-| Serial integer PKs | LOW | UUID migration in v3.0 |
-| Legacy HMAC hashes | LOW | `password.ts` auto-migrates on next login |
-| No formal HIPAA gap analysis | HIGH if US | Engage compliance officer before US deployment |
-| Drizzle push (no migration files) | MEDIUM | Evaluate migration to `drizzle-kit migrate` for versioned, rollback-safe schema changes |
 
 ---
 
@@ -123,10 +86,13 @@ pnpm --filter @workspace/api-spec run codegen
 pnpm --filter @workspace/scripts run seed        # Truncates users, patients, appointments, inventory, notifications
 
 # Run tests
-pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite (173 tests)
+pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite (204 tests)
 
 # Validate error codes (CI step — run before tests)
 pnpm --filter @workspace/api-server run validate:errors
+
+# Lint route files — enforces no-restricted-imports (DB/Drizzle out of routes)
+pnpm --filter @workspace/api-server run lint
 
 # Scripts
 pnpm --filter @workspace/scripts run hello
@@ -148,6 +114,8 @@ lib/
   db/              # @workspace/db          — Drizzle schema + push config
 scripts/           # @workspace/scripts     — seed, utilities (tsx)
 ```
+
+Full tree: see [docs/FOLDER_STRUCTURE.md](../docs/FOLDER_STRUCTURE.md).
 
 ---
 
@@ -182,8 +150,10 @@ lib/api-zod/src/generated/            ← backend validates against
 - All routes under `/api`. Prefer `authGate(scope, allowedRoles?)` from `middlewares/auth-gate.ts` for new code. Legacy `requireAuth`/`requireRole` shims (in `middlewares/auth.ts`) delegate to `authGate("write", ...)` and remain for existing route files.
 - Full role list: `super_admin | admin | doctor | nurse | front_desk | xray_staff | lab_staff | compliance_officer | billing_manager | pharmacist`
 - `super_admin` bypasses all role checks inside `evaluate()` — never block them at the route or service layer.
-- **Service layer**: Routes = HTTP only (parse params, call service, map errors). Services = business logic, DB queries, scope checks, audit calls. ESLint `no-restricted-imports` on `src/routes/**` prevents direct DB imports in routes.
-- All mutations: `logAudit(req, action, entityType, entityId)` from service layer — non-blocking fire-and-forget. All PHI reads: `logRead`. Denied attempts: `logDenied`. All wrappers in `lib/audit.ts`.
+- **Service layer**: Routes = HTTP only (parse params, call service, map errors). Services = business logic, DB queries, scope checks, audit calls. ESLint `no-restricted-imports` on `src/routes/**` blocks direct `@workspace/db` / `drizzle-orm` imports — enforced by the `lint` CI job (blocking). The TS parser is configured via `typescript-eslint` in `artifacts/api-server/eslint.config.mjs`.
+- **Error envelope**: Every error response shares the canonical shape `{ success: false, error_code, error_name, session_state, message, request_id, timestamp }`. Three exit paths emit it: `middlewares/asyncHandler.ts` for domain errors thrown from services (`NotFoundError`, `ValidationError`, `ForbiddenError`, `ConflictError`, `UnauthorizedError` from `services/errors.ts`); `middlewares/envelope.ts::notFoundHandler` for unmatched routes; `middlewares/envelope.ts::globalErrorHandler` for Postgres errors (23505 → CONFLICT, 23503 → VALIDATION) and unrecognised errors. Two intentional non-envelope shapes remain in `routes/auth.ts` (429 rate-limit returns `retryAfterSecs`; 401 invalid-creds returns `attemptsRemaining`) because the Login page reads those fields — promoting them would require extending the envelope. Documented inline.
+- All mutations: `logAudit(req, action, entityType, entityId)` from service layer. All PHI reads: `logRead` (single-record) or `logAudit(req, "READ_LIST", ...)` (list endpoints). Denied attempts: `logDenied`. All wrappers in `lib/audit.ts`.
+- **Audit-write failure policy = fire-and-forget + observability.** When the audit insert rejects, the PHI read still returns 200 — the failure is recorded via Prometheus counter `audit_log_write_failures_total{action,entity_type}` and a structured Pino `audit_write_failed` error log carrying `{ action, entityType, entityId, userId, requestId, err }`. Prometheus alert: `increase(audit_log_write_failures_total[5m]) > 0`. Never block a read on audit-DB health; never swallow the failure silently — the catch in `lib/audit.ts` is the only sanctioned path.
 - Validate all route integer params with `safeParseInt` or `validateParamInt` middleware from `lib/validators.ts`.
 - Soft-delete: filter `isNull(table.deletedAt)` in all queries.
 - Global mutation rate limit: `ipRateLimit(100, 15 * 60 * 1000)` applied to all POST/PUT/PATCH/DELETE routes except `/auth/login` (which gets the stricter login-shield). Do not add redundant per-route rate limiters for normal mutations.
@@ -191,8 +161,7 @@ lib/api-zod/src/generated/            ← backend validates against
 **Database**
 - All tables use `serial` PKs and `createdAt`/`updatedAt` timestamps.
 - Soft-delete via `deletedAt` column on most domain tables.
-- `vitals` on `medical_records` and `medications` on `prescriptions` are `jsonb`.
-- `staffAssigned` on `operations` is `jsonb`, default `[]`.
+- JSONB columns and their guard schemas (in `artifacts/api-server/src/lib/jsonb-schemas.ts`): `medical_records.vitals` → `vitalsSchema`; `prescriptions.medications` → `medicationsSchema`; `operations.staffAssigned` → `staffAssignedSchema` (default `[]`); `invoices.items` → `itemsSchema`. `audit_logs.details` is intentionally unconstrained. **Never `db.insert` / `db.update` a JSONB column without `safeParse` against the matching schema** — services are the only callers, never bypass.
 - `medical_records` has `isGlobal boolean NOT NULL DEFAULT false` and `globalReason text` — when `isGlobal=true` any doctor can read the record regardless of patient assignment. Only `super_admin` can set this flag via `PATCH /medical-records/:id/global-flag` (body: `{ isGlobal, reason }`, reason ≥ 20 chars).
 - Schema is managed via `drizzle-kit push` (not versioned migrations). Push is non-rollback-safe — always validate destructive changes before running `push-force`.
 
@@ -219,11 +188,11 @@ lib/api-zod/src/generated/            ← backend validates against
 | Data Scoping | SQL-level doctor scope via `getDoctorPatientScope()` + `inArray()` |
 | Fingerprint binding | `fph` claim checked on every request; mismatch → error 1004; `FINGERPRINT_BINDING=disabled` env var as emergency bypass |
 | Logging | Pino — PHI fields (`fullName`, `vitals`, `phone`, `email`, etc.) → `[REDACTED]` |
-| Audit Trail | `audit_logs` table — append-only, 7-year retention, immutable; every read logs `AUDIT_LOG_READ` |
+| Audit Trail | `audit_logs` table — append-only, 7-year retention, immutable; every read logs `AUDIT_LOG_READ`. Write failures = fire-and-forget + Prometheus `audit_log_write_failures_total` + Pino `audit_write_failed` (see Architecture Rules). |
 | Billing SoD | `front_desk` creates invoices; `billing_manager`/admin pays/cancels; cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create |
 | SSE Payloads | IDs only — no PHI |
 | CORS | Dev: `localhost:*` + `127.0.0.1:*`. Prod: `REPLIT_DOMAINS` + optional `ALLOWED_ORIGINS` env var. No-origin requests (curl/Postman) are allowed through — CORS is not a CSRF substitute. |
-| Error Handling | No stack traces in 5xx responses (production). Canonical error envelope: `{ success, error_code, error_name, session_state, message, request_id, timestamp }` — 20 stable codes in `src/errors.ts`. |
+| Error Handling | No stack traces in 5xx responses (production). Canonical error envelope: `{ success, error_code, error_name, session_state, message, request_id, timestamp }` — 20 stable codes in `src/errors.ts`. 404 + global 5xx emit the envelope via `middlewares/envelope.ts`; domain errors via `middlewares/asyncHandler.ts`. The 2 raw shapes in `routes/auth.ts` (429/401 with `retryAfterSecs` / `attemptsRemaining`) are intentional. |
 
 ---
 
@@ -296,222 +265,6 @@ Priority: **Correctness → Security → Performance → Maintainability → DX*
 - Password migration: legacy HMAC-SHA256 hashes auto-migrate to bcrypt on successful login — `password.ts` handles both paths. Do not add new HMAC logic.
 - Supply chain: pnpm `minimumReleaseAge: 1440` (1 day) enforced for all packages except `@replit/*`.
 - Only `pnpm` allowed — `preinstall` script rejects npm/yarn.
-
----
-
-## Lessons Learned / Deprecated Approaches
-
-- **JWT in localStorage (C-01, removed)**: Token was stored as `clinic_token` in `localStorage`, sent via `Authorization: Bearer`. Replaced with HttpOnly SameSite=Strict cookie set by `POST /auth/login`. Never reintroduce localStorage for auth. Cookie max-age matches per-role JWT TTL (15m–4h), NOT a flat 8h.
-
-- **SSE auth via `?token=` query param (removed)**: SSE now uses `new EventSource(url, { withCredentials: true })` — the HttpOnly cookie is sent automatically.
-
-- **Raw `fetch()` without CSRF header**: Orval-generated `customFetch` attaches `X-CSRF-Token` automatically. Any hand-written `fetch()` to a mutation endpoint must read `_csrf` from `document.cookie` and set `X-CSRF-Token`. Failure silently breaks server-side logout revocation (the server rejects with 403 which callers may swallow).
-
-- **`app.use("/api", middleware)` path stripping**: Express strips the mount prefix from `req.path` inside the mounted middleware. So a middleware mounted at `/api` sees `/auth/login`, not `/api/auth/login`. The v7 kernel is method-gated (not path-gated) to avoid this pattern entirely — no `CSRF_EXEMPT_PATHS` list.
-
-- **CSRF middleware → v7 kernel**: `middlewares/csrf.ts` is deleted. CSRF now runs inside `evaluate()` in `lib/policy.ts` for mutation methods. The unit test suite is `tests/policy.unit.test.ts` (25 tests covering every kernel branch including CSRF). There is no `csrf.test.ts`.
-
-- **`verifyToken` fail-open (fixed)**: Catch block previously did `console.warn` + returned the token. Now throws `"Token verification unavailable"`. Revocation store errors are fail-closed.
-
-- **`logout()` without server-side revocation (fixed)**: `POST /auth/logout` calls `revokeAllTokensForUser(userId)` before clearing the cookie. Without this, captured JWTs survive for the full role TTL after logout.
-
-- **`LoginResponse` schema drift (fixed)**: After moving the JWT to a cookie, `openapi.yaml` still had `token: string` as required. Always update `openapi.yaml` first when migrating auth approaches, then run codegen and verify generated types.
-
-- **Orval `api-zod` barrel export (Windows)**: Orval `split` mode writes an invalid barrel on Windows (git-bash interprets `\\n` literally). After codegen fails: `printf "export * from './generated/api';\n" > lib/api-zod/src/index.ts`, then run `pnpm -w run typecheck:libs` separately. The full codegen script will not succeed end-to-end on Windows.
-
-- **MFA removed (2026-05-18)**: TOTP two-step login was fully implemented (otplib, AES-256-GCM encrypted secrets, recovery codes, mfa_sessions table, challenge routes) then **completely removed** to restore single-step login. The `users` table has no MFA columns. No `mfa_sessions` table exists. No MFA routes exist. The `/mfa-setup` reference in `route-access.ts` is dead code (safe to remove). Do not implement MFA features until explicitly re-scoped.
-
----
-
-## Detailed Folder Structure
-
-```
-Clinic-Hub/
-├── artifacts/
-│   ├── api-server/
-│   │   └── src/
-│   │       ├── app.ts                ← Express app factory (middleware chain + router mount)
-│   │       ├── index.ts              ← process entry point (listen, graceful shutdown)
-│   │       ├── cron.ts               ← scheduled background jobs
-│   │       ├── errors.ts             ← E constant map: 20 stable error codes (auth 1001–1006, CSRF 1020–1022, authz 1030, domain 3001–3005, infra 9001–9002)
-│   │       ├── lib/
-│   │       │   ├── appointment-state-machine.ts  ← valid status transitions + guard
-│   │       │   ├── audit.ts          ← logAudit(req, action, entityType, entityId) + logRead + logDenied
-│   │       │   ├── auth.ts           ← JWT sign/verify (per-role TTL + fph fingerprint), revokeAllTokensForUser, fingerprintRequest; re-exports MAX_ROLE_TTL_SEC
-│   │       │   ├── auth-constants.ts ← MAX_ROLE_TTL_SEC = 4h (source of truth; avoids ESM circular dep with auth.ts)
-│   │       │   ├── csp.ts            ← cspDirectives export (single source of truth for Helmet + meta tag)
-│   │       │   ├── csrf-cookie.ts    ← setCsrfCookie(res) + clearCsrfCookie(res); 24-byte hex _csrf cookie
-│   │       │   ├── dateUtils.ts      ← date helpers
-│   │       │   ├── jsonb-schemas.ts  ← Zod schemas for jsonb columns (vitals, medications, staffAssigned)
-│   │       │   ├── logger.ts         ← Pino instance with PHI redaction
-│   │       │   ├── metrics.ts        ← Prometheus metric definitions + metricsMiddleware
-│   │       │   ├── password.ts       ← bcrypt verify + legacy HMAC-SHA256 auto-migration
-│   │       │   ├── policy.ts         ← v7 auth kernel: evaluate(req, scope, allowedRoles?) → Decision discriminated union
-│   │       │   ├── redis.ts          ← ioredis client factory
-│   │       │   ├── runtime/          ← pluggable stores (in-memory dev / Redis prod via SESSION_STORE=redis)
-│   │       │   │   ├── index.ts      ← runtime singleton: { eventBus, rateStore, revocationStore }
-│   │       │   │   ├── event-bus.ts  ← EventBus interface
-│   │       │   │   ├── rate-store.ts ← RateStore interface
-│   │       │   │   ├── revocation-store.ts ← RevocationStore interface (includes isJtiUsed + markJtiUsed)
-│   │       │   │   ├── memory/       ← in-memory implementations (default)
-│   │       │   │   └── redis/        ← Redis implementations (SESSION_STORE=redis)
-│   │       │   ├── schedule-validator.ts ← doctor schedule conflict checks
-│   │       │   ├── scope.ts          ← getDoctorPatientScope, assertPatientInScope (returns bool — caller must 403 on false), assertMedicalRecordInScope, isDoctorScoped
-│   │       │   ├── sse.ts            ← emitToUser, addSSEClient
-│   │       │   └── validators.ts     ← safeParseInt, validateParamInt
-│   │       ├── services/             ← business logic layer (DB queries, scope, audit, rules) ⛔ no HTTP here
-│   │       │   ├── errors.ts         ← NotFoundError, ForbiddenError, ConflictError, ValidationError, UnauthorizedError (each carries ErrorDef)
-│   │       │   ├── auth.service.ts
-│   │       │   ├── appointments.service.ts
-│   │       │   ├── audit.service.ts
-│   │       │   ├── billing.service.ts
-│   │       │   ├── dashboard.service.ts
-│   │       │   ├── health.service.ts
-│   │       │   ├── inventory.service.ts
-│   │       │   ├── lab.service.ts
-│   │       │   ├── medical-records.service.ts
-│   │       │   ├── notifications.service.ts
-│   │       │   ├── operations.service.ts
-│   │       │   ├── patients.service.ts
-│   │       │   ├── prescriptions.service.ts
-│   │       │   ├── reports.service.ts
-│   │       │   ├── schedule.service.ts + schedule.slots.ts
-│   │       │   ├── search.service.ts
-│   │       │   ├── ultrasound.service.ts
-│   │       │   ├── users.service.ts
-│   │       │   └── xray.service.ts
-│   │       ├── middlewares/
-│   │       │   ├── asyncHandler.ts   ← wraps async routes; maps domain errors (NotFoundError etc.) to HTTP + canonical envelope
-│   │       │   ├── auth.ts           ← LEGACY shims: requireAuth = authGate("write"); requireRole(...) = authGate("write", roles)
-│   │       │   ├── auth-gate.ts      ← authGate(scope, allowedRoles?) — preferred entry point for new routes
-│   │       │   ├── correlationId.ts  ← attaches X-Correlation-ID (req.id) to every request
-│   │       │   ├── login-shield.ts   ← 4 KB body gate, Content-Type enforcement, empty-UA rejection (prod), 20 req/15 min IP rate layer
-│   │       │   └── rateLimiter.ts    ← DB-backed login limiter (5/15 min, 30 min lockout) + ipRateLimit factory
-│   │       ├── scripts/
-│   │       │   └── validate-errors.ts ← CI guard: asserts every error_code literal in source is registered in E
-│   │       ├── routes/
-│   │       │   ├── index.ts          ← register ALL new routes here
-│   │       │   ├── appointments.ts
-│   │       │   ├── audit.ts
-│   │       │   ├── auth.ts           ← login, logout, me, change-password (NO MFA routes)
-│   │       │   ├── billing.ts
-│   │       │   ├── dashboard.ts      ← summary (+yesterdayRevenue), department-load, recent-activity, compliance
-│   │       │   ├── health.ts
-│   │       │   ├── inventory.ts
-│   │       │   ├── lab.ts
-│   │       │   ├── medical_records.ts
-│   │       │   ├── notifications.ts
-│   │       │   ├── operations.ts
-│   │       │   ├── patients.ts
-│   │       │   ├── prescriptions.ts
-│   │       │   ├── reports.ts
-│   │       │   ├── schedule.ts
-│   │       │   ├── search.ts
-│   │       │   ├── ultrasound.ts
-│   │       │   ├── users.ts
-│   │       │   └── xray.ts
-│   │       └── tests/
-│   │           ├── appointment-state-machine.test.ts
-│   │           ├── auth-flow.integration.test.ts  ← supertest: login exempt, logout CSRF, cookie clear, revocation
-│   │           ├── csp.test.ts       ← 11 assertions guarding cspDirectives (script-src regression guard)
-│   │           ├── health.test.ts
-│   │           ├── jsonb-schemas.test.ts
-│   │           ├── password.test.ts
-│   │           ├── policy.unit.test.ts ← 25 tests covering every evaluate() branch (CSRF, token, revocation, jti, fingerprint, role)
-│   │           ├── rateLimiter.test.ts
-│   │           ├── scope.test.ts
-│   │           └── validators.test.ts
-│   └── clinic/
-│       └── src/
-│           ├── App.tsx               ← register ALL new routes here; 401 interceptor wires logout
-│           ├── pages/
-│           │   ├── AccessDenied.tsx
-│           │   ├── Appointments.tsx
-│           │   ├── AuditLog.tsx
-│           │   ├── Billing.tsx
-│           │   ├── BillingDashboard.tsx      ← billing_manager; revenue cards, 7-day area chart, recent payments/cancellations
-│           │   ├── ComplianceDashboard.tsx   ← compliance_officer; audit event counts, 7-day trend, top entities/users, denied feed
-│           │   ├── Dashboard.tsx             ← role switch → per-role dashboard; fallthrough to admin variant
-│           │   ├── DoctorDashboard.tsx       ← doctor queue, stat cards, notifications, recent patients
-│           │   ├── FrontDeskDashboard.tsx    ← front_desk; GlobalSearch, status/source bars, pending invoices
-│           │   ├── ImagingDashboard.tsx      ← xray_staff (domain="xray") + lab_staff (domain="lab"); status bars, recent items
-│           │   ├── NurseDashboard.tsx        ← nurse; triage kanban summary, vitals-pending list, priority breakdown
-│           │   ├── PharmacistDashboard.tsx   ← pharmacist; Rx counts, recent prescriptions feed, low-stock items
-│           │   ├── Inventory.tsx
-│           │   ├── Lab.tsx
-│           │   ├── Login.tsx                 ← single-step: username + password → session cookie
-│           │   ├── MedicalRecords.tsx
-│           │   ├── Notifications.tsx
-│           │   ├── Operations.tsx
-│           │   ├── PatientDetail.tsx
-│           │   ├── Patients.tsx
-│           │   ├── Prescriptions.tsx
-│           │   ├── Reports.tsx
-│           │   ├── Schedule.tsx              ← weekly template + 7-day calendar + overrides table
-│           │   ├── Settings.tsx
-│           │   ├── Triage.tsx                ← nurse kanban: priority pills, border-l-4 accent, quick vitals inline
-│           │   ├── Ultrasound.tsx            ← examType select, inline expand, image preview, print
-│           │   ├── Users.tsx
-│           │   ├── XRay.tsx
-│           │   └── not-found.tsx
-│           ├── components/
-│           │   ├── DataTable.tsx             ← expandedRow prop; density="comfortable"|"compact" prop
-│           │   ├── EmptyState.tsx            ← icon/title/description/action slots; used in dashboards and tables
-│           │   ├── DayScheduleView.tsx
-│           │   ├── DischargeSheet.tsx
-│           │   ├── GlobalSearch.tsx          ← cross-entity search bar
-│           │   ├── Layout.tsx                ← navbar, sidebar, dark-mode toggle, 40px top bar
-│           │   ├── PageHeader.tsx            ← subtitle: ReactNode (supports badge JSX)
-│           │   ├── PatientTimeline.tsx
-│           │   ├── StatusBadge.tsx
-│           │   └── ui/                       ← shadcn/ui primitives ⛔ do not add other UI libraries
-│           ├── hooks/
-│           │   ├── auth.tsx                  ← useAuth(), AuthProvider, UserRole type
-│           │   ├── i18n.tsx                  ← useI18n(), I18nProvider, 300+ keys, RTL toggle
-│           │   ├── use-idle-timeout.ts
-│           │   ├── use-mobile.tsx
-│           │   ├── use-notifications-stream.ts  ← SSE client, withCredentials, 5s backoff reconnect
-│           │   ├── use-toast.ts
-│           │   └── useSessionTimeout.ts      ← warn 28 min, auto-logout 30 min
-│           └── lib/
-│               ├── api.ts                    ← customFetch mutator (attaches X-CSRF-Token, credentials: include)
-│               ├── print.ts                  ← print report utilities
-│               ├── route-access.ts           ← canAccessRoute(href, role), navItems — update when adding pages
-│               └── utils.ts
-└── lib/
-    ├── db/
-    │   └── src/
-    │       └── schema/
-    │           ├── index.ts              ← re-export ALL schema files here
-    │           ├── appointments.ts
-    │           ├── audit_logs.ts         ← includes requestId column (nullable text)
-    │           ├── billing.ts
-    │           ├── doctor_schedules.ts
-    │           ├── inventory.ts
-    │           ├── lab_tests.ts
-    │           ├── login_attempts.ts     ← rate-limiter persistence (key, count, lockedUntil)
-    │           ├── medical_records.ts    ← includes isGlobal + globalReason columns
-    │           ├── notifications.ts
-    │           ├── operations.ts
-    │           ├── patients.ts
-    │           ├── prescriptions.ts
-    │           ├── ultrasound.ts
-    │           ├── users.ts              ← NO MFA columns; role enum includes compliance_officer, billing_manager, pharmacist
-    │           └── xray.ts
-    ├── api-spec/
-    │   └── openapi.yaml                  ← update after schema changes, then run codegen
-    ├── api-client-react/
-    │   └── src/
-    │       ├── generated/                ← ⛔ do not edit (Orval output)
-    │       └── custom-fetch.ts           ← hand-written mutator: X-CSRF-Token header, credentials: include
-    ├── api-zod/
-    │   └── src/
-    │       └── generated/                ← ⛔ do not edit (Orval output)
-    └── scripts/
-        └── src/
-            ├── seed.ts                   ← truncates users/patients/appointments/inventory/notifications, re-seeds
-            └── hello.ts
-```
 
 ---
 
@@ -630,46 +383,4 @@ Tables: `doctor_schedules` (weekly recurring slots) + `schedule_overrides` (date
 
 ---
 
-## Implemented Features (State as of 2026-05-18)
-
-| Feature | Status | Key Files |
-|---|---|---|
-| HttpOnly cookie auth (C-01) | ✅ | `routes/auth.ts`, `lib/auth.ts`, per-role cookie TTL |
-| Per-role JWT TTL + fingerprint | ✅ | `lib/auth.ts` ROLE_TTL, `fph` claim in `signToken` |
-| v7 auth kernel | ✅ | `lib/policy.ts`, `middlewares/auth-gate.ts` |
-| Login shield (WAF-equivalent) | ✅ | `middlewares/login-shield.ts` |
-| Service layer extraction | ✅ | `services/` — 19 domain services |
-| Canonical error envelope | ✅ | `errors.ts` E map, `middlewares/asyncHandler.ts` |
-| CI guard (validate:errors) | ✅ | `scripts/validate-errors.ts`, `ci.yml` |
-| Billing SoD | ✅ | `services/billing.service.ts` |
-| Audit trail (PHI coverage) | ✅ | `lib/audit.ts`, `logRead`/`logAudit`/`logDenied` |
-| Doctor scope (SQL-level) | ✅ | `lib/scope.ts` |
-| RBAC (10 roles) | ✅ | `lib/db/src/schema/users.ts` |
-| CSP (SPA + meta tag + regression guard) | ✅ | `lib/csp.ts`, `vite.config.ts`, `tests/csp.test.ts` |
-| Prometheus + Grafana | ✅ | `lib/metrics.ts` |
-| SSE (pluggable EventBus) | ✅ | `lib/sse.ts`, `lib/runtime/` |
-| Session revocation (fail-closed) | ✅ | `RevocationStore`, `verifyToken` throw on store error |
-| jti replay defense (privileged) | ✅ | `isJtiUsed`/`markJtiUsed` in `RevocationStore` |
-| Compliance Dashboard | ✅ | `routes/dashboard.ts`, `pages/ComplianceDashboard.tsx` |
-| Per-role dashboards (all 10 roles) | ✅ | 7 new endpoints in `dashboard.service.ts` + `routes/dashboard.ts`; 7 new pages; all in OpenAPI + codegen |
-| Per-role navigation (Layer 2) | ✅ | `getLandingRoute()` + `navPinnedByRole` in `route-access.ts`; `RoleQuickActions` + `RoleContextLine` in `Layout.tsx` |
-| Page chrome (Layer 3) | ✅ | `EmptyState.tsx`; `DataTable` density prop; status palette deduped + WCAG-differentiated; welcome-bar context line |
-| Schedule system | ✅ | `routes/schedule.ts`, `services/schedule.service.ts` |
-| Ultrasound module | ✅ | `routes/ultrasound.ts`, `pages/Ultrasound.tsx` |
-| Dark mode toggle | ✅ | `Layout.tsx` — `.dark` on `<html>`, localStorage `theme` |
-| Per-role UI improvements | ✅ | Triage kanban, Lab/XRay inline expand, nurse quick vitals |
-| MFA (TOTP) | ❌ REMOVED | Completely removed — no files, no schema, no routes |
-
----
-
-## Suggested Future Modules
-
-1. **MFA (TOTP re-implementation)** — Design enrolment UX, mandatory gate for privileged roles, recovery flow (Phase 15)
-2. **WhatsApp/SMS reminders** — via Twilio (Phase 14)
-3. **Insurance billing** — extend billing table with EDI/HIPAA 837P fields (Phase 14)
-4. **Patient portal** — self-booking and result viewing, separate auth domain (Phase 14)
-5. **FIDO2/WebAuthn** — phish-proof login for admin/doctor roles (Phase 14)
-6. **Read replicas** — separate analytics DB for reports (Phase 14)
-7. **UUID PKs** — prevent business intelligence leakage, enable sharding (v3.0)
-8. **Versioned Drizzle migrations** — replace `push` with `drizzle-kit migrate` for rollback-safe schema changes (v3.0)
-9. **Formal HIPAA gap analysis** — if US deployment (v3.0)
+**Operational state** (scorecard, changelog, roadmap, lessons learned, full folder tree) lives in [docs/](../docs/). This file is for *how to build here*.

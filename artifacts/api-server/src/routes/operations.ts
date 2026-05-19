@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { listOperations, getOperation, createOperation, updateOperation } from "../services/operations.service";
 
@@ -30,7 +31,7 @@ router.get(
   requireRole("super_admin", "admin", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.operationId);
-    if (!id) { res.status(400).json({ error: "Invalid operation ID" }); return; }
+    if (!id) throw new ValidationError("Invalid operation ID");
     res.json(await getOperation(req, id));
   }),
 );
@@ -40,7 +41,7 @@ router.patch(
   requireRole("super_admin", "admin", "doctor"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.operationId);
-    if (!id) { res.status(400).json({ error: "Invalid operation ID" }); return; }
+    if (!id) throw new ValidationError("Invalid operation ID");
     res.json(await updateOperation(req, id, req.body));
   }),
 );

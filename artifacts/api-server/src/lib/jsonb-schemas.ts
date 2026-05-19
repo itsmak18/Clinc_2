@@ -2,16 +2,24 @@
  * jsonb-schemas.ts
  *
  * Centralised Zod schemas for every JSONB column in the database.
- * Import these guards into route handlers BEFORE any db.insert / db.update.
+ * Import these guards into service-layer code BEFORE any db.insert / db.update.
  *
  * RULE: Never write to a JSONB column without validating against these schemas.
  *
- * Columns covered:
- *  - vitals         → medical_records.vitals
- *  - medications    → prescriptions.medications  (array)
- *  - staffAssigned  → operations.staffAssigned   (array of user refs)
+ * JSONB columns and their coverage:
+ *  - vitals         → medical_records.vitals      (vitalsSchema)
+ *  - medications    → prescriptions.medications   (medicationsSchema, array)
+ *  - staffAssigned  → operations.staffAssigned    (staffAssignedSchema, array)
+ *  - items          → invoices.items              (itemsSchema, array)
+ *  - details        → audit_logs.details          (NOT validated — see below)
+ *
+ * `audit_logs.details` is intentionally unconstrained. Audit metadata varies
+ * per action type (login attempt details, billing reasons, scope-denial info)
+ * and the audit trail is append-only — strict shape rules would create more
+ * compliance friction than safety value. Audit consumers must defensively
+ * parse what they read.
  */
-import { z } from "zod";
+import { z } from "zod/v4";
 
 // ── vitals ────────────────────────────────────────────────────────────────────
 // Stored on medical_records.vitals (jsonb, nullable).
@@ -69,3 +77,23 @@ export const staffAssignedSchema = z
   .max(20, "Too many staff assigned to a single operation");
 
 export type StaffAssignedItem = z.infer<typeof staffAssignedItemSchema>;
+
+// ── items (invoice line items) ────────────────────────────────────────────────
+// Stored on invoices.items (jsonb, array, NOT NULL).
+// Each line is a description + integer quantity + non-negative unit price.
+// Subtotal/total/discount live in dedicated NUMERIC columns and are derived
+// from these items — NEVER stored inside the JSONB.
+export const invoiceItemSchema = z
+  .object({
+    description: z.string().min(1).max(500),
+    quantity:    z.number().int().positive(),
+    unitPrice:   z.number().nonnegative(),
+  })
+  .strict();
+
+export const itemsSchema = z
+  .array(invoiceItemSchema)
+  .min(1, "Invoice must contain at least one line item")
+  .max(200, "Too many line items in a single invoice");
+
+export type InvoiceItem = z.infer<typeof invoiceItemSchema>;

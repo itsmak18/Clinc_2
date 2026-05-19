@@ -1,4 +1,4 @@
-import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -10,6 +10,7 @@ import { metricsMiddleware, getMetrics } from "./lib/metrics";
 import { ipRateLimit } from "./middlewares/rateLimiter";
 import { cspDirectives } from "./lib/csp";
 import { loginShield, loginIpRateLimit } from "./middlewares/login-shield";
+import { notFoundHandler, globalErrorHandler } from "./middlewares/envelope";
 
 const app: Express = express();
 
@@ -48,10 +49,10 @@ app.use(cors({
     // Allow requests with no origin (e.g. curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
 
-    const allowed = process.env.NODE_ENV === "production" 
-      ? [...replitOriginPatterns] 
+    const allowed = process.env.NODE_ENV === "production"
+      ? [...replitOriginPatterns]
       : [...devOriginPatterns, ...replitOriginPatterns];
-      
+
     if (allowed.some(pattern => pattern.test(origin))) {
       callback(null, true);
     } else {
@@ -113,37 +114,10 @@ app.use("/api", (req, res, next) => {
 });
 app.use("/api", router);
 
-// ── 404 handler for unmatched routes ────────────────────────────────────────
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ error: "Route not found" });
-});
-
-// ── Global error handler ──────────────────────────────────────────────────────
-// Must have 4 params for Express to recognize it as an error handler
-app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
-  logger.error({
-    err: { message: err.message, stack: err.stack, name: err.name },
-    method: req.method,
-    url: req.url?.split("?")[0],
-    userId: (req as any).user?.userId,
-  });
-
-  // PostgreSQL unique violation — return 409 instead of exposing the stack trace
-  if ((err as any).code === "23505") {
-    res.status(409).json({ error: "Duplicate record — this entry already exists." });
-    return;
-  }
-  // PostgreSQL foreign key violation
-  if ((err as any).code === "23503") {
-    res.status(400).json({ error: "Referenced record does not exist." });
-    return;
-  }
-
-  // Never expose stack traces in production
-  res.status(500).json({
-    error: "Internal server error",
-    ...(process.env.NODE_ENV === "development" ? { detail: err.message } : {}),
-  });
-});
+// ── 404 + global error handlers (canonical envelope) ────────────────────────
+// Both live in middlewares/envelope.ts so they can be tested without booting
+// the full app. See src/tests/envelope.integration.test.ts.
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 export default app;

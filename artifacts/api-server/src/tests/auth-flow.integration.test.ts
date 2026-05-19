@@ -65,7 +65,10 @@ describe("CSRF boundary — login exemption", () => {
       .post("/api/auth/login")
       .send({});
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/required/i);
+    // PR-A2: error shape migrated to canonical envelope. The 400 from a Zod
+    // failure now flows through asyncHandler → ValidationError → envelope.
+    expect(res.body.message).toMatch(/required/i);
+    expect(res.body.error_code).toBe(3003); // DOMAIN_VALIDATION
   });
 });
 

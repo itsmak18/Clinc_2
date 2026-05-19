@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listMedicalRecords, createMedicalRecord, getMedicalRecord,
@@ -29,7 +30,7 @@ router.get("/medical-records/:recordId",
   requireRole("super_admin", "admin", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const recordId = safeParseInt(req.params.recordId);
-    if (!recordId) { res.status(400).json({ error: "Invalid record ID" }); return; }
+    if (!recordId) throw new ValidationError("Invalid record ID");
     const record = await getMedicalRecord(req, recordId);
     res.json(record);
   }),
@@ -39,7 +40,7 @@ router.patch("/medical-records/:recordId",
   requireRole("super_admin", "admin", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const recordId = safeParseInt(req.params.recordId);
-    if (!recordId) { res.status(400).json({ error: "Invalid record ID" }); return; }
+    if (!recordId) throw new ValidationError("Invalid record ID");
     const record = await updateMedicalRecord(req, recordId, req.body);
     res.json(record);
   }),
@@ -49,7 +50,7 @@ router.patch("/medical-records/:recordId/global-flag",
   requireRole("super_admin"),
   asyncHandler(async (req: AuthRequest, res) => {
     const recordId = safeParseInt(req.params.recordId);
-    if (!recordId) { res.status(400).json({ error: "Invalid record ID" }); return; }
+    if (!recordId) throw new ValidationError("Invalid record ID");
     res.json(await setGlobalFlag(req, recordId, req.body));
   }),
 );

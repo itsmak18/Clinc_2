@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listInvoices, createInvoice, getInvoice, updateInvoice, cancelInvoice, payInvoice, getDailySummary,
@@ -27,7 +28,7 @@ router.get("/billing/invoices/:invoiceId",
   requireRole("super_admin", "admin", "front_desk", "billing_manager"),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
-    if (!invoiceId) { res.status(400).json({ error: "Invalid invoice ID" }); return; }
+    if (!invoiceId) throw new ValidationError("Invalid invoice ID");
     res.json(await getInvoice(req, invoiceId));
   }),
 );
@@ -37,7 +38,7 @@ router.patch("/billing/invoices/:invoiceId",
   requireRole("super_admin", "admin", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
-    if (!invoiceId) { res.status(400).json({ error: "Invalid invoice ID" }); return; }
+    if (!invoiceId) throw new ValidationError("Invalid invoice ID");
     res.json(await updateInvoice(req, invoiceId, req.body));
   }),
 );
@@ -47,11 +48,10 @@ router.post("/billing/invoices/:invoiceId/cancel",
   requireRole("super_admin", "admin", "billing_manager"),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
-    if (!invoiceId) { res.status(400).json({ error: "Invalid invoice ID" }); return; }
+    if (!invoiceId) throw new ValidationError("Invalid invoice ID");
     const { reason } = req.body;
     if (!reason || String(reason).trim().length < 30) {
-      res.status(400).json({ error: "Cancellation reason must be at least 30 characters" });
-      return;
+      throw new ValidationError("Cancellation reason must be at least 30 characters");
     }
     res.json(await cancelInvoice(req, invoiceId, String(reason).trim()));
   }),
@@ -62,7 +62,7 @@ router.post("/billing/invoices/:invoiceId/pay",
   requireRole("super_admin", "admin", "billing_manager"),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
-    if (!invoiceId) { res.status(400).json({ error: "Invalid invoice ID" }); return; }
+    if (!invoiceId) throw new ValidationError("Invalid invoice ID");
     res.json(await payInvoice(req, invoiceId, req.body?.amountReceived));
   }),
 );

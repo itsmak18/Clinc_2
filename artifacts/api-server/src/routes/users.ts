@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { authGate } from "../middlewares/auth-gate";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listUsers, listOnShiftUsers, listDoctors, getUser,
@@ -50,7 +51,7 @@ router.get(
   requireRole("super_admin", "admin"),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
-    if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    if (!userId) throw new ValidationError("Invalid user ID");
     res.json(await getUser(req, userId));
   }),
 );
@@ -60,7 +61,7 @@ router.patch(
   authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
-    if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    if (!userId) throw new ValidationError("Invalid user ID");
     res.json(await updateUser(req, userId, req.body));
   }),
 );
@@ -70,7 +71,7 @@ router.post(
   requireRole("super_admin", "admin"),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
-    if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    if (!userId) throw new ValidationError("Invalid user ID");
     res.json(await toggleShift(req, userId));
   }),
 );
@@ -80,7 +81,7 @@ router.delete(
   authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
-    if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    if (!userId) throw new ValidationError("Invalid user ID");
     await deleteUser(req, userId);
     res.json({ success: true });
   }),
@@ -91,7 +92,7 @@ router.post(
   authGate("privileged", ["super_admin", "admin"]),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
-    if (!userId) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    if (!userId) throw new ValidationError("Invalid user ID");
     await resetPassword(req, userId, req.body.newPassword);
     res.json({ success: true });
   }),
