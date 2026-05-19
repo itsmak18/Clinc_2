@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { listUltrasounds, createUltrasound, getUltrasound, updateUltrasound } from "../services/ultrasound.service";
 
@@ -21,7 +22,7 @@ router.get("/ultrasound/:ultrasoundId",
   requireRole("super_admin", "admin", "doctor", "nurse", "xray_staff"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.ultrasoundId);
-    if (!id) { res.status(400).json({ error: "Invalid ultrasound ID" }); return; }
+    if (!id) throw new ValidationError("Invalid ultrasound ID");
     res.json(await getUltrasound(req, id));
   }),
 );
@@ -30,7 +31,7 @@ router.patch("/ultrasound/:ultrasoundId",
   requireRole("super_admin", "admin", "xray_staff"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.ultrasoundId);
-    if (!id) { res.status(400).json({ error: "Invalid ultrasound ID" }); return; }
+    if (!id) throw new ValidationError("Invalid ultrasound ID");
     res.json(await updateUltrasound(req, id, req.body));
   }),
 );

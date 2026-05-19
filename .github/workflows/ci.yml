@@ -37,7 +37,33 @@ jobs:
       - name: Typecheck (libs + artifacts)
         run: pnpm run typecheck
 
-  # ── 2. Unit Tests ─────────────────────────────────────────────────────────────
+  # ── 2. Lint (routes ESLint rule) ─────────────────────────────────────────────
+  # Enforces the service-layer boundary: route files must not import @workspace/db
+  # or drizzle-orm directly. PR-B1 fixed the two existing violations
+  # (inventory.ts and prescriptions.ts) by moving DB access into their service
+  # files. The job is now blocking — any regression fails the build.
+  lint:
+    name: ESLint (routes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run ESLint on routes
+        run: pnpm --filter @workspace/api-server run lint
+
+  # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -70,7 +96,7 @@ jobs:
           path: artifacts/api-server/coverage/
           retention-days: 14
 
-  # ── 3. Security Audit ─────────────────────────────────────────────────────────
+  # ── 4. Security Audit ─────────────────────────────────────────────────────────
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -95,7 +121,23 @@ jobs:
         # fix available, add it to .pnpmauditignore with documented justification
         # and a review date. Never suppress without explanation.
 
-  # ── 4. Build Verification ─────────────────────────────────────────────────────
+  # ── 5. Secrets Scan (gitleaks) ────────────────────────────────────────────────
+  # Catches accidentally-committed credentials, API keys, .env contents.
+  # Free open-source action; no token required.
+  secrets-scan:
+    name: Secrets Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks needs full history to scan past commits
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 6. Build Verification ─────────────────────────────────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -122,14 +164,16 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, test, audit, build]
+    needs: [typecheck, lint, test, audit, secrets-scan, build]
     if: always()
     steps:
       - name: Check all jobs passed
         run: |
           if [[ "${{ needs.typecheck.result }}" != "success" ||
+                "${{ needs.lint.result }}" != "success" ||
                 "${{ needs.test.result }}" != "success" ||
                 "${{ needs.audit.result }}" != "success" ||
+                "${{ needs.secrets-scan.result }}" != "success" ||
                 "${{ needs.build.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1

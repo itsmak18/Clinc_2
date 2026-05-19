@@ -1,0 +1,76 @@
+name: Weekly Dependency Audit
+
+# Re-audits the locked dependency tree once a week. The standard CI pipeline only
+# audits at install time (on PR + push), so CVEs disclosed against an already-
+# installed dependency between merges are invisible. This job catches them.
+#
+# On a high-severity finding, this opens an issue (or appends a comment to an
+# existing one) labeled `security`. Resolve per docs/SECURITY_ARCHITECTURE.md
+# CVE response policy.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays at 09:00 UTC
+  workflow_dispatch: # manual trigger for emergencies
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10"
+
+jobs:
+  audit:
+    name: Audit installed dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run audit (capture output)
+        id: audit
+        continue-on-error: true
+        run: |
+          set +e
+          pnpm audit --audit-level=high --json > audit.json
+          STATUS=$?
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          if [ -s audit.json ]; then
+            echo "Findings:"
+            cat audit.json
+          fi
+          exit 0
+
+      - name: Open issue on findings
+        if: steps.audit.outputs.status != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            let body = "Weekly dependency audit found high/critical severity issues.\n\n";
+            try {
+              const audit = fs.readFileSync("audit.json", "utf8");
+              body += "```json\n" + audit.slice(0, 60000) + "\n```\n";
+            } catch {
+              body += "_(audit.json was empty or unreadable)_\n";
+            }
+            body += "\nSee `docs/SECURITY_ARCHITECTURE.md` for the CVE response policy.\n";
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Weekly audit — high/critical findings (${new Date().toISOString().slice(0,10)})`,
+              body,
+              labels: ["security"],
+            });

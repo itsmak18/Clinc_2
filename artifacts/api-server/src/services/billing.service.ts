@@ -2,17 +2,11 @@ import { db } from "@workspace/db";
 import { invoicesTable, patientsTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, sql } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
-import { z } from "zod/v4";
 import { logAudit, logRead } from "../lib/audit";
 import { safeParseInt } from "../lib/validators";
+import { itemsSchema } from "../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
-
-const billingItemSchema = z.object({
-  description: z.string().min(1),
-  quantity: z.number().int().positive(),
-  unitPrice: z.number().nonnegative(),
-}).strict();
 
 async function generateInvoiceNumber(): Promise<string> {
   const [{ nextval }] = await db.execute(sql`SELECT nextval('invoice_seq') as nextval`) as any;
@@ -66,7 +60,7 @@ export async function createInvoice(
     .where(and(eq(patientsTable.id, data.patientId), isNull(patientsTable.deletedAt)));
   if (!patient) throw new NotFoundError("patient", data.patientId);
 
-  const parsedItems = z.array(billingItemSchema).safeParse(data.items);
+  const parsedItems = itemsSchema.safeParse(data.items);
   if (!parsedItems.success) {
     throw new ValidationError("Invalid items format");
   }

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { listLabTests, createLabTest, getLabTest, updateLabTest } from "../services/lab.service";
 
@@ -24,7 +25,7 @@ router.get("/lab/tests/:testId",
   requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"),
   asyncHandler(async (req: AuthRequest, res) => {
     const testId = safeParseInt(req.params.testId);
-    if (!testId) { res.status(400).json({ error: "Invalid test ID" }); return; }
+    if (!testId) throw new ValidationError("Invalid test ID");
     res.json(await getLabTest(req, testId));
   }),
 );
@@ -33,7 +34,7 @@ router.patch("/lab/tests/:testId",
   requireRole("super_admin", "admin", "lab_staff"),
   asyncHandler(async (req: AuthRequest, res) => {
     const testId = safeParseInt(req.params.testId);
-    if (!testId) { res.status(400).json({ error: "Invalid test ID" }); return; }
+    if (!testId) throw new ValidationError("Invalid test ID");
     res.json(await updateLabTest(req, testId, req.body));
   }),
 );

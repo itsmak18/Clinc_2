@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { logAudit } from "../lib/audit";
 import {
@@ -35,7 +36,7 @@ router.get("/appointments/today", asyncHandler(async (_req, res) => {
 
 router.get("/appointments/:appointmentId", asyncHandler(async (req, res) => {
   const id = safeParseInt(req.params.appointmentId);
-  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  if (!id) throw new ValidationError("Invalid appointment ID");
   res.json(await getAppointment(id));
 }));
 
@@ -43,7 +44,7 @@ router.patch("/appointments/:appointmentId",
   requireRole("super_admin", "admin", "front_desk", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     res.json(await patchAppointment(req, id, req.body));
   }),
 );
@@ -52,7 +53,7 @@ router.delete("/appointments/:appointmentId",
   requireRole("super_admin", "admin", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     await cancelAppointment(req, id, req.body?.cancellationReason);
     res.json({ success: true });
   }),
@@ -62,7 +63,7 @@ router.post("/appointments/:appointmentId/checkin",
   requireRole("super_admin", "admin", "front_desk", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     res.json(await checkinAppointment(req, id));
   }),
 );
@@ -71,7 +72,7 @@ router.post("/appointments/:appointmentId/triage",
   requireRole("super_admin", "admin", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "triage", { triageStartedAt: new Date() });
     await logAudit(req, "TRIAGE_START", "appointment", appt.id);
     res.json(appt);
@@ -82,7 +83,7 @@ router.post("/appointments/:appointmentId/ready",
   requireRole("super_admin", "admin", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     res.json(await readyAppointment(req, id));
   }),
 );
@@ -91,7 +92,7 @@ router.post("/appointments/:appointmentId/consult",
   requireRole("super_admin", "admin", "doctor"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "consult", { consultationStartedAt: new Date() });
     await logAudit(req, "CONSULTATION_START", "appointment", appt.id);
     res.json(appt);
@@ -102,7 +103,7 @@ router.post("/appointments/:appointmentId/diagnostics",
   requireRole("super_admin", "admin", "doctor"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "diagnostics");
     await logAudit(req, "DIAGNOSTICS_REQUESTED", "appointment", appt.id);
     res.json(appt);
@@ -113,7 +114,7 @@ router.post("/appointments/:appointmentId/payment",
   requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "payment");
     await logAudit(req, "PENDING_PAYMENT", "appointment", appt.id);
     res.json(appt);
@@ -124,7 +125,7 @@ router.post("/appointments/:appointmentId/complete",
   requireRole("super_admin", "admin", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
-    if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+    if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "complete");
     await logAudit(req, "COMPLETE", "appointment", appt.id);
     res.json(appt);
@@ -133,7 +134,7 @@ router.post("/appointments/:appointmentId/complete",
 
 router.get("/appointments/:appointmentId/discharge", asyncHandler(async (req, res) => {
   const id = safeParseInt(req.params.appointmentId);
-  if (!id) { res.status(400).json({ error: "Invalid appointment ID" }); return; }
+  if (!id) throw new ValidationError("Invalid appointment ID");
   res.json(await getDischarge(id));
 }));
 

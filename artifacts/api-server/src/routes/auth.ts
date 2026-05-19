@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { authGate } from "../middlewares/auth-gate";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { setCsrfCookie, clearCsrfCookie } from "../lib/csrf-cookie";
 import { signToken } from "../lib/auth";
 import { loginUser, logoutUser, getMe, changePassword } from "../services/auth.service";
@@ -39,8 +40,7 @@ const COOKIE_TTL_MS: Record<string, number> = {
 router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Username and password required (max 64 / 256 chars)" });
-    return;
+    throw new ValidationError("Username and password required (max 64 / 256 chars)");
   }
   const { username, password } = parsed.data;
 
@@ -52,6 +52,11 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
       acceptLanguage: req.headers["accept-language"],
     });
   } catch (err: any) {
+    // These two response shapes stay raw (NOT the canonical envelope) because the
+    // frontend Login page reads `retryAfterSecs` / `attemptsRemaining` from the
+    // body to render lockout UX. The canonical envelope has no slot for those
+    // fields; promoting them would require a shape extension across the surface.
+    // Tracked as a follow-up — see PR-A2 description.
     if (err.status === 429) {
       res.status(429).json({ error: err.message, retryAfterSecs: err.retryAfterSecs });
       return;
@@ -107,8 +112,7 @@ router.get("/auth/me", requireAuth, asyncHandler(async (req: AuthRequest, res) =
 router.post("/auth/change-password", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
-    res.status(400).json({ error: "Current password and new password are required" });
-    return;
+    throw new ValidationError("Current password and new password are required");
   }
   await changePassword(req.user!.userId, currentPassword, newPassword, req.ip || "unknown");
   res.json({ success: true });

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { addSSEClient, removeSSEClient } from "../lib/sse";
 import {
@@ -47,7 +48,7 @@ router.post(
   "/notifications/:notificationId/read",
   asyncHandler(async (req: AuthRequest, res) => {
     const notificationId = safeParseInt(req.params.notificationId);
-    if (!notificationId) { res.status(400).json({ error: "Invalid notification ID" }); return; }
+    if (!notificationId) throw new ValidationError("Invalid notification ID");
     res.json(await markNotificationRead(req, notificationId));
   }),
 );

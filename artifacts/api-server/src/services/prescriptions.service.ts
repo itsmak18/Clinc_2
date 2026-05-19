@@ -28,7 +28,7 @@ export async function listPrescriptions(
     conditions.push(eq(prescriptionsTable.patientId, pid));
   }
 
-  return db.select({
+  const rows = await db.select({
     id: prescriptionsTable.id,
     patientId: prescriptionsTable.patientId,
     doctorId: prescriptionsTable.doctorId,
@@ -44,6 +44,9 @@ export async function listPrescriptions(
     .where(and(...conditions))
     .orderBy(desc(prescriptionsTable.createdAt))
     .limit(lim).offset(off);
+
+  void logAudit(req, "READ_LIST", "prescription", undefined, { count: rows.length });
+  return rows;
 }
 
 export async function createPrescription(

@@ -6,7 +6,7 @@
  * empty arrays, and missing required fields.
  */
 import { describe, it, expect } from "vitest";
-import { vitalsSchema, medicationsSchema, staffAssignedSchema } from "../lib/jsonb-schemas";
+import { vitalsSchema, medicationsSchema, staffAssignedSchema, itemsSchema } from "../lib/jsonb-schemas";
 
 // ── vitalsSchema ──────────────────────────────────────────────────────────────
 
@@ -162,5 +162,51 @@ describe("staffAssignedSchema", () => {
 
   it("rejects non-array input", () => {
     expect(staffAssignedSchema.safeParse({ userId: 1 }).success).toBe(false);
+  });
+});
+
+// ── itemsSchema (invoice line items) ──────────────────────────────────────────
+
+describe("itemsSchema (invoice line items)", () => {
+  const validItem = { description: "Consultation fee", quantity: 1, unitPrice: 50.00 };
+
+  it("accepts a single valid line item", () => {
+    expect(itemsSchema.safeParse([validItem]).success).toBe(true);
+  });
+
+  it("accepts multiple line items", () => {
+    expect(itemsSchema.safeParse([validItem, { description: "X-ray", quantity: 2, unitPrice: 30 }]).success).toBe(true);
+  });
+
+  it("accepts unitPrice of zero (free item)", () => {
+    expect(itemsSchema.safeParse([{ description: "Sample item", quantity: 1, unitPrice: 0 }]).success).toBe(true);
+  });
+
+  it("rejects empty array (invoice must have at least one item)", () => {
+    expect(itemsSchema.safeParse([]).success).toBe(false);
+  });
+
+  it("rejects negative unitPrice", () => {
+    expect(itemsSchema.safeParse([{ ...validItem, unitPrice: -1 }]).success).toBe(false);
+  });
+
+  it("rejects non-integer quantity", () => {
+    expect(itemsSchema.safeParse([{ ...validItem, quantity: 1.5 }]).success).toBe(false);
+  });
+
+  it("rejects zero quantity", () => {
+    expect(itemsSchema.safeParse([{ ...validItem, quantity: 0 }]).success).toBe(false);
+  });
+
+  it("rejects empty description", () => {
+    expect(itemsSchema.safeParse([{ ...validItem, description: "" }]).success).toBe(false);
+  });
+
+  it("rejects extra/unknown keys (strict mode)", () => {
+    expect(itemsSchema.safeParse([{ ...validItem, taxRate: 0.1 }]).success).toBe(false);
+  });
+
+  it("rejects non-array input", () => {
+    expect(itemsSchema.safeParse(validItem).success).toBe(false);
   });
 });

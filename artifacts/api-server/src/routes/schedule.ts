@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listDoctorsWithTemplates,
@@ -33,7 +34,7 @@ router.get(
   requireRole(...READ_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     res.json(await getDoctorSchedule(req, doctorId));
   }),
 );
@@ -43,7 +44,7 @@ router.get(
   requireRole(...READ_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     const dateStr = req.query.date as string | undefined;
     res.json(await getDoctorAvailability(req, doctorId, dateStr ?? ""));
   }),
@@ -54,7 +55,7 @@ router.get(
   requireRole(...READ_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.query.doctorId as string);
-    if (!doctorId) { res.status(400).json({ error: "doctorId required" }); return; }
+    if (!doctorId) throw new ValidationError("doctorId required");
     const weekStartStr = req.query.weekStart as string | undefined;
     res.json(await getWeekView(req, doctorId, weekStartStr ?? ""));
   }),
@@ -65,7 +66,7 @@ router.post(
   requireRole(...WRITE_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     const row = await upsertWeeklyBlock(req, doctorId, req.body);
     res.status(201).json(row);
   }),
@@ -76,7 +77,7 @@ router.patch(
   requireRole(...WRITE_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     res.json(await setWeeklyBlockStatus(req, doctorId, String(req.params.day), String(req.body.status)));
   }),
 );
@@ -86,7 +87,7 @@ router.delete(
   requireRole(...WRITE_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     await deleteWeeklyBlock(req, doctorId, String(req.params.day));
     res.json({ success: true });
   }),
@@ -97,7 +98,7 @@ router.post(
   requireRole(...WRITE_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     const row = await upsertOverride(req, doctorId, req.body);
     res.status(201).json(row);
   }),
@@ -108,7 +109,7 @@ router.delete(
   requireRole(...WRITE_ROLES),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
-    if (!doctorId) { res.status(400).json({ error: "Invalid doctor id" }); return; }
+    if (!doctorId) throw new ValidationError("Invalid doctor id");
     await deleteOverride(req, doctorId, String(req.params.date));
     res.json({ success: true });
   }),
