@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { useListPatients, useCreatePatient, getListPatientsQueryKey } from "@workspace/api-client-react";
+import { useListPatients, useCreatePatient, listPatients, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import PageHeader from "@/components/PageHeader";
@@ -16,9 +16,6 @@ import { useAuth } from "@/hooks/auth";
 import { formatDate } from "@/lib/api";
 import { Plus, Search, Scan, Download } from "lucide-react";
 import { calcAge, exportToCSV } from "@/lib/api";
-
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 export default function Patients() {
   const { t } = useI18n();
@@ -48,17 +45,16 @@ export default function Patients() {
         barcodeBuffer.current = "";
         if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
         if (mrn.length >= 4) {
-          // Look up patient by MRN via API
-          fetch(apiUrl(`patients?search=${encodeURIComponent(mrn)}&limit=1&offset=0`), {
-            credentials: "include",
-          }).then(r => r.json()).then(data => {
-            const patient = data?.patients?.[0];
-            if (patient) {
-              setLocation(`/patients/${patient.id}`);
-            } else {
-              toast({ title: `No patient found for MRN: ${mrn}`, variant: "destructive" });
-            }
-          }).catch(() => toast({ title: "Barcode scan failed", variant: "destructive" }));
+          listPatients({ search: mrn, limit: 1, offset: 0 })
+            .then(data => {
+              const patient = data?.patients?.[0];
+              if (patient) {
+                setLocation(`/patients/${patient.id}`);
+              } else {
+                toast({ title: `No patient found for MRN: ${mrn}`, variant: "destructive" });
+              }
+            })
+            .catch(() => toast({ title: "Barcode scan failed", variant: "destructive" }));
         }
         return;
       }

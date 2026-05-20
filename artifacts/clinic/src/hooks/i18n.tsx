@@ -346,27 +346,8 @@ const translations = {
     slotsAvailable: "slots available",
     noOverrides: "No overrides",
     previewSlots: "appointment slots generated",
-    // MFA two-step login
-    mfaRequired: "Two-Factor Authentication Required",
-    enterTotpCode: "Enter the 6-digit code from your authenticator app",
-    verifyCode: "Verify Code",
-    useRecoveryCode: "Use a recovery code instead",
-    useAuthenticatorCode: "Use authenticator code instead",
-    invalidTotpCode: "Invalid or expired code. Please try again.",
-    mfaSessionExpired: "Session expired. Please log in again.",
     // Session / fingerprint
     fingerprintMismatch: "Your session was invalidated because your browser changed. Please log in again.",
-    // Mandatory MFA setup
-    mfaSetupRequired: "Secure Your Account",
-    mfaSetupRequiredDesc: "Your role requires two-factor authentication. Set it up now to continue.",
-    mfaSetupStep1: "Scan with your authenticator app",
-    mfaSetupStep2: "Save your recovery codes",
-    mfaSetupStep2Desc: "Store these codes somewhere safe. Each can only be used once.",
-    mfaSetupStep3: "Enter the 6-digit code to confirm",
-    mfaSetupConfirm: "Confirm & Enable MFA",
-    mfaSetupSuccess: "MFA enabled. You're protected.",
-    mfaSetupCopied: "Recovery codes copied!",
-    mfaSetupSavedConfirm: "I have saved my recovery codes",
   },
   ar: {
     dashboard: "لوحة التحكم",
@@ -693,27 +674,8 @@ const translations = {
     slotsAvailable: "موعد متاح",
     noOverrides: "لا توجد استثناءات",
     previewSlots: "موعد سيُولَّد",
-    // MFA
-    mfaRequired: "مطلوب المصادقة الثنائية",
-    enterTotpCode: "أدخل الرمز المكوّن من 6 أرقام من تطبيق المصادقة",
-    verifyCode: "تحقق من الرمز",
-    useRecoveryCode: "استخدام رمز الاسترداد بدلاً من ذلك",
-    useAuthenticatorCode: "استخدام رمز المصادقة بدلاً من ذلك",
-    invalidTotpCode: "الرمز غير صالح أو منتهي الصلاحية. حاول مرة أخرى.",
-    mfaSessionExpired: "انتهت الجلسة. يرجى تسجيل الدخول مرة أخرى.",
     // Session / fingerprint
     fingerprintMismatch: "تم إبطال جلستك بسبب تغيير في المتصفح. يرجى تسجيل الدخول مرة أخرى.",
-    // Mandatory MFA setup
-    mfaSetupRequired: "تأمين حسابك",
-    mfaSetupRequiredDesc: "دورك يتطلب المصادقة الثنائية. قم بإعدادها الآن للمتابعة.",
-    mfaSetupStep1: "امسح الرمز بتطبيق المصادقة",
-    mfaSetupStep2: "احفظ رموز الاسترداد",
-    mfaSetupStep2Desc: "احتفظ بهذه الرموز في مكان آمن. يمكن استخدام كل رمز مرة واحدة فقط.",
-    mfaSetupStep3: "أدخل الرمز المكوّن من 6 أرقام للتأكيد",
-    mfaSetupConfirm: "تأكيد وتفعيل المصادقة الثنائية",
-    mfaSetupSuccess: "تم تفعيل المصادقة الثنائية. حسابك محمي.",
-    mfaSetupCopied: "تم نسخ رموز الاسترداد!",
-    mfaSetupSavedConfirm: "لقد حفظت رموز الاسترداد",
   },
 };
 

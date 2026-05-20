@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
-import { useGetTodayAppointments, getGetTodayAppointmentsQueryKey, getListAppointmentsQueryKey } from "@workspace/api-client-react";
+import {
+  useGetTodayAppointments,
+  useStartTriage,
+  useMarkPatientReady,
+  useUpdateAppointment,
+  useCreateMedicalRecord,
+  getGetTodayAppointmentsQueryKey,
+  getListAppointmentsQueryKey,
+} from "@workspace/api-client-react";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -14,20 +22,6 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Activity, User, ArrowRight, ClipboardList } from "lucide-react";
 import { useAuth } from "@/hooks/auth";
 import { cn } from "@/lib/utils";
-
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
-
-async function apiFetch(path: string, method = "POST", body?: object) {
-  const res = await fetch(apiUrl(path), {
-    method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
 
 interface VitalsForm {
   bloodPressure: string;
@@ -94,15 +88,21 @@ export default function Triage() {
     queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
   };
 
+  const startTriageMutation = useStartTriage({
+    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: "Failed to start triage", variant: "destructive" }) },
+  });
+  const updateAppointmentMutation = useUpdateAppointment({
+    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: "Failed to update priority", variant: "destructive" }) },
+  });
+  const createMedicalRecordMutation = useCreateMedicalRecord();
+  const markReadyMutation = useMarkPatientReady();
+
   const handleStartTriage = async (appt: any) => {
     try {
-      await apiFetch(`appointments/${appt.id}/triage`);
+      await startTriageMutation.mutateAsync({ appointmentId: appt.id });
       setSelectedAppt(appt);
       setVitals({ bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: "", notes: "" });
-      invalidate();
-    } catch {
-      toast({ title: "Failed to start triage", variant: "destructive" });
-    }
+    } catch { /* onError toast already fired */ }
   };
 
   const handleContinueTriage = (appt: any) => {
@@ -110,13 +110,8 @@ export default function Triage() {
     setVitals({ bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: "", notes: "" });
   };
 
-  const handleSetPriority = async (appt: any, priority: Priority) => {
-    try {
-      await apiFetch(`appointments/${appt.id}`, "PATCH", { triagePriority: priority });
-      invalidate();
-    } catch {
-      toast({ title: "Failed to update priority", variant: "destructive" });
-    }
+  const handleSetPriority = (appt: any, priority: Priority) => {
+    updateAppointmentMutation.mutate({ appointmentId: appt.id, data: { triagePriority: priority } as any });
   };
 
   const handleQuickVitalsSave = async (appt: any) => {
@@ -124,18 +119,20 @@ export default function Triage() {
     if (!qv) return;
     setQuickSaving(appt.id);
     try {
-      await apiFetch(`medical-records`, "POST", {
-        patientId: appt.patientId,
-        doctorId: appt.doctorId,
-        appointmentId: appt.id,
-        chiefComplaint: "Quick vitals recorded",
-        diagnosis: "Pending — triage only",
-        treatment: "Pending",
-        vitals: {
-          bloodPressure: qv.bp || undefined,
-          heartRate: qv.pulse ? parseInt(qv.pulse) : undefined,
-          temperature: qv.temp ? parseFloat(qv.temp) : undefined,
-        },
+      await createMedicalRecordMutation.mutateAsync({
+        data: {
+          patientId: appt.patientId,
+          doctorId: appt.doctorId,
+          appointmentId: appt.id,
+          chiefComplaint: "Quick vitals recorded",
+          diagnosis: "Pending — triage only",
+          treatment: "Pending",
+          vitals: {
+            bloodPressure: qv.bp || undefined,
+            heartRate: qv.pulse ? parseInt(qv.pulse) : undefined,
+            temperature: qv.temp ? parseFloat(qv.temp) : undefined,
+          },
+        } as any,
       });
       toast({ title: "Quick vitals saved" });
       setQuickVitals(prev => { const next = { ...prev }; delete next[appt.id]; return next; });
@@ -159,18 +156,20 @@ export default function Triage() {
         oxygenSaturation: vitals.oxygenSaturation ? parseFloat(vitals.oxygenSaturation) : undefined,
       };
 
-      await apiFetch(`medical-records`, "POST", {
-        patientId: selectedAppt.patientId,
-        doctorId: selectedAppt.doctorId,
-        appointmentId: selectedAppt.id,
-        chiefComplaint: "Triage vitals recorded",
-        diagnosis: "Pending — triage only",
-        treatment: "Pending",
-        notes: vitals.notes || undefined,
-        vitals: vitalsData,
+      await createMedicalRecordMutation.mutateAsync({
+        data: {
+          patientId: selectedAppt.patientId,
+          doctorId: selectedAppt.doctorId,
+          appointmentId: selectedAppt.id,
+          chiefComplaint: "Triage vitals recorded",
+          diagnosis: "Pending — triage only",
+          treatment: "Pending",
+          notes: vitals.notes || undefined,
+          vitals: vitalsData,
+        } as any,
       });
 
-      await apiFetch(`appointments/${selectedAppt.id}/ready`);
+      await markReadyMutation.mutateAsync({ appointmentId: selectedAppt.id });
       toast({ title: "Vitals recorded — patient is ready for doctor" });
       setSelectedAppt(null);
       invalidate();

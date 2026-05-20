@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { useListAppointments, useCreateAppointment, useCheckInPatient, useCancelAppointment, useListPatients, useListUsers, getListAppointmentsQueryKey, getListPatientsQueryKey, getListUsersQueryKey, useGetTodayAppointments, getGetTodayAppointmentsQueryKey } from "@workspace/api-client-react";
+import {
+  useListAppointments, useCreateAppointment, useCheckInPatient, useCancelAppointment,
+  useStartTriage, useStartConsultation, useRequestDiagnostics, usePendingPayment, useCompleteAppointment,
+  useListPatients, useListUsers,
+  getListAppointmentsQueryKey, getListPatientsQueryKey, getListUsersQueryKey,
+  useGetTodayAppointments, getGetTodayAppointmentsQueryKey,
+} from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/auth";
@@ -18,20 +24,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime, exportToCSV } from "@/lib/api";
 import { Phone, Globe, Building2, Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List } from "lucide-react";
-
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
-
-async function apiFetch(path: string, method = "POST", body?: object) {
-  const res = await fetch(apiUrl(path), {
-    method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
 
 const ALL_STATUSES = [
   "scheduled", "checked_in", "in_triage", "ready_for_doctor",
@@ -98,10 +90,20 @@ export default function Appointments() {
     }
   });
 
-  const transition = async (apptId: number, endpoint: string, label: string) => {
+  const transitionHooks = {
+    triage: useStartTriage(),
+    consult: useStartConsultation(),
+    diagnostics: useRequestDiagnostics(),
+    payment: usePendingPayment(),
+    complete: useCompleteAppointment(),
+  } as const;
+
+  type TransitionKey = keyof typeof transitionHooks;
+
+  const transition = async (apptId: number, endpoint: TransitionKey, label: string) => {
     setTransitionLoading(apptId);
     try {
-      await apiFetch(`appointments/${apptId}/${endpoint}`);
+      await transitionHooks[endpoint].mutateAsync({ appointmentId: apptId });
       invalidateAll();
       toast({ title: label });
     } catch {

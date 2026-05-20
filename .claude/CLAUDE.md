@@ -86,7 +86,7 @@ pnpm --filter @workspace/api-spec run codegen
 pnpm --filter @workspace/scripts run seed        # Truncates users, patients, appointments, inventory, notifications
 
 # Run tests
-pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite (204 tests)
+pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite (211 tests)
 
 # Validate error codes (CI step — run before tests)
 pnpm --filter @workspace/api-server run validate:errors
@@ -142,7 +142,7 @@ lib/api-zod/src/generated/            ← backend validates against
 - Route guard: `canAccessRoute(href, role)` from `lib/route-access.ts` — applied via `Guard` component in `App.tsx`. (`super_admin` bypasses all route guards automatically inside `canAccessRoute`.)
 - Auth token stored in an **HttpOnly cookie** (`clinic_token`) set by the server — never in `localStorage`. Session is restored on app load via `GET /api/auth/me` (cookie sent automatically by browser). A 401 triggers immediate logout via the interceptor in `App.tsx`.
 - Session timeout: warn at 28 min, auto-logout at 30 min via `useSessionTimeout`. Note: `super_admin` JWT expires at 15 min — the 401 interceptor fires before the 28-min timer.
-- Raw `fetch()` calls to mutation endpoints MUST include `X-CSRF-Token` read from `_csrf` cookie. Orval-generated `customFetch` does this automatically. Hand-written `fetch()` does not — always add the header manually.
+- Raw `fetch()` calls to mutation endpoints MUST include `X-CSRF-Token` read from `_csrf` cookie. Orval-generated `customFetch` does this automatically — **always use the generated hook or the underlying generated function** (e.g. `useStartTriage()` / `listPatients()`) for anything under `/api/*`. Hand-written `fetch("/api/...")` in `pages/**` is blocked by a CI grep guard in `.github/workflows/ci.yml` (lint job). Two read-only legacy `fetch(apiUrl(...))` paths in `components/GlobalSearch.tsx` and `components/DischargeSheet.tsx` hit GET endpoints — no CSRF risk, but migrate when next touched.
 
 **Backend patterns**
 - Middleware order in `app.ts`: `correlationId → strip-x-session-state/x-security-flags → helmet(csp) → cors → pinoHttp → metricsMiddleware → express.json/urlencoded → cookieParser → [login-shield on POST /auth/login] → [globalMutationLimiter on all other mutations] → router`
