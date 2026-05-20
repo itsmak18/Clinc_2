@@ -63,6 +63,18 @@ jobs:
       - name: Run ESLint on routes
         run: pnpm --filter @workspace/api-server run lint
 
+      # Frontend CSRF guard: every mutation in pages must go through Orval's
+      # customFetch (which attaches X-CSRF-Token). Hand-written fetch("/api/...")
+      # silently drops the header — the same bug as the 2026-05-13 logout
+      # regression. PR-C deleted the last 3 apiFetch helpers + 1 raw fetch.
+      - name: Block raw fetch("/api/...") in clinic pages
+        run: |
+          if grep -rnE "fetch\(\s*['\"\`]/api/|fetch\(\s*apiUrl\(" artifacts/clinic/src/pages/ ; then
+            echo "::error::Raw fetch to /api/* is forbidden in pages — use the Orval-generated hook."
+            exit 1
+          fi
+          echo "OK — no raw fetch('/api/...') in clinic pages."
+
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests

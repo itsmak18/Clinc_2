@@ -22,10 +22,7 @@ export const E = {
   AUTH_CSRF_MISMATCH: e(1022, 403, "AUTH_CSRF_MISMATCH"),
   // Authorization: 1030–1039
   AUTH_FORBIDDEN:     e(1030, 403, "AUTH_FORBIDDEN"),
-  // MFA: 1040–1049
-  AUTH_MFA_REQUIRED:  e(1040, 200, "AUTH_MFA_REQUIRED"),
-  AUTH_MFA_INVALID:   e(1041, 401, "AUTH_MFA_INVALID"),
-  AUTH_MFA_USED:      e(1042, 401, "AUTH_MFA_SESSION_USED"),
+  // MFA: 1040–1049 reserved — feature removed 2026-05-17, re-scope before reusing.
   // Domain: 3000–3099
   DOMAIN_NOT_FOUND:   e(3001, 404, "NOT_FOUND"),
   DOMAIN_CONFLICT:    e(3002, 409, "CONFLICT"),

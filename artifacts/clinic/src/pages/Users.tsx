@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser, useResetUserPassword, useToggleUserShift, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,20 +15,6 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { Plus, UserX, Coffee, Clock, KeyRound } from "lucide-react";
 
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
-
-async function apiFetch(path: string, method = "POST", body?: object) {
-  const res = await fetch(apiUrl(path), {
-    method,
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-
 const roles = ["super_admin", "admin", "doctor", "nurse", "front_desk", "xray_staff", "lab_staff"] as const;
 
 export default function Users() {
@@ -38,11 +24,9 @@ export default function Users() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [filterRole, setFilterRole] = useState("");
-  const [shiftLoading, setShiftLoading] = useState<number | null>(null);
   const [form, setForm] = useState({ username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "" });
   const [resetTarget, setResetTarget] = useState<{ id: number; fullName: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
-  const [resetLoading, setResetLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [editForm, setEditForm] = useState({ fullName: "", fullNameAr: "", email: "", role: "", phone: "", isActive: true });
 
@@ -106,32 +90,34 @@ export default function Users() {
 
   const canResetPasswords = currentUser?.role === "super_admin" || currentUser?.role === "admin";
 
-  const handleResetPassword = async () => {
+  const resetPasswordMutation = useResetUserPassword({
+    mutation: {
+      onSuccess: () => {
+        toast({ title: "Password reset successfully" });
+        setResetTarget(null);
+        setNewPassword("");
+      },
+      onError: () => toast({ title: "Failed to reset password", variant: "destructive" }),
+    },
+  });
+
+  const toggleShiftMutation = useToggleUserShift({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
+        toast({ title: "Shift status updated" });
+      },
+      onError: () => toast({ title: "Failed to update shift", variant: "destructive" }),
+    },
+  });
+
+  const handleResetPassword = () => {
     if (!resetTarget || !newPassword) return;
-    setResetLoading(true);
-    try {
-      await apiFetch(`users/${resetTarget.id}/reset-password`, "POST", { newPassword });
-      toast({ title: "Password reset successfully" });
-      setResetTarget(null);
-      setNewPassword("");
-    } catch {
-      toast({ title: "Failed to reset password", variant: "destructive" });
-    } finally {
-      setResetLoading(false);
-    }
+    resetPasswordMutation.mutate({ userId: resetTarget.id, data: { newPassword } });
   };
 
-  const toggleShift = async (userId: number) => {
-    setShiftLoading(userId);
-    try {
-      await apiFetch(`users/${userId}/toggle-shift`);
-      queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
-      toast({ title: "Shift status updated" });
-    } catch {
-      toast({ title: "Failed to update shift", variant: "destructive" });
-    } finally {
-      setShiftLoading(null);
-    }
+  const toggleShift = (userId: number) => {
+    toggleShiftMutation.mutate({ userId });
   };
 
   const canManageShift = currentUser?.role === "admin" || currentUser?.role === "super_admin";
@@ -184,7 +170,8 @@ export default function Users() {
               { key: "actions", header: t("actions"), render: u => (
                 <div className="flex gap-1">
                   {canManageShift && (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2" disabled={shiftLoading === u.id}
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
+                      disabled={toggleShiftMutation.isPending && (toggleShiftMutation.variables as any)?.userId === u.id}
                       onClick={(e) => { e.stopPropagation(); toggleShift(u.id); }}>
                       {(u as any).isOnShift ? "End Shift" : "Start Shift"}
                     </Button>
@@ -293,8 +280,8 @@ export default function Users() {
               <Button variant="outline" size="sm" onClick={() => { setResetTarget(null); setNewPassword(""); }}>
                 {t("cancel")}
               </Button>
-              <Button size="sm" onClick={handleResetPassword} disabled={!newPassword || resetLoading} className="bg-amber-500 hover:bg-amber-600 text-white">
-                {resetLoading ? t("loading") : "Reset Password"}
+              <Button size="sm" onClick={handleResetPassword} disabled={!newPassword || resetPasswordMutation.isPending} className="bg-amber-500 hover:bg-amber-600 text-white">
+                {resetPasswordMutation.isPending ? t("loading") : "Reset Password"}
               </Button>
             </div>
           </div>
