@@ -1,38 +1,51 @@
 import { db } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
-import { eq, isNull, desc, and, inArray } from "drizzle-orm";
+import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { logAudit, logRead } from "../lib/audit";
-import { safeParseInt } from "../lib/validators";
 import { isDoctorScoped, getDoctorPatientScope, assertMedicalRecordInScope } from "../lib/scope";
 import { vitalsSchema } from "../lib/jsonb-schemas";
-import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
+import { encrypt, decrypt, encryptJsonNullable, decryptJsonNullable } from "../lib/field-encryption";
+import { hasActiveConsent } from "./consent.service";
+import { NotFoundError, ForbiddenError, ValidationError, ConsentRequiredError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
+
+// Decrypt PHI fields on every record returned from the DB.
+function decryptRecord<T extends { diagnosis: string; vitals: unknown }>(record: T): T {
+  return {
+    ...record,
+    diagnosis: decrypt(record.diagnosis),
+    vitals: decryptJsonNullable(record.vitals as string | null),
+  };
+}
 
 export async function listMedicalRecords(
   req: AuthRequest,
-  params: { patientId?: string; doctorId?: string },
+  params: { patientId?: string; doctorId?: string; limit?: string; cursor?: string },
 ) {
-  const conditions: any[] = [isNull(medicalRecordsTable.deletedAt)];
+  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
+  const conditions: any[] = [isNull(medicalRecordsTable.deletedAt), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
 
   if (isDoctorScoped(req.user?.role)) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
     if (allowed.length === 0) {
       void logAudit(req, "READ_LIST", "medical_record", undefined, { count: 0 });
-      return [];
+      return { data: [], nextCursor: null };
     }
     conditions.push(inArray(medicalRecordsTable.patientId, allowed));
   }
 
   if (params.patientId) {
-    const pid = safeParseInt(params.patientId);
-    if (!pid) throw new ValidationError("Invalid patientId");
-    conditions.push(eq(medicalRecordsTable.patientId, pid));
+    const pid = parseInt(params.patientId);
+    if (!isNaN(pid)) conditions.push(eq(medicalRecordsTable.patientId, pid));
   }
   if (params.doctorId) {
-    const did = safeParseInt(params.doctorId);
-    if (!did) throw new ValidationError("Invalid doctorId");
-    conditions.push(eq(medicalRecordsTable.doctorId, did));
+    const did = parseInt(params.doctorId);
+    if (!isNaN(did)) conditions.push(eq(medicalRecordsTable.doctorId, did));
+  }
+  if (params.cursor) {
+    const cursorId = parseInt(params.cursor);
+    if (!isNaN(cursorId)) conditions.push(lt(medicalRecordsTable.id, cursorId));
   }
 
   const results = await db.select({
@@ -53,10 +66,12 @@ export async function listMedicalRecords(
     .leftJoin(patientsTable, eq(medicalRecordsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(medicalRecordsTable.doctorId, usersTable.id))
     .where(and(...conditions))
-    .orderBy(desc(medicalRecordsTable.createdAt));
+    .orderBy(desc(medicalRecordsTable.id))
+    .limit(lim);
 
+  const nextCursor = results.length === lim ? results[results.length - 1].id : null;
   void logAudit(req, "READ_LIST", "medical_record", undefined, { count: results.length });
-  return results;
+  return { data: results.map(r => decryptRecord(r)), nextCursor };
 }
 
 export async function createMedicalRecord(
@@ -64,7 +79,7 @@ export async function createMedicalRecord(
   data: {
     patientId: unknown;
     doctorId: unknown;
-    appointmentId?: number;
+    appointmentId?: string;
     chiefComplaint: string;
     diagnosis: string;
     treatment: string;
@@ -79,36 +94,41 @@ export async function createMedicalRecord(
   const parsedVitals = vitalsSchema.safeParse(data.vitals);
   if (!parsedVitals.success) throw new ValidationError("Invalid vitals");
 
-  const pid = safeParseInt(String(data.patientId));
-  if (!pid) throw new ValidationError("Invalid patientId");
+  const pid = Number(data.patientId);
   const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable).where(eq(patientsTable.id, pid));
-  if (!patient) throw new NotFoundError("patient", pid);
+  if (!patient) throw new NotFoundError("patient", String(pid));
 
-  const did = safeParseInt(String(data.doctorId));
-  if (!did) throw new ValidationError("Invalid doctorId");
+  if (!await hasActiveConsent(pid, "treatment")) {
+    throw new ConsentRequiredError("treatment consent is required before creating a medical record");
+  }
+
+  const did = Number(data.doctorId);
   const [doctor] = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, did));
   if (!doctor || doctor.role !== "doctor") throw new ValidationError("doctorId must reference a user with doctor role");
 
   const [record] = await db.insert(medicalRecordsTable).values({
-    patientId: pid, doctorId: did, appointmentId: data.appointmentId,
-    chiefComplaint: data.chiefComplaint, diagnosis: data.diagnosis,
+    clinicId: req.user!.clinicId,
+    patientId: pid, doctorId: did, appointmentId: data.appointmentId !== undefined ? Number(data.appointmentId) : undefined,
+    chiefComplaint: data.chiefComplaint,
+    diagnosis: encrypt(data.diagnosis),
     treatment: data.treatment, notes: data.notes,
-    vitals: parsedVitals.data ?? null,
+    vitals: encryptJsonNullable(parsedVitals.data ?? null),
   }).returning();
 
   await logAudit(req, "CREATE", "medical_record", record.id);
-  return record;
+  return decryptRecord(record);
 }
 
 export async function getMedicalRecord(req: AuthRequest, recordId: number) {
   if (!await assertMedicalRecordInScope(req, recordId)) {
     throw Object.assign(new ForbiddenError("access_denied"), { reason: "record_not_owned_or_global" });
   }
-  const [record] = await db.select().from(medicalRecordsTable).where(eq(medicalRecordsTable.id, recordId));
+  const conditions: any[] = [eq(medicalRecordsTable.id, recordId), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
+  const [record] = await db.select().from(medicalRecordsTable).where(and(...conditions));
   if (!record) throw new NotFoundError("medical record", recordId);
 
   void logRead(req, "medical_record", recordId);
-  return record;
+  return decryptRecord(record);
 }
 
 export async function updateMedicalRecord(
@@ -116,7 +136,9 @@ export async function updateMedicalRecord(
   recordId: number,
   body: Record<string, any>,
 ) {
-  const [existing] = await db.select().from(medicalRecordsTable).where(eq(medicalRecordsTable.id, recordId));
+  const conditions: any[] = [eq(medicalRecordsTable.id, recordId), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
+
+  const [existing] = await db.select().from(medicalRecordsTable).where(and(...conditions));
   if (!existing) throw new NotFoundError("medical record", recordId);
 
   const role = req.user!.role;
@@ -126,11 +148,11 @@ export async function updateMedicalRecord(
     const parsedVitals = vitalsSchema.safeParse(body.vitals);
     if (!parsedVitals.success) throw new ValidationError("Invalid vitals");
     const [record] = await db.update(medicalRecordsTable)
-      .set({ vitals: parsedVitals.data ?? null, updatedAt: new Date() })
-      .where(eq(medicalRecordsTable.id, recordId))
+      .set({ vitals: encryptJsonNullable(parsedVitals.data ?? null), updatedAt: new Date() })
+      .where(and(...conditions))
       .returning();
     await logAudit(req, "UPDATE", "medical_record", record.id, { fields: ["vitals"] });
-    return record;
+    return decryptRecord(record);
   }
 
   const isOwner = existing.doctorId === req.user!.userId;
@@ -157,16 +179,18 @@ export async function updateMedicalRecord(
 
   const [record] = await db.update(medicalRecordsTable)
     .set({
-      chiefComplaint: body.chiefComplaint, diagnosis: body.diagnosis,
+      chiefComplaint: body.chiefComplaint,
+      diagnosis: encrypt(body.diagnosis),
       treatment: body.treatment, notes: body.notes,
-      vitals: parsedVitals.data ?? null, updatedAt: new Date(),
+      vitals: encryptJsonNullable(parsedVitals.data ?? null),
+      updatedAt: new Date(),
     })
-    .where(eq(medicalRecordsTable.id, recordId))
+    .where(and(...conditions))
     .returning();
 
   if (!record) throw new NotFoundError("medical record", recordId);
-  await logAudit(req, "UPDATE", "medical_record", record.id, { before: existing, after: record });
-  return record;
+  await logAudit(req, "UPDATE", "medical_record", record.id, null, existing, record);
+  return decryptRecord(record);
 }
 
 const globalFlagSchema = z.object({
@@ -178,13 +202,15 @@ export async function setGlobalFlag(req: AuthRequest, recordId: number, body: un
   const parsed = globalFlagSchema.safeParse(body);
   if (!parsed.success) throw new ValidationError("reason must be at least 20 characters");
 
+  const conditions: any[] = [eq(medicalRecordsTable.id, recordId), isNull(medicalRecordsTable.deletedAt), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
+
   const [existing] = await db.select({ id: medicalRecordsTable.id }).from(medicalRecordsTable)
-    .where(and(eq(medicalRecordsTable.id, recordId), isNull(medicalRecordsTable.deletedAt)));
+    .where(and(...conditions));
   if (!existing) throw new NotFoundError("medical record", recordId);
 
   const [record] = await db.update(medicalRecordsTable)
     .set({ isGlobal: parsed.data.isGlobal, globalReason: parsed.data.reason, updatedAt: new Date() })
-    .where(eq(medicalRecordsTable.id, recordId))
+    .where(and(...conditions))
     .returning();
 
   await logAudit(req, "UPDATE", "medical_record", record.id, {

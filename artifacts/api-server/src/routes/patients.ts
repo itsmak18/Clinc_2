@@ -14,8 +14,8 @@ router.use(requireAuth);
 router.get("/patients",
   requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { search, limit, offset } = req.query as Record<string, string | undefined>;
-    res.json(await listPatients(req, { search, limit, offset }));
+    const { search, limit, cursor } = req.query as Record<string, string | undefined>;
+    res.json(await listPatients(req, { search, limit, cursor }));
   }),
 );
 

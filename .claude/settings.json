@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd /c set CLAUDE_PROJECT_DIR=C:\\Users\\xxmoh\\Desktop\\obsidian-mind && node --disable-warning=ExperimentalWarning --experimental-strip-types \"C:\\Users\\xxmoh\\Desktop\\obsidian-mind\\.claude\\scripts\\session-start.ts\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd /c set CLAUDE_PROJECT_DIR=C:\\Users\\xxmoh\\Desktop\\obsidian-mind && node --disable-warning=ExperimentalWarning --experimental-strip-types \"C:\\Users\\xxmoh\\Desktop\\obsidian-mind\\.claude\\scripts\\classify-message.ts\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd /c set CLAUDE_PROJECT_DIR=C:\\Users\\xxmoh\\Desktop\\obsidian-mind && node --disable-warning=ExperimentalWarning --experimental-strip-types \"C:\\Users\\xxmoh\\Desktop\\obsidian-mind\\.claude\\scripts\\validate-write.ts\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd /c set CLAUDE_PROJECT_DIR=C:\\Users\\xxmoh\\Desktop\\obsidian-mind && node --disable-warning=ExperimentalWarning --experimental-strip-types \"C:\\Users\\xxmoh\\Desktop\\obsidian-mind\\.claude\\scripts\\pre-compact.ts\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd /c set CLAUDE_PROJECT_DIR=C:\\Users\\xxmoh\\Desktop\\obsidian-mind && node --disable-warning=ExperimentalWarning --experimental-strip-types \"C:\\Users\\xxmoh\\Desktop\\obsidian-mind\\.claude\\scripts\\stop-checklist.ts\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "Review what was just accomplished in this MediCore (Clinic-Hub) session. Then do both of the following:\n\n1. MEMORY UPDATE — scan C:/Users/xxmoh/.claude/projects/c--Users-xxmoh-OneDrive-Desktop-Clinic-Hub/memory/ and update or create memory files for any new facts learned about: project decisions, user preferences, architecture changes, bugs fixed, or patterns established. Only write if the information is genuinely new and non-obvious from the code. Follow the existing frontmatter format (name, description, metadata.type). Keep MEMORY.md index in sync.\n\n2. OBSIDIAN UPDATE — append a work-log entry to C:/Users/xxmoh/Documents/ObsidianVault/MediCore.md (create the file if it does not exist). Format:\n\n## YYYY-MM-DD HH:MM\n- concise bullet for each thing built, fixed, or decided\n\nKeep bullets tight — one line each. Skip memory step if nothing genuinely new was learned. Always write the Obsidian entry.",
+            "timeout": 120,
+            "statusMessage": "Updating memory + Obsidian..."
+          }
+        ]
+      }
+    ]
+  }
+}

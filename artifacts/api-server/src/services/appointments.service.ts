@@ -3,15 +3,14 @@ import {
   appointmentsTable, patientsTable, usersTable, notificationsTable,
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
 } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, lt, inArray } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
-import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope } from "../lib/scope";
 import { todayBoundary } from "../lib/dateUtils";
 import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
 import { checkDoctorAvailability } from "../lib/schedule-validator";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
-import { safeParseInt } from "../lib/validators";
 import type { AuthRequest } from "../middlewares/auth";
 
 export async function listAppointments(
@@ -22,16 +21,15 @@ export async function listAppointments(
     doctorId?: string;
     patientId?: string;
     limit?: string;
-    offset?: string;
+    cursor?: string;
   },
 ) {
-  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 200);
-  const off = parseInt(params.offset ?? "0") || 0;
-  const conditions: any[] = [];
+  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
+  const conditions: any[] = [eq(appointmentsTable.clinicId, req.user!.clinicId)];
 
   if (isDoctorScoped(req.user?.role)) {
     const scopedPatientIds = await getDoctorPatientScope(req.user!.userId);
-    if (scopedPatientIds.length === 0) return [];
+    if (scopedPatientIds.length === 0) return { data: [], nextCursor: null };
     conditions.push(inArray(appointmentsTable.patientId, scopedPatientIds));
   }
 
@@ -45,17 +43,19 @@ export async function listAppointments(
     conditions.push(lte(appointmentsTable.scheduledAt, dayEnd));
   }
   if (params.doctorId) {
-    const did = safeParseInt(params.doctorId);
-    if (!did) throw new ValidationError("Invalid doctorId");
-    conditions.push(eq(appointmentsTable.doctorId, did));
+    const did = parseInt(params.doctorId);
+    if (!isNaN(did)) conditions.push(eq(appointmentsTable.doctorId, did));
   }
   if (params.patientId) {
-    const pid = safeParseInt(params.patientId);
-    if (!pid) throw new ValidationError("Invalid patientId");
-    conditions.push(eq(appointmentsTable.patientId, pid));
+    const pid = parseInt(params.patientId);
+    if (!isNaN(pid)) conditions.push(eq(appointmentsTable.patientId, pid));
+  }
+  if (params.cursor) {
+    const cursorId = parseInt(params.cursor);
+    if (!isNaN(cursorId)) conditions.push(lt(appointmentsTable.id, cursorId));
   }
 
-  return db.select({
+  const rows = await db.select({
     id: appointmentsTable.id,
     patientId: appointmentsTable.patientId,
     doctorId: appointmentsTable.doctorId,
@@ -74,9 +74,11 @@ export async function listAppointments(
     .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(appointmentsTable.scheduledAt))
-    .limit(lim)
-    .offset(off);
+    .orderBy(desc(appointmentsTable.id))
+    .limit(lim);
+
+  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
+  return { data: rows, nextCursor };
 }
 
 export async function createAppointment(
@@ -93,6 +95,7 @@ export async function createAppointment(
   if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
 
   const [appt] = await db.insert(appointmentsTable).values({
+    clinicId: req.user!.clinicId,
     patientId: data.patientId,
     doctorId: data.doctorId,
     scheduledAt: scheduledDate,
@@ -101,6 +104,7 @@ export async function createAppointment(
     bookingSource: (data.bookingSource as any) ?? "walk_in",
   }).returning();
   await logAudit(req, "CREATE", "appointment", appt.id);
+  await invalidateDoctorScope(data.doctorId);
   return appt;
 }
 
@@ -209,7 +213,9 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
   }
   if (Object.keys(update).length === 1) throw new ValidationError("No permitted fields provided for your role");
 
-  const [before] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+
+  const [before] = await db.select().from(appointmentsTable).where(and(...conditions));
   if (!before) throw new NotFoundError("appointment", id);
 
   const targetDoctorId    = update.doctorId    !== undefined ? update.doctorId    : before.doctorId;
@@ -220,17 +226,20 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
     if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
   }
 
-  const [appt] = await db.update(appointmentsTable).set(update).where(eq(appointmentsTable.id, id)).returning();
-  await logAudit(req, "UPDATE", "appointment", appt.id, { before, after: appt });
+  const [appt] = await db.update(appointmentsTable).set(update).where(and(...conditions)).returning();
+  await logAudit(req, "UPDATE", "appointment", appt.id, null, before, appt);
+  await invalidateDoctorScope(appt.doctorId);
   return appt;
 }
 
 export async function cancelAppointment(req: AuthRequest, id: number, cancellationReason?: string) {
+  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "cancelled", cancellationReason: cancellationReason || null, updatedAt: new Date() })
-    .where(eq(appointmentsTable.id, id))
+    .where(and(...conditions))
     .returning();
   await logAudit(req, "CANCEL", "appointment", appt.id, { cancellationReason });
+  await invalidateDoctorScope(appt.doctorId);
 }
 
 export async function transitionAppointment(
@@ -239,7 +248,9 @@ export async function transitionAppointment(
   action: string,
   extraFields: Record<string, any> = {},
 ) {
-  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+
+  const [existing] = await db.select().from(appointmentsTable).where(and(...conditions));
   if (!existing) throw new NotFoundError("appointment", id);
 
   const transition = validateTransition(action as any, existing.status as AppointmentStatus, req.user!.role);
@@ -252,14 +263,16 @@ export async function transitionAppointment(
 
   const [appt] = await db.update(appointmentsTable)
     .set({ status: transition.toStatus, updatedAt: new Date(), ...extraFields })
-    .where(eq(appointmentsTable.id, id))
+    .where(and(...conditions))
     .returning();
 
   return { appt, existing };
 }
 
 export async function checkinAppointment(req: AuthRequest, id: number) {
-  const [existing] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+
+  const [existing] = await db.select().from(appointmentsTable).where(and(...conditions));
   if (!existing) throw new NotFoundError("appointment", id);
   if (existing.status !== "scheduled") {
     throw new ConflictError(`Cannot check in: appointment is already '${existing.status}'`);
@@ -267,7 +280,7 @@ export async function checkinAppointment(req: AuthRequest, id: number) {
 
   const [appt] = await db.update(appointmentsTable)
     .set({ status: "checked_in", checkedInAt: new Date(), updatedAt: new Date() })
-    .where(eq(appointmentsTable.id, id))
+    .where(and(...conditions))
     .returning();
 
   const notifData = {

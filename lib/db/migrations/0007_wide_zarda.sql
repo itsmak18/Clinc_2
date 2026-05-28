@@ -1,0 +1,1 @@
+ALTER TABLE "erasure_requests" ADD COLUMN "erasure_blackout_until" timestamp;

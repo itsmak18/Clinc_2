@@ -3,6 +3,14 @@
 // The Vite dev-server plugin in vite.config.ts duplicates the string form —
 // keep them in sync when editing this file.
 
+import { isCspReportEnabled } from "./auth-constants";
+
+export const CSP_REPORT_PATH = "/api/csp-report";
+
+export function cspReportUri(): string | null {
+  return isCspReportEnabled() ? CSP_REPORT_PATH : null;
+}
+
 export const cspDirectives: Record<string, string[]> = {
   defaultSrc:     ["'self'"],
   scriptSrc:      ["'self'"],
@@ -24,10 +32,12 @@ function toKebab(key: string): string {
 
 export function buildCspString(exclude: string[] = []): string {
   const skip = new Set(exclude);
-  return Object.entries(cspDirectives)
+  const reportUri = cspReportUri();
+  const base = Object.entries(cspDirectives)
     .filter(([key]) => !skip.has(key))
     .map(([key, values]) => `${toKebab(key)} ${values.join(" ")}`)
     .join("; ");
+  return reportUri ? `${base}; report-uri ${reportUri}` : base;
 }
 
 // Pre-built string suitable for <meta http-equiv="Content-Security-Policy">

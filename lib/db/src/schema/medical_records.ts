@@ -4,9 +4,11 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { appointmentsTable } from "./appointments";
+import { clinicsTable } from "./clinics";
 
 export const medicalRecordsTable = pgTable("medical_records", {
   id: serial("id").primaryKey(),
+  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   appointmentId: integer("appointment_id").references(() => appointmentsTable.id),
@@ -21,13 +23,15 @@ export const medicalRecordsTable = pgTable("medical_records", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-  index("mr_patient_idx").on(t.patientId),   // M-04
-  index("mr_doctor_idx").on(t.doctorId),     // M-04
-  index("mr_created_idx").on(t.createdAt),   // M-04
+  index("mr_patient_idx").on(t.patientId),
+  index("mr_doctor_idx").on(t.doctorId),
+  index("mr_created_idx").on(t.createdAt),
+  index("mr_clinic_idx").on(t.clinicId),
 ]);
 
 export const insertMedicalRecordSchema = createInsertSchema(medicalRecordsTable).omit({
   id: true,
+  clinicId: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,

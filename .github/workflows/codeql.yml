@@ -1,0 +1,47 @@
+name: CodeQL
+
+# Static analysis on every PR + push to protected branches, plus a weekly run
+# to catch newly-disclosed query patterns against existing code. Findings land
+# in the repository's Security tab (Code scanning alerts). Make the check
+# required via branch protection if you want PRs to block on new HIGH findings.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # `security-and-quality` adds correctness queries on top of the default
+          # security suite. The quality queries are usually low-noise on a TS
+          # codebase and surface bugs that aren't strictly security issues.
+          queries: security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

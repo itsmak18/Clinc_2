@@ -1,17 +1,15 @@
 import { useState } from "react";
-import { useListInventoryItems, useCreateInventoryItem, useUpdateInventoryItem, getListInventoryItemsQueryKey } from "@workspace/api-client-react";
+import { useListInventoryItems, useCreateInventoryItem, getListInventoryItemsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Plus, AlertTriangle } from "lucide-react";
 
 export default function Inventory() {
@@ -33,68 +31,85 @@ export default function Inventory() {
         queryClient.invalidateQueries({ queryKey: getListInventoryItemsQueryKey() });
         setShowCreate(false);
         setForm({ name: "", category: "", quantity: "", unit: "", minimumStock: "", expiryDate: "", notes: "" });
-        toast({ title: "Item added" });
+        toast({ title: t("itemAdded") });
       },
-      onError: () => toast({ title: "Failed", variant: "destructive" }),
-    }
+      onError: () => toast({ title: t("failed"), variant: "destructive" }),
+    },
   });
 
   const isLowStock = (item: any) => item.quantity <= item.minimumStock;
   const isExpired = (item: any) => item.expiryDate && new Date(item.expiryDate) < new Date();
 
   return (
-    <div>
-      <PageHeader
-        title={t("inventory")}
-        subtitle={`${items?.length ?? 0} items`}
-        actions={canWrite ? (
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-add-item">
-            <Plus className="w-3.5 h-3.5 me-1" /> Add Item
-          </Button>
-        ) : undefined}
-      />
-      <div className="p-6">
-        <div className="flex gap-3 mb-4">
-          <Input className="h-8 text-sm max-w-xs" placeholder={`${t("search")} inventory...`} value={search} onChange={e => setSearch(e.target.value)} data-testid="input-search" />
-        </div>
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            data={items ?? []}
-            emptyMessage="No inventory items"
-            columns={[
-              { key: "name", header: t("name"), render: item => (
+    <div className="page">
+      <div className="flex items-center gap-3 mb-4">
+        <Input
+          className="h-8 text-sm max-w-xs"
+          placeholder={`${t("search")} ${t("inventory").toLowerCase()}…`}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          data-testid="input-search"
+        />
+        {canWrite && (
+          <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-add-item">
+            <Plus className="w-3.5 h-3.5" /> {t("addItem")}
+          </button>
+        )}
+      </div>
+
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          data={items ?? []}
+          emptyMessage={t("noInventoryItems")}
+          columns={[
+            {
+              key: "name",
+              header: t("name"),
+              render: item => (
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm">{item.name}</span>
-                  {isLowStock(item) && <AlertTriangle className="w-3 h-3 text-orange-500" />}
-                  {isExpired(item) && <AlertTriangle className="w-3 h-3 text-red-500" />}
+                  <span className="font-medium text-[13px] text-[var(--ink)]">{item.name}</span>
+                  {isLowStock(item) && <AlertTriangle className="w-3 h-3 text-[var(--amber-500)]" />}
+                  {isExpired(item) && <AlertTriangle className="w-3 h-3 text-[var(--rose-500)]" />}
                 </div>
-              )},
-              { key: "cat", header: t("category"), render: item => <Badge variant="outline" className="text-xs">{item.category}</Badge> },
-              { key: "qty", header: "Quantity", render: item => (
-                <span className={`font-semibold text-sm ${isLowStock(item) ? "text-orange-600" : "text-foreground"}`}>
+              ),
+            },
+            { key: "cat", header: t("category"), render: item => <span className="badge text-xs">{item.category}</span> },
+            {
+              key: "qty",
+              header: t("quantity"),
+              render: item => (
+                <span className={cn("font-semibold text-[13px]", isLowStock(item) ? "text-[var(--amber-600)]" : "text-[var(--ink)]")}>
                   {item.quantity} {item.unit}
                 </span>
-              )},
-              { key: "min", header: t("minimumStock"), render: item => <span className="text-sm text-muted-foreground">{item.minimumStock} {item.unit}</span> },
-              { key: "expiry", header: t("expiryDate"), render: item => (
-                <span className={`text-sm ${isExpired(item) ? "text-destructive font-semibold" : ""}`}>
-                  {item.expiryDate ? formatDate(item.expiryDate) : "-"}
+              ),
+            },
+            { key: "min",    header: t("minimumStock"), render: item => <span className="text-[13px] text-[var(--ink-muted)]">{item.minimumStock} {item.unit}</span> },
+            {
+              key: "expiry",
+              header: t("expiryDate"),
+              render: item => (
+                <span className={cn("text-[13px]", isExpired(item) ? "text-[var(--rose-500)] font-semibold" : "text-[var(--ink-muted)]")}>
+                  {item.expiryDate ? formatDate(item.expiryDate) : "—"}
                 </span>
-              )},
-              { key: "status", header: t("status"), render: item => (
-                isExpired(item) ? <Badge variant="destructive" className="text-xs">{t("expired")}</Badge> :
-                isLowStock(item) ? <Badge className="text-xs bg-orange-100 text-orange-800 border-none">{t("lowStock")}</Badge> :
-                <Badge variant="default" className="text-xs">{t("active")}</Badge>
-              )},
-            ]}
-          />
-        </div>
+              ),
+            },
+            {
+              key: "status",
+              header: t("status"),
+              render: item => (
+                isExpired(item)  ? <span className="badge badge-rose text-xs">{t("expired")}</span>  :
+                isLowStock(item) ? <span className="badge badge-sand text-xs">{t("lowStock")}</span> :
+                                   <span className="badge badge-teal text-xs">{t("active")}</span>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Add Inventory Item</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("addInventoryItem")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -103,17 +118,17 @@ export default function Inventory() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("category")} *</Label>
-                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Medicine, Supply..." />
+                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Medicine, Supply…" />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Quantity *</Label>
+                <Label className="text-xs">{t("quantity")} *</Label>
                 <Input type="number" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} data-testid="input-quantity" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("unit")} *</Label>
-                <Input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="box, ml, mg..." />
+                <Input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="box, ml, mg…" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("minimumStock")} *</Label>
@@ -129,10 +144,15 @@ export default function Inventory() {
               <Input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: { name: form.name, category: form.category, quantity: parseInt(form.quantity), unit: form.unit, minimumStock: parseInt(form.minimumStock), expiryDate: form.expiryDate || undefined, notes: form.notes || undefined } as any })} disabled={createMutation.isPending} data-testid="button-save-item">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: { name: form.name, category: form.category, quantity: parseInt(form.quantity), unit: form.unit, minimumStock: parseInt(form.minimumStock), expiryDate: form.expiryDate || undefined, notes: form.notes || undefined } as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-item"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

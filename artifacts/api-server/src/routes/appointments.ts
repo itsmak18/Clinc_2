@@ -15,8 +15,8 @@ router.use(requireAuth);
 router.use("/appointments", requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff"));
 
 router.get("/appointments", asyncHandler(async (req: AuthRequest, res) => {
-  const { status, date, doctorId, patientId, limit, offset } = req.query as Record<string, string | undefined>;
-  res.json(await listAppointments(req, { status, date, doctorId, patientId, limit, offset }));
+  const { status, date, doctorId, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
+  res.json(await listAppointments(req, { status, date, doctorId, patientId, limit, cursor }));
 }));
 
 router.post("/appointments", asyncHandler(async (req: AuthRequest, res) => {

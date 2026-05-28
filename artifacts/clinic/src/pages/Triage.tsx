@@ -10,14 +10,10 @@ import {
   getGetTodayAppointmentsQueryKey,
   getListAppointmentsQueryKey,
 } from "@workspace/api-client-react";
-import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Activity, User, ArrowRight, ClipboardList } from "lucide-react";
 import { useAuth } from "@/hooks/auth";
@@ -36,9 +32,9 @@ interface VitalsForm {
 type Priority = "normal" | "urgent" | "critical";
 
 const PRIORITY_STYLES: Record<Priority, { pill: string; border: string; label: string }> = {
-  normal:   { pill: "bg-muted text-muted-foreground",                          border: "border-border",         label: "Normal"   },
-  urgent:   { pill: "bg-orange-100 text-orange-700 border border-orange-300",  border: "border-orange-400",     label: "Urgent"   },
-  critical: { pill: "bg-destructive/15 text-destructive border border-destructive/40", border: "border-destructive", label: "Critical" },
+  normal:   { pill: "badge",           border: "border-[var(--line)]",        label: "Normal"   },
+  urgent:   { pill: "badge badge-sand", border: "border-[var(--amber-400)]",   label: "Urgent"   },
+  critical: { pill: "badge badge-rose", border: "border-[var(--rose-500)]",    label: "Critical" },
 };
 
 const PRIORITY_ORDER: Record<Priority, number> = { critical: 0, urgent: 1, normal: 2 };
@@ -89,10 +85,10 @@ export default function Triage() {
   };
 
   const startTriageMutation = useStartTriage({
-    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: "Failed to start triage", variant: "destructive" }) },
+    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: t("failed"), variant: "destructive" }) },
   });
   const updateAppointmentMutation = useUpdateAppointment({
-    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: "Failed to update priority", variant: "destructive" }) },
+    mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: t("failed"), variant: "destructive" }) },
   });
   const createMedicalRecordMutation = useCreateMedicalRecord();
   const markReadyMutation = useMarkPatientReady();
@@ -192,7 +188,7 @@ export default function Triage() {
             onClick={() => handleSetPriority(appt, p)}
             className={cn(
               "text-[10px] px-1.5 py-0.5 rounded font-medium transition-opacity",
-              current === p ? PRIORITY_STYLES[p].pill : "bg-muted/50 text-muted-foreground/60 hover:opacity-80"
+              current === p ? PRIORITY_STYLES[p].pill : "bg-[var(--surface-2)] text-[var(--ink-muted)]/60 hover:opacity-80"
             )}
           >
             {PRIORITY_STYLES[p].label}
@@ -209,30 +205,28 @@ export default function Triage() {
 
     return (
       <div className={cn(
-        "flex flex-col gap-2 p-3 rounded-lg border-l-4 bg-card hover:bg-muted/30 transition-colors",
+        "flex flex-col gap-2 p-3 rounded-lg border-s-4 border bg-[var(--bg)] hover:bg-[var(--surface-2)] transition-colors",
         styles.border
       )}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <User className="w-4 h-4 text-primary" />
+          <div className="w-8 h-8 rounded-full bg-[var(--teal-100)] text-[var(--teal-700)] flex items-center justify-center shrink-0">
+            <User className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm truncate">{appt.patient?.fullName || `Patient #${appt.patientId}`}</p>
-            <p className="text-xs text-muted-foreground font-mono">{appt.patient?.mrn}</p>
-            <p className="text-xs text-muted-foreground truncate">{appt.doctor?.fullName}</p>
+            <p className="font-medium text-[13px] text-[var(--ink)] truncate">{appt.patient?.fullName || `Patient #${appt.patientId}`}</p>
+            <p className="text-[11px] text-[var(--ink-muted)] font-mono">{appt.patient?.mrn}</p>
+            <p className="text-[11px] text-[var(--ink-muted)] truncate">{appt.doctor?.fullName}</p>
             {appt.patient?.allergies && (
               <div className="flex items-center gap-1 mt-0.5">
-                <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
-                <p className="text-xs text-destructive truncate">{appt.patient.allergies}</p>
+                <AlertTriangle className="w-3 h-3 text-[var(--rose-500)] shrink-0" />
+                <p className="text-[11px] text-[var(--rose-500)] truncate">{appt.patient.allergies}</p>
               </div>
             )}
             {canTriage && <PriorityToggle appt={appt} />}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {priority !== "normal" && (
-              <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold", styles.pill)}>
-                {styles.label}
-              </span>
+              <span className={styles.pill}>{styles.label}</span>
             )}
             <StatusBadge status={appt.status} />
             {action}
@@ -241,8 +235,8 @@ export default function Triage() {
 
         {/* Inline Quick Vitals — only on in_triage cards for nurses */}
         {showQuickVitals && canTriage && (
-          <div className="border-t border-border/50 pt-2 mt-0.5">
-            <p className="text-[10px] text-muted-foreground mb-1.5 font-medium uppercase tracking-wide">Quick Vitals</p>
+          <div className="border-t border-[var(--line)] pt-2 mt-0.5">
+            <p className="eyebrow text-[10px] text-[var(--ink-faint)] mb-1.5">Quick Vitals</p>
             <div className="flex flex-wrap gap-2 items-end">
               <div className="space-y-0.5">
                 <Label className="text-[10px]">BP</Label>
@@ -274,22 +268,19 @@ export default function Triage() {
                   onChange={e => setQuickVitals(prev => ({ ...prev, [appt.id]: { ...qv, pulse: e.target.value } }))}
                 />
               </div>
-              <Button
-                size="sm"
-                className="h-7 text-xs px-3"
+              <button
+                className="btn btn-sm btn-primary h-7 text-xs px-3"
                 disabled={quickSaving === appt.id || (!qv.bp && !qv.temp && !qv.pulse)}
                 onClick={() => handleQuickVitalsSave(appt)}
               >
                 {quickSaving === appt.id ? "Saving…" : "Save"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs px-2"
+              </button>
+              <button
+                className="btn btn-sm btn-outline h-7 text-xs px-2"
                 onClick={() => handleContinueTriage(appt)}
               >
                 More fields
-              </Button>
+              </button>
             </div>
           </div>
         )}
@@ -298,13 +289,9 @@ export default function Triage() {
   };
 
   return (
-    <div>
-      <PageHeader
-        title="Triage Queue"
-        subtitle="Manage patient vitals before doctor consultation"
-      />
+    <div className="page">
 
-      <div className="px-6 pt-4 pb-0">
+      <div className="mb-4">
         <Input
           className="h-8 text-sm max-w-xs"
           placeholder="Search by patient name or MRN…"
@@ -313,70 +300,64 @@ export default function Triage() {
         />
       </div>
 
-      <div className="p-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Waiting (checked_in) */}
-        <Card className="border border-border">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500" />
-              Waiting for Triage
-              <Badge variant="secondary" className="ms-auto">{waiting.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-2">
-            {isLoading && <p className="text-xs text-muted-foreground">{t("loading")}</p>}
-            {!isLoading && waiting.length === 0 && <p className="text-xs text-muted-foreground">No patients waiting</p>}
+        <div className="card">
+          <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+            <span className="font-semibold text-[var(--ink)] text-[13px]">Waiting for Triage</span>
+            <span className="badge ms-auto">{waiting.length}</span>
+          </div>
+          <div className="card-pad space-y-2">
+            {isLoading && <p className="text-[12px] text-[var(--ink-muted)]">{t("loading")}</p>}
+            {!isLoading && waiting.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients waiting</p>}
             {waiting.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} action={
                 canTriage ? (
-                  <Button size="sm" className="h-7 text-xs px-3" onClick={() => handleStartTriage(appt)}>
+                  <button className="btn btn-sm btn-primary h-7 text-xs px-3" onClick={() => handleStartTriage(appt)}>
                     <ArrowRight className="w-3 h-3 me-1" /> Start
-                  </Button>
+                  </button>
                 ) : undefined
               } />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* In Triage */}
-        <Card className="border border-border">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              In Triage
-              <Badge variant="secondary" className="ms-auto">{inTriage.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-2">
-            {!isLoading && inTriage.length === 0 && <p className="text-xs text-muted-foreground">No patients in triage</p>}
+        <div className="card">
+          <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+            <span className="font-semibold text-[var(--ink)] text-[13px]">In Triage</span>
+            <span className="badge ms-auto">{inTriage.length}</span>
+          </div>
+          <div className="card-pad space-y-2">
+            {!isLoading && inTriage.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients in triage</p>}
             {inTriage.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} showQuickVitals action={
                 canTriage ? (
-                  <Button size="sm" variant="outline" className="h-7 text-xs px-3" onClick={() => handleContinueTriage(appt)}>
+                  <button className="btn btn-sm btn-outline h-7 text-xs px-3" onClick={() => handleContinueTriage(appt)}>
                     <ClipboardList className="w-3 h-3 me-1" /> Full Vitals
-                  </Button>
+                  </button>
                 ) : undefined
               } />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Ready for Doctor */}
-        <Card className="border border-border">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              Ready for Doctor
-              <Badge variant="secondary" className="ms-auto">{readyForDoctor.length}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-2">
-            {!isLoading && readyForDoctor.length === 0 && <p className="text-xs text-muted-foreground">No patients ready</p>}
+        <div className="card">
+          <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0" />
+            <span className="font-semibold text-[var(--ink)] text-[13px]">Ready for Doctor</span>
+            <span className="badge ms-auto">{readyForDoctor.length}</span>
+          </div>
+          <div className="card-pad space-y-2">
+            {!isLoading && readyForDoctor.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients ready</p>}
             {readyForDoctor.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {/* Full Vitals Dialog */}
@@ -384,17 +365,18 @@ export default function Triage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" />
+              <Activity className="w-4 h-4 text-[var(--teal-600)]" />
               Record Vitals — {selectedAppt?.patient?.fullName}
             </DialogTitle>
           </DialogHeader>
 
           {selectedAppt?.patient?.allergies && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/30">
-              <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+            <div className="flex items-center gap-2 p-3 rounded-lg border"
+              style={{ borderColor: "var(--rose-200)", background: "var(--rose-50)", color: "var(--rose-700)" }}>
+              <AlertTriangle className="w-4 h-4 shrink-0" />
               <div>
-                <p className="text-xs font-semibold text-destructive">ALLERGIES / CONTRAINDICATIONS</p>
-                <p className="text-sm text-destructive">{selectedAppt.patient.allergies}</p>
+                <p className="text-xs font-semibold">ALLERGIES / CONTRAINDICATIONS</p>
+                <p className="text-sm">{selectedAppt.patient.allergies}</p>
               </div>
             </div>
           )}
@@ -431,10 +413,10 @@ export default function Triage() {
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={() => setSelectedAppt(null)}>Cancel</Button>
-            <Button size="sm" onClick={handleCompleteVitals} disabled={loading}>
+            <button className="btn btn-sm btn-outline" onClick={() => setSelectedAppt(null)}>Cancel</button>
+            <button className="btn btn-sm btn-primary" onClick={handleCompleteVitals} disabled={loading}>
               {loading ? "Saving..." : "Complete Triage → Ready for Doctor"}
-            </Button>
+            </button>
           </div>
         </DialogContent>
       </Dialog>

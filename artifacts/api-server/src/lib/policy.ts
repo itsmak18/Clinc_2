@@ -12,6 +12,7 @@ import type { Request, Response } from "express";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
 import { fingerprintRequest, type TokenPayload } from "./auth";
+import { jwksVerify } from "./jwt-secret";
 import { E, type ErrorDef } from "../errors";
 
 export type Scope = "public" | "read" | "write" | "privileged";
@@ -20,6 +21,7 @@ export interface AuthUser {
   userId: number;
   username: string;
   role: string;
+  clinicId: number;
 }
 
 export interface AuthMeta {
@@ -43,13 +45,10 @@ export type Decision =
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 function isMutation(method: string): boolean { return MUTATION_METHODS.has(method.toUpperCase()); }
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "clinic-dev-secret-DO-NOT-USE-IN-PROD",
-);
 
 async function parseToken(token: string): Promise<TokenPayload> {
-  const { payload } = await jwtVerify(token, JWT_SECRET, {
-    algorithms: ["HS256"],
+  const { payload } = await jwtVerify(token, jwksVerify, {
+    algorithms: ["EdDSA"],
     clockTolerance: 30, // guards against NTP drift between nodes
   });
   return payload as unknown as TokenPayload;
@@ -114,7 +113,7 @@ export async function evaluate(
 
   // 1. Public scope: no checks
   if (scope === "public") {
-    return pass({ userId: 0, username: "public", role: "public" }, { sessionTtl: null });
+    return pass({ userId: 0, username: "public", role: "public", clinicId: 0 }, { sessionTtl: null });
   }
 
   // 2. CSRF (write + privileged, mutation methods only)
@@ -187,21 +186,44 @@ export async function evaluate(
     }
   }
 
-  // 6. Fingerprint check
-  // FPH_ABSENT_POLICY = "skip" — tokens without fph are intentionally allowed (legacy + non-browser clients).
-  // FINGERPRINT_BINDING=disabled — operator incident-recovery lever.
+  // 6. Fingerprint check (A1: mandatory at issuance, fail-closed at verification)
+  //
+  //   FINGERPRINT_BINDING=disabled      → operator incident-recovery lever; skips
+  //                                       the check entirely. Use only during a
+  //                                       widespread silent-UA-change incident.
+  //   FPH_GRANDFATHER_UNTIL=<unix-secs> → tokens whose iat is <= this value are
+  //                                       allowed to lack `fph` (covers the
+  //                                       deploy window where pre-A1 tokens are
+  //                                       still in active cookies). Tokens
+  //                                       issued AFTER the cutoff with no fph
+  //                                       fail closed.
+  //
+  // Steady state: omit FPH_GRANDFATHER_UNTIL → all tokens must carry fph.
   const fingerprintEnabled = process.env.FINGERPRINT_BINDING !== "disabled";
-  if (fingerprintEnabled && payload.fph) {
-    const actualFph = fingerprintRequest(
-      req.headers["user-agent"] as string | undefined,
-      req.headers["accept-language"] as string | undefined,
-    );
-    if (payload.fph !== actualFph) {
-      step("fingerprint", false);
-      return fail(E.AUTH_FINGERPRINT, "invalid");
+  if (fingerprintEnabled) {
+    if (!payload.fph) {
+      const grandfatherUntil = Number(process.env.FPH_GRANDFATHER_UNTIL ?? 0);
+      if (grandfatherUntil > 0 && payload.iat <= grandfatherUntil) {
+        // Legacy token issued before A1 rollout — accept this run, will expire naturally.
+        step("fingerprint", true, "grandfathered");
+      } else {
+        step("fingerprint", false, "fph-missing");
+        return fail(E.AUTH_FINGERPRINT_REQUIRED, "invalid");
+      }
+    } else {
+      const actualFph = fingerprintRequest(
+        req.headers["user-agent"] as string | undefined,
+        req.headers["accept-language"] as string | undefined,
+      );
+      if (payload.fph !== actualFph) {
+        step("fingerprint", false);
+        return fail(E.AUTH_FINGERPRINT, "invalid");
+      }
+      step("fingerprint", true);
     }
+  } else {
+    step("fingerprint", true, "disabled");
   }
-  step("fingerprint", true);
 
   // 7. Role check (super_admin always passes — architectural invariant)
   const role = payload.role;
@@ -212,7 +234,7 @@ export async function evaluate(
   step("role", true);
 
   return pass(
-    { userId: payload.userId, username: payload.username, role },
+    { userId: payload.userId, username: payload.username, role, clinicId: payload.clinicId ?? 1 },
     { sessionTtl: extractTokenTtl(rawToken) },
   );
 }

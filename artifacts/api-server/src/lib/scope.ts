@@ -1,12 +1,13 @@
 import { db } from "@workspace/db";
 import { appointmentsTable, medicalRecordsTable } from "@workspace/db";
-import { eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { AuthRequest } from "../middlewares/auth";
 import { logAudit, logDenied } from "./audit";
+import { runtime } from "./runtime";
+import { logger } from "./logger";
 
-// Doctors are the only role with patient-level scoping. All other clinical
-// roles (admin, nurse, front_desk, lab_staff, xray_staff) keep full access.
 const SCOPED_ROLE = "doctor";
+const SCOPE_CACHE_TTL_SEC = 60;
 
 export function isDoctorScoped(role: string | undefined): boolean {
   return role === SCOPED_ROLE;
@@ -16,14 +17,46 @@ export function isDoctorScoped(role: string | undefined): boolean {
  * Returns the patient IDs a doctor is authorized to see — i.e. patients with
  * at least one appointment where doctor_id = the given doctor's user ID.
  *
- * Always returns a fresh array (not cached) so newly-assigned patients become
- * visible immediately after their first appointment is created.
+ * Cached in Redis for 60 s (key: doctor_scope:<doctorId>).
+ * Call invalidateDoctorScope() from appointment create/update/cancel.
  */
 export async function getDoctorPatientScope(doctorId: number): Promise<number[]> {
+  const cacheKey = `doctor_scope:${doctorId}`;
+
+  // Try Redis cache (only present when SESSION_STORE=redis and runtime exposes scopeCache)
+  try {
+    const cached = await (runtime as any).scopeCache?.get(cacheKey) as string | null | undefined;
+    if (cached) return JSON.parse(cached) as number[];
+  } catch {
+    // Cache miss or unavailable — fall through to DB
+  }
+
   const rows = await db.selectDistinct({ patientId: appointmentsTable.patientId })
     .from(appointmentsTable)
     .where(eq(appointmentsTable.doctorId, doctorId));
-  return rows.map(r => r.patientId);
+
+  const ids = rows.map(r => r.patientId);
+
+  try {
+    await (runtime as any).scopeCache?.set(cacheKey, JSON.stringify(ids), "EX", SCOPE_CACHE_TTL_SEC);
+  } catch {
+    // Cache write failed — non-fatal
+  }
+
+  return ids;
+}
+
+/**
+ * Invalidate the doctor scope cache after any appointment mutation.
+ * Called from createAppointment / updateAppointment / cancelAppointment.
+ */
+export async function invalidateDoctorScope(doctorId: number): Promise<void> {
+  const cacheKey = `doctor_scope:${doctorId}`;
+  try {
+    await (runtime as any).scopeCache?.del(cacheKey);
+  } catch (err) {
+    logger.warn({ err, doctorId, cacheKey }, "doctor_scope_cache_invalidation_failed");
+  }
 }
 
 /**
@@ -44,16 +77,16 @@ export async function assertPatientInScope(
   await logAudit(req, "ACCESS_DENIED_OUT_OF_SCOPE", entityType, patientId, {
     doctorId: req.user!.userId,
     reason: "patient not assigned to doctor",
-  });
+  } as object);
   return false;
 }
 
 /**
- * For routes that fetch a single medical record. Applies SCOPED rules (Section 1):
- *   Rule 1: isGlobal = true → allow regardless of doctor_id
- *   Rule 2: record.doctorId = current user.id → allow
- *   Rule 3: deny with DENIED audit entry
- * Non-doctor roles always pass (caller must enforce requireRole separately).
+ * For routes that fetch a single medical record. Rules:
+ *   1. isGlobal = true → allow regardless of doctor_id
+ *   2. record.doctorId = current user.id → allow
+ *   3. deny + DENIED audit entry
+ * Non-doctor roles always pass.
  */
 export async function assertMedicalRecordInScope(
   req: AuthRequest,
@@ -71,6 +104,6 @@ export async function assertMedicalRecordInScope(
   if (record.isGlobal) return true;
   if (record.doctorId === req.user!.userId) return true;
 
-  await logDenied(req, "medical_record", recordId, "record_not_owned_or_global");
+  await logDenied(req, "medical_record", recordId as number, "record_not_owned_or_global");
   return false;
 }

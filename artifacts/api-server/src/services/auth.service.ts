@@ -5,10 +5,11 @@ import { signToken, revokeAllTokensForUser } from "../lib/auth";
 import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrength } from "../lib/password";
 import { checkAllowed, recordFailure, recordSuccess, getRemainingAttempts } from "../middlewares/rateLimiter";
 import { NotFoundError, UnauthorizedError, ValidationError } from "./errors";
+import { evaluateDeviceTrust } from "./device-trust.service";
 
 // Audit helpers that don't need req — accept primitives instead
 async function logLoginAudit(
-  action: "LOGIN_SUCCESS" | "LOGIN_FAILED" | "LOGIN_LOCKED",
+  action: "LOGIN_SUCCESS" | "LOGIN_FAILED" | "LOGIN_LOCKED" | "LOGIN_PENDING_VERIFICATION",
   ip: string,
   userId?: number,
   details?: object,
@@ -29,6 +30,12 @@ export interface LoginContext {
   ip: string;
   userAgent?: string;
   acceptLanguage?: string;
+  /** Phase 2 — device cookie value if the browser already had one. */
+  deviceIdCookie?: string;
+  /** Phase 2 — optional Sec-CH-UA-Platform header. */
+  platform?: string;
+  /** Phase 2 — optional client-supplied hints (screen + tz). */
+  clientHints?: string;
 }
 
 export interface AuthUser {
@@ -41,10 +48,33 @@ export interface AuthUser {
   isActive: boolean;
 }
 
-export interface LoginResult {
+/**
+ * Successful login. `deviceUnverified=true` means the session was issued with
+ * `dvu` claim — capability-gated routes will refuse PHI bulk reads/exports.
+ * `deviceId` is the value the caller should write into the __Host- cookie.
+ */
+export interface LoginSuccess {
+  outcome: "success";
   token: string;
   user: AuthUser;
+  deviceId: string;
+  deviceUnverified: boolean;
 }
+
+/**
+ * Blocked because this is a new device on a privileged role. No session is
+ * issued; the user must click the email link first. The route layer maps
+ * this to a 202-style `pending_verification` response.
+ */
+export interface LoginPending {
+  outcome: "pending_verification";
+  deviceId: string;
+  /** Generic message the FE shows verbatim. Identical for unknown accounts
+   *  so we don't leak existence. */
+  message: string;
+}
+
+export type LoginResult = LoginSuccess | LoginPending;
 
 export async function loginUser(
   username: string,
@@ -106,14 +136,54 @@ export async function loginUser(
 
   await Promise.all([recordSuccess(keyByIp), recordSuccess(keyByUsername)]);
 
+  // Phase 2 — device trust dispatch. When the master flag is OFF this always
+  // returns { kind: "trusted" } with no DB writes and no emails.
+  const trust = await evaluateDeviceTrust({
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    email: user.email,
+    userAgent,
+    platform: ctx.platform,
+    clientHints: ctx.clientHints,
+    ipAddress: ip,
+    deviceIdCookie: ctx.deviceIdCookie,
+  });
+
+  if (trust.kind === "blocked") {
+    await logLoginAudit("LOGIN_PENDING_VERIFICATION", ip, user.id, {
+      role: user.role,
+      reason: "new_device_privileged_role",
+    });
+    return {
+      outcome: "pending_verification",
+      deviceId: trust.deviceId,
+      message: "Check your email for a verification link to complete sign-in.",
+    };
+  }
+
+  const deviceUnverified = trust.kind === "allow_unverified";
+
   const token = await signToken(
-    { userId: user.id, username: user.username, role: user.role },
+    {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      clinicId: user.clinicId,
+      ...(deviceUnverified ? { dvu: true } : {}),
+    },
     { "user-agent": userAgent, "accept-language": acceptLanguage },
   );
-  await logLoginAudit("LOGIN_SUCCESS", ip, user.id, { role: user.role });
+  await logLoginAudit("LOGIN_SUCCESS", ip, user.id, {
+    role: user.role,
+    deviceUnverified,
+  });
 
   return {
+    outcome: "success",
     token,
+    deviceId: trust.deviceId,
+    deviceUnverified,
     user: {
       id: user.id, username: user.username, fullName: user.fullName,
       fullNameAr: user.fullNameAr, email: user.email, role: user.role, isActive: user.isActive,

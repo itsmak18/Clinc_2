@@ -1,107 +1,88 @@
 import { useI18n } from "@/hooks/i18n";
 import { useAuth } from "@/hooks/auth";
-import PageHeader from "@/components/PageHeader";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Settings as SettingsIcon, Shield, Database, Bell, Globe } from "lucide-react";
 
 export default function Settings() {
   const { t } = useI18n();
   const { user } = useAuth();
 
+  const InfoRow = ({ label, value }: { label: string; value: string }) => (
+    <div className="flex justify-between items-center py-0.5">
+      <span className="text-[13px] text-[var(--ink-muted)]">{label}</span>
+      <span className="badge text-xs">{value}</span>
+    </div>
+  );
+
+  const SectionCard = ({ icon: Icon, title, children }: { icon: any; title: string; children: React.ReactNode }) => (
+    <div className="card">
+      <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
+        <Icon className="w-4 h-4 text-[var(--teal-600)]" />
+        <span className="font-semibold text-[14px] text-[var(--ink)]">{title}</span>
+      </div>
+      <div className="card-pad space-y-2">{children}</div>
+    </div>
+  );
+
   return (
-    <div>
-      <PageHeader title={t("settings")} subtitle="System configuration" />
-      <div className="p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><Shield className="w-4 h-4 text-primary" /> Security</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Authentication</span>
-                <Badge variant="outline" className="text-xs">Username/Password</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">2FA</span>
-                <Badge variant="secondary" className="text-xs">Planned</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Session Timeout</span>
-                <Badge variant="outline" className="text-xs">8 hours</Badge>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="page">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SectionCard icon={Shield} title={t("settingsSecurity")}>
+          <InfoRow label={t("settingsAuthentication")} value={t("settingsAuthMethod")} />
+          <InfoRow label={t("settings2FA")} value={t("settingsPlanned")} />
+          <InfoRow label={t("settingsSessionTimeout")} value={t("settingsSessionDuration")} />
+        </SectionCard>
 
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><Database className="w-4 h-4 text-primary" /> Database</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Type</span>
-                <Badge variant="outline" className="text-xs">PostgreSQL</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Backup Strategy</span>
-                <Badge variant="outline" className="text-xs">Daily Incremental</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Soft Deletes</span>
-                <Badge className="text-xs bg-green-100 text-green-800 border-none">Enabled</Badge>
-              </div>
-            </CardContent>
-          </Card>
+        <SectionCard icon={Database} title={t("settingsDatabase")}>
+          <InfoRow label={t("settingsDbType")} value={t("settingsDbEngine")} />
+          <InfoRow label={t("settingsBackupStrategy")} value={t("settingsBackupMode")} />
+          <div className="flex justify-between items-center py-0.5">
+            <span className="text-[13px] text-[var(--ink-muted)]">{t("settingsSoftDeletes")}</span>
+            <span className="badge badge-teal text-xs">{t("settingsEnabled")}</span>
+          </div>
+        </SectionCard>
 
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><Bell className="w-4 h-4 text-primary" /> Notifications</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Patient Arrival Alerts</span>
-                <Badge className="text-xs bg-green-100 text-green-800 border-none">Enabled</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Lab Result Alerts</span>
-                <Badge className="text-xs bg-green-100 text-green-800 border-none">Enabled</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Internal Chat</span>
-                <Badge variant="secondary" className="text-xs">Excluded</Badge>
-              </div>
-            </CardContent>
-          </Card>
+        <SectionCard icon={Bell} title={t("settingsNotifications")}>
+          <div className="flex justify-between items-center py-0.5">
+            <span className="text-[13px] text-[var(--ink-muted)]">{t("settingsPatientArrivalAlerts")}</span>
+            <span className="badge badge-teal text-xs">{t("settingsEnabled")}</span>
+          </div>
+          <div className="flex justify-between items-center py-0.5">
+            <span className="text-[13px] text-[var(--ink-muted)]">{t("settingsLabResultAlerts")}</span>
+            <span className="badge badge-teal text-xs">{t("settingsEnabled")}</span>
+          </div>
+          <div className="flex justify-between items-center py-0.5">
+            <span className="text-[13px] text-[var(--ink-muted)]">{t("settingsInternalChat")}</span>
+            <span className="badge text-xs">{t("settingsExcluded")}</span>
+          </div>
+        </SectionCard>
 
-          <Card className="border border-border">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm flex items-center gap-2"><Globe className="w-4 h-4 text-primary" /> Localization</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-3 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">Supported Languages</span>
-                <Badge variant="outline" className="text-xs">EN / AR</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">RTL Support</span>
-                <Badge className="text-xs bg-green-100 text-green-800 border-none">Enabled</Badge>
-              </div>
-            </CardContent>
-          </Card>
+        <SectionCard icon={Globe} title={t("settingsLocalization")}>
+          <InfoRow label={t("settingsSupportedLanguages")} value={t("settingsLanguages")} />
+          <div className="flex justify-between items-center py-0.5">
+            <span className="text-[13px] text-[var(--ink-muted)]">{t("settingsRtlSupport")}</span>
+            <span className="badge badge-teal text-xs">{t("settingsEnabled")}</span>
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="card mt-4">
+        <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
+          <SettingsIcon className="w-4 h-4 text-[var(--teal-600)]" />
+          <span className="font-semibold text-[14px] text-[var(--ink)]">{t("settingsCurrentSession")}</span>
         </div>
-
-        <Card className="border border-border">
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-sm flex items-center gap-2"><SettingsIcon className="w-4 h-4 text-primary" /> Current Session</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div><p className="text-xs text-muted-foreground">User</p><p className="font-medium mt-0.5">{user?.fullName}</p></div>
-            <div><p className="text-xs text-muted-foreground">Role</p><p className="font-medium mt-0.5 capitalize">{user?.role?.replace(/_/g, " ")}</p></div>
-            <div><p className="text-xs text-muted-foreground">Username</p><p className="font-medium mt-0.5">@{user?.username}</p></div>
-            <div><p className="text-xs text-muted-foreground">System Version</p><p className="font-medium mt-0.5">v1.0.0</p></div>
-          </CardContent>
-        </Card>
+        <div className="card-pad grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: t("user"),                value: user?.fullName },
+            { label: t("role"),                value: user?.role?.replace(/_/g, " ") },
+            { label: t("username"),            value: `@${user?.username}` },
+            { label: t("settingsSystemVersion"), value: "v1.0.0" },
+          ].map(({ label, value }) => (
+            <div key={label}>
+              <p className="text-[11px] text-[var(--ink-muted)] mb-0.5">{label}</p>
+              <p className="font-medium text-[13px] text-[var(--ink)] capitalize">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -8,11 +8,19 @@ import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
 import { metricsMiddleware, getMetrics } from "./lib/metrics";
 import { ipRateLimit } from "./middlewares/rateLimiter";
-import { cspDirectives } from "./lib/csp";
+import { cspDirectives, cspReportUri } from "./lib/csp";
 import { loginShield, loginIpRateLimit } from "./middlewares/login-shield";
 import { notFoundHandler, globalErrorHandler } from "./middlewares/envelope";
 
 const app: Express = express();
+
+// ── Trust proxy ─────────────────────────────────────────────────────────────
+// Caddy/nginx sits on the docker `frontend` bridge network and forwards client
+// IPs via X-Forwarded-For. Without this, req.ip resolves to the upstream
+// container IP and rate-limit keys, login-shield buckets, and audit IP fields
+// collapse to one identity. Trust private-network upstreams only — never
+// X-Forwarded-For coming from a public-internet client.
+app.set("trust proxy", "loopback, linklocal, uniquelocal");
 
 // ── Security headers ────────────────────────────────────────────────────────
 app.use(correlationId); // Must be first: attaches req.id for all subsequent middleware
@@ -27,10 +35,18 @@ app.use((req, _res, next) => {
   next();
 });
 
-app.use(helmet({
-  contentSecurityPolicy: { directives: cspDirectives },
-  crossOriginEmbedderPolicy: false, // Relaxed for Replit proxy
-}));
+// Phase 2 — when CSP reporting is on, helmet emits `report-uri` so violations
+// land at /api/csp-report. When off, the directives object is untouched and
+// behavior is identical to Phase 1.
+{
+  const directives: Record<string, string[]> = { ...cspDirectives };
+  const reportPath = cspReportUri();
+  if (reportPath) directives.reportUri = [reportPath];
+  app.use(helmet({
+    contentSecurityPolicy: { directives },
+    crossOriginEmbedderPolicy: false, // Relaxed for Replit proxy
+  }));
+}
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 // Callback-based origin checker — never falls back to wildcard (N-03)
@@ -44,14 +60,21 @@ const replitOriginPatterns: RegExp[] = replitDomains.map(
   d => new RegExp(`^https://${d.replace(/\./g, "\\.")}$`)
 );
 
+// ALLOWED_ORIGINS — comma-separated additional prod origins (e.g. https://app.example.com).
+// Use this instead of REPLIT_DOMAINS when deploying outside Replit.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").map(o => o.trim()).filter(Boolean);
+const allowedOriginPatterns: RegExp[] = allowedOrigins.map(
+  o => new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)
+);
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (e.g. curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
 
     const allowed = process.env.NODE_ENV === "production"
-      ? [...replitOriginPatterns]
-      : [...devOriginPatterns, ...replitOriginPatterns];
+      ? [...replitOriginPatterns, ...allowedOriginPatterns]
+      : [...devOriginPatterns, ...replitOriginPatterns, ...allowedOriginPatterns];
 
     if (allowed.some(pattern => pattern.test(origin))) {
       callback(null, true);
@@ -84,6 +107,14 @@ app.use(
 // ── Metrics ───────────────────────────────────────────────────────────────────
 app.use(metricsMiddleware);
 app.get("/metrics", (req: Request, res: Response) => {
+  const token = process.env.METRICS_TOKEN;
+  if (token) {
+    const auth = req.headers.authorization ?? "";
+    if (auth !== `Bearer ${token}`) {
+      res.status(401).end();
+      return;
+    }
+  }
   getMetrics(req, res).catch(() => res.status(500).end());
 });
 

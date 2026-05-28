@@ -3,11 +3,20 @@ import {
   patientsTable, appointmentsTable, medicalRecordsTable, xrayRecordsTable,
   labTestsTable, invoicesTable, usersTable,
 } from "@workspace/db";
-import { eq, isNull, ilike, or, and, sql, desc, inArray } from "drizzle-orm";
+import { eq, isNull, ilike, or, and, sql, desc, lt, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope } from "../lib/scope";
+import { encrypt, decrypt, encryptNullable, decryptNullable } from "../lib/field-encryption";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
+
+function decryptPatient<T extends { allergies?: string | null; emergencyContact?: string | null }>(p: T): T {
+  return {
+    ...p,
+    allergies: decryptNullable(p.allergies),
+    emergencyContact: decryptNullable(p.emergencyContact),
+  };
+}
 
 async function generateMRN(): Promise<string> {
   const [{ nextval }] = await db.execute(sql`SELECT nextval('mrn_seq') as nextval`) as any;
@@ -29,16 +38,15 @@ export function serializeForRole<T extends Record<string, any>>(
 
 export async function listPatients(
   req: AuthRequest,
-  params: { search?: string; limit?: string; offset?: string },
+  params: { search?: string; limit?: string; cursor?: string },
 ) {
-  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 200);
-  const off = parseInt(params.offset ?? "0") || 0;
+  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
 
-  const conditions: any[] = [isNull(patientsTable.deletedAt)];
+  const conditions: any[] = [isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
 
   if (isDoctorScoped(req.user?.role)) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) return { patients: [], total: 0 };
+    if (allowed.length === 0) return { patients: [], total: 0, nextCursor: null };
     conditions.push(inArray(patientsTable.id, allowed));
   }
 
@@ -51,13 +59,18 @@ export async function listPatients(
       ilike(patientsTable.phone, q),
     ));
   }
+  if (params.cursor) {
+    const cursorId = parseInt(params.cursor);
+    if (!isNaN(cursorId)) conditions.push(lt(patientsTable.id, cursorId));
+  }
 
   const whereClause = and(...conditions);
-  const patients = await db.select().from(patientsTable).where(whereClause).limit(lim).offset(off);
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(patientsTable).where(whereClause);
+  const patients = await db.select().from(patientsTable).where(whereClause).orderBy(desc(patientsTable.id)).limit(lim);
+  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(patientsTable).where(and(isNull(patientsTable.deletedAt)));
 
+  const nextCursor = patients.length === lim ? patients[patients.length - 1].id : null;
   void logAudit(req, "READ_LIST", "patient", undefined, { count: patients.length });
-  return { patients: patients.map(p => serializeForRole(p, req.user!.role)), total: Number(count) };
+  return { patients: patients.map(p => serializeForRole(decryptPatient(p), req.user!.role)), total: Number(count), nextCursor };
 }
 
 export async function createPatient(
@@ -85,21 +98,27 @@ export async function createPatient(
   }
 
   const mrn = await generateMRN();
-  const [patient] = await db.insert(patientsTable).values({ mrn, ...data, gender: data.gender as "male" | "female" }).returning();
+  const [patient] = await db.insert(patientsTable).values({
+    mrn, ...data,
+    clinicId: req.user!.clinicId,
+    gender: data.gender as "male" | "female",
+    allergies: encryptNullable(data.allergies ?? null),
+    emergencyContact: encryptNullable(data.emergencyContact ?? null),
+  }).returning();
   await logAudit(req, "CREATE", "patient", patient.id);
-  return patient;
+  return decryptPatient(patient);
 }
 
 export async function getPatient(req: AuthRequest, patientId: number) {
   if (!await assertPatientInScope(req, patientId, "patient")) {
     throw new ForbiddenError();
   }
-  const [patient] = await db.select().from(patientsTable)
-    .where(and(eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt)));
+  const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
+  const [patient] = await db.select().from(patientsTable).where(and(...conditions));
   if (!patient) throw new NotFoundError("patient", patientId);
 
   void logRead(req, "patient", patientId);
-  return serializeForRole(patient, req.user!.role);
+  return serializeForRole(decryptPatient(patient), req.user!.role);
 }
 
 export async function updatePatient(
@@ -135,16 +154,24 @@ export async function updatePatient(
   Object.keys(updateData).forEach(k => updateData[k] === undefined && delete updateData[k]);
   if (Object.keys(updateData).length === 0) throw new ValidationError("No valid fields to update");
 
+  // Encrypt PHI fields before storing
+  if ("allergies" in updateData) updateData.allergies = encryptNullable(updateData.allergies);
+  if ("emergencyContact" in updateData) updateData.emergencyContact = encryptNullable(updateData.emergencyContact);
+
   updateData.updatedAt = new Date();
-  const [patient] = await db.update(patientsTable).set(updateData).where(eq(patientsTable.id, patientId)).returning();
+
+  const whereConditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
+
+  const [patient] = await db.update(patientsTable).set(updateData).where(and(...whereConditions)).returning();
   if (!patient) throw new NotFoundError("patient", patientId);
 
   await logAudit(req, "UPDATE", "patient", patient.id, { fields: Object.keys(updateData) });
-  return patient;
+  return decryptPatient(patient);
 }
 
 export async function deletePatient(req: AuthRequest, patientId: number) {
-  await db.update(patientsTable).set({ deletedAt: new Date() }).where(eq(patientsTable.id, patientId));
+  const whereConditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
+  await db.update(patientsTable).set({ deletedAt: new Date() }).where(and(...whereConditions));
   await logAudit(req, "DELETE", "patient", patientId);
 }
 
@@ -152,11 +179,12 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
   if (!await assertPatientInScope(req, patientId, "patient")) {
     throw new ForbiddenError();
   }
-  const [patient] = await db.select().from(patientsTable)
-    .where(and(eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt)));
+  const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
+  const [patient] = await db.select().from(patientsTable).where(and(...conditions));
   if (!patient) throw new NotFoundError("patient", patientId);
 
   void logRead(req, "patient_summary", patientId);
+  const decrypted = decryptPatient(patient);
 
   const [recentAppointments, recentRecords, recentXrays, recentLabTests, pendingInvoices] = await Promise.all([
     db.select({
@@ -184,5 +212,5 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
     .filter(inv => inv.status === "pending")
     .reduce((s, inv) => s + parseFloat(String(inv.total)), 0);
 
-  return { patient, recentAppointments, recentRecords, recentXrays, recentLabTests, outstandingBalance };
+  return { patient: decrypted, recentAppointments, recentRecords, recentXrays, recentLabTests, outstandingBalance };
 }

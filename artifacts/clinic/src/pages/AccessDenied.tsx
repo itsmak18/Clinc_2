@@ -1,11 +1,10 @@
 import { useLocation } from "wouter";
 import { ShieldOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useI18n } from "@/hooks/i18n";
 
 export default function AccessDenied() {
   const [, setLocation] = useLocation();
-  const { isRtl } = useI18n();
+  const { t, isRtl } = useI18n();
 
   return (
     <div
@@ -13,16 +12,16 @@ export default function AccessDenied() {
       dir={isRtl ? "rtl" : "ltr"}
       data-testid="page-access-denied"
     >
-      <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
-        <ShieldOff className="w-7 h-7 text-destructive" />
+      <div className="w-14 h-14 rounded-full bg-[var(--rose-500)]/10 flex items-center justify-center mb-4">
+        <ShieldOff className="w-7 h-7 text-[var(--rose-500)]" />
       </div>
-      <h2 className="text-lg font-semibold text-foreground mb-1">Access Denied</h2>
-      <p className="text-sm text-muted-foreground max-w-xs mb-6">
-        You don't have permission to view this page. Contact your administrator if you believe this is a mistake.
+      <h2 className="text-lg font-semibold text-[var(--ink)] mb-1">{t("accessDenied")}</h2>
+      <p className="text-sm text-[var(--ink-muted)] max-w-xs mb-6">
+        {t("accessDeniedDesc")}
       </p>
-      <Button size="sm" onClick={() => setLocation("/dashboard")} data-testid="button-go-dashboard">
-        Go to Dashboard
-      </Button>
+      <button className="btn btn-primary btn-sm" onClick={() => setLocation("/dashboard")} data-testid="button-go-dashboard">
+        {t("goToDashboard")}
+      </button>
     </div>
   );
 }

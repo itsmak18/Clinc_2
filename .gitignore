@@ -52,6 +52,14 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.development
+.env.production
+.env.staging
 
-# Plaintext credential backup — must never be committed
+# Plaintext credential backups — must never be committed
 credentials-backup.md
+*credentials*.md
+*credentials*.txt
+*secrets*.md
+*secrets*.txt
+*backup*.env

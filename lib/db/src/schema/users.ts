@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, pgEnum, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, pgEnum, jsonb, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -22,12 +22,13 @@ export const usersTable = pgTable("users", {
   fullName: text("full_name").notNull(),
   fullNameAr: text("full_name_ar"),
   email: text("email"),
+  clinicId: integer("clinic_id").notNull().default(1),
   role: userRoleEnum("role").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   isOnShift: boolean("is_on_shift").notNull().default(false),
   phone: text("phone"),
-  specialty: text("specialty"),   // N-06: nullable, meaningful for role=doctor
-  department: text("department"), // N-06: nullable, for any role
+  specialty: text("specialty"),
+  department: text("department"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

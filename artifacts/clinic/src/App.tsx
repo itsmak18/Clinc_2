@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,30 +16,80 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+
 import { ShieldAlert } from "lucide-react";
-import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
-import Patients from "@/pages/Patients";
-import PatientDetail from "@/pages/PatientDetail";
-import Appointments from "@/pages/Appointments";
-import MedicalRecords from "@/pages/MedicalRecords";
-import Prescriptions from "@/pages/Prescriptions";
-import XRay from "@/pages/XRay";
-import Ultrasound from "@/pages/Ultrasound";
-import Lab from "@/pages/Lab";
-import Billing from "@/pages/Billing";
-import Operations from "@/pages/Operations";
-import Inventory from "@/pages/Inventory";
-import Reports from "@/pages/Reports";
-import Notifications from "@/pages/Notifications";
-import Users from "@/pages/Users";
-import AuditLog from "@/pages/AuditLog";
-import Settings from "@/pages/Settings";
-import Triage from "@/pages/Triage";
-import Schedule from "@/pages/Schedule";
-import AccessDenied from "@/pages/AccessDenied";
-import NotFound from "@/pages/not-found";
+
+// Route-level code splitting — each page is a separate chunk loaded on demand
+const Login          = lazy(() => import("@/pages/Login"));
+const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
+const VerifyDevice   = lazy(() => import("@/pages/VerifyDevice"));
+const AccountDevices = lazy(() => import("@/pages/AccountDevices"));
+const Dashboard    = lazy(() => import("@/pages/Dashboard"));
+const Patients     = lazy(() => import("@/pages/Patients"));
+const PatientDetail = lazy(() => import("@/pages/PatientDetail"));
+const Appointments = lazy(() => import("@/pages/Appointments"));
+const MedicalRecords = lazy(() => import("@/pages/MedicalRecords"));
+const Prescriptions = lazy(() => import("@/pages/Prescriptions"));
+const XRay         = lazy(() => import("@/pages/XRay"));
+const Ultrasound   = lazy(() => import("@/pages/Ultrasound"));
+const Lab          = lazy(() => import("@/pages/Lab"));
+const Billing      = lazy(() => import("@/pages/Billing"));
+const Operations   = lazy(() => import("@/pages/Operations"));
+const Inventory    = lazy(() => import("@/pages/Inventory"));
+const Reports      = lazy(() => import("@/pages/Reports"));
+const Notifications = lazy(() => import("@/pages/Notifications"));
+const Users        = lazy(() => import("@/pages/Users"));
+const AuditLog     = lazy(() => import("@/pages/AuditLog"));
+const Settings     = lazy(() => import("@/pages/Settings"));
+const Triage       = lazy(() => import("@/pages/Triage"));
+const Schedule     = lazy(() => import("@/pages/Schedule"));
+const DoctorDashboard   = lazy(() => import("@/pages/DoctorDashboard"));
+const DoctorConsult     = lazy(() => import("@/pages/DoctorConsult"));
+const DoctorOrders      = lazy(() => import("@/pages/DoctorOrders"));
+const DoctorInbox       = lazy(() => import("@/pages/DoctorInbox"));
+const NurseVitals       = lazy(() => import("@/pages/NurseVitals"));
+const FrontDeskCheckin  = lazy(() => import("@/pages/FrontDeskCheckin"));
+const AccessDenied = lazy(() => import("@/pages/AccessDenied"));
+const NotFound     = lazy(() => import("@/pages/not-found"));
+
+// ── Per-route error reset ─────────────────────────────────────────────────────
+// Wraps children in an ErrorBoundary keyed by current route, so an error on
+// one page is cleared when the user navigates away.
+function RouteErrorReset({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  return <ErrorBoundary key={location}>{children}</ErrorBoundary>;
+}
+
+// ── Error boundary ────────────────────────────────────────────────────────────
+interface ErrorBoundaryState { hasError: boolean; error?: Error }
+
+class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[ErrorBoundary]", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback ?? (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4 text-center p-8">
+          <ShieldAlert className="w-10 h-10 text-[var(--rose-500)]" />
+          <h2 className="text-lg font-semibold">Something went wrong</h2>
+          <p className="text-sm text-[var(--ink-muted)] max-w-md">
+            An unexpected error occurred. Refresh the page or contact support if this persists.
+          </p>
+          <button className="btn btn-outline btn-sm" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,20 +127,20 @@ function SessionTimeoutWarning({
             Session Expiring Soon
           </DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-[var(--ink-muted)]">
           You have been inactive for a while. For security, you will be automatically
           logged out in:
         </p>
         <p className="text-3xl font-mono font-bold text-center text-amber-600 py-2">
           {timeStr}
         </p>
-        <p className="text-xs text-muted-foreground text-center">
+        <p className="text-xs text-[var(--ink-muted)] text-center">
           Click below to stay logged in, or wait to be signed out.
         </p>
         <DialogFooter>
-          <Button onClick={onStayLoggedIn} className="w-full">
+          <button className="btn btn-primary w-full" onClick={onStayLoggedIn}>
             Stay Logged In
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -113,7 +163,20 @@ function ProtectedRoutes() {
   }, [logout]);
 
   if (isLoading) return null;
-  if (!isAuthenticated || !user) return <Login />;
+
+  // Public routes accessible without a session — order matters: these match
+  // before we fall through to <Login />.
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname;
+    if (path === "/forgot-password") {
+      return <Suspense fallback={null}><ForgotPassword /></Suspense>;
+    }
+    if (path === "/verify-device") {
+      return <Suspense fallback={null}><VerifyDevice /></Suspense>;
+    }
+  }
+
+  if (!isAuthenticated || !user) return <Suspense fallback={null}><Login /></Suspense>;
 
 
   const role = user.role;
@@ -126,9 +189,30 @@ function ProtectedRoutes() {
         onStayLoggedIn={stayLoggedIn}
       />
       <Layout>
+        <Suspense fallback={null}>
+        <RouteErrorReset>
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
+          <Route path="/today">
+            <Guard path="/today" role={role}><DoctorDashboard /></Guard>
+          </Route>
+          <Route path="/consult">
+            <Guard path="/consult" role={role}><DoctorConsult /></Guard>
+          </Route>
+          <Route path="/orders">
+            <Guard path="/orders" role={role}><DoctorOrders /></Guard>
+          </Route>
+          <Route path="/inbox">
+            <Guard path="/inbox" role={role}><DoctorInbox /></Guard>
+          </Route>
+          <Route path="/checkin">
+            <Guard path="/checkin" role={role}><FrontDeskCheckin /></Guard>
+          </Route>
+          <Route path="/vitals">
+            <Guard path="/vitals" role={role}><NurseVitals /></Guard>
+          </Route>
+          <Route path="/account/devices" component={AccountDevices} />
           <Route path="/patients/:id">
             <Guard path="/patients" role={role}><PatientDetail /></Guard>
           </Route>
@@ -183,6 +267,8 @@ function ProtectedRoutes() {
           </Route>
           <Route component={NotFound} />
         </Switch>
+        </RouteErrorReset>
+        </Suspense>
       </Layout>
     </>
   );
@@ -190,18 +276,20 @@ function ProtectedRoutes() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <I18nProvider>
-          <AuthProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <ProtectedRoutes />
-            </WouterRouter>
-            <Toaster />
-          </AuthProvider>
-        </I18nProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <I18nProvider>
+            <AuthProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <ProtectedRoutes />
+              </WouterRouter>
+              <Toaster />
+            </AuthProvider>
+          </I18nProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

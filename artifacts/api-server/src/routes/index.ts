@@ -18,9 +18,17 @@ import dashboardRouter from "./dashboard";
 import reportsRouter from "./reports";
 import searchRouter from "./search";
 import scheduleRouter from "./schedule";
+import consentRouter from "./consent";
+import breakGlassRouter from "./break-glass";
+import erasureRouter from "./erasure";
+import devicesRouter from "./devices";
+import passwordResetRouter from "./password-reset";
+import cspReportRouter from "./csp-report";
+import jwksRouter from "./jwks";
 
 const router: IRouter = Router();
 
+router.use(jwksRouter);
 router.use(healthRouter);
 router.use(authRouter);
 router.use(usersRouter);
@@ -40,5 +48,11 @@ router.use(dashboardRouter);
 router.use(reportsRouter);
 router.use(searchRouter);
 router.use(scheduleRouter);
+router.use(consentRouter);
+router.use(breakGlassRouter);
+router.use(erasureRouter);
+router.use(devicesRouter);
+router.use(passwordResetRouter);
+router.use(cspReportRouter);
 
 export default router;

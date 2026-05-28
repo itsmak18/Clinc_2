@@ -1,9 +1,11 @@
 import { pool } from "@workspace/db";
+import { isShuttingDown } from "../lib/lifecycle";
 
 export interface HealthChecks {
   db: Record<string, unknown>;
   memory: Record<string, unknown>;
   process: Record<string, unknown>;
+  shutdown?: Record<string, unknown>;
 }
 
 export interface ReadinessResult {
@@ -14,6 +16,13 @@ export interface ReadinessResult {
 export async function checkReadiness(): Promise<ReadinessResult> {
   const checks: HealthChecks = {} as HealthChecks;
   let ok = true;
+
+  // H7: report 503 immediately on SIGTERM so the LB drains us before any
+  // other shutdown step starts cutting connections.
+  if (isShuttingDown()) {
+    ok = false;
+    checks.shutdown = { status: "draining" };
+  }
 
   const dbStart = Date.now();
   try {

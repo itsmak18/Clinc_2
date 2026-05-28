@@ -149,8 +149,8 @@ export function validateTransition(
     };
   }
 
-  // Guard: role not permitted for this transition (super_admin always bypasses)
-  if (userRole !== "super_admin" && !transition.allowedRoles.includes(userRole)) {
+  // Guard: role not permitted for this transition (super_admin and system always bypass)
+  if (userRole !== "super_admin" && userRole !== "system" && !transition.allowedRoles.includes(userRole)) {
     return {
       ok: false,
       status: 403,

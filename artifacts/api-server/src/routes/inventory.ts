@@ -18,9 +18,9 @@ router.use(requireAuth);
 router.get(
   "/inventory",
   requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
     const { search, category } = req.query as Record<string, string | undefined>;
-    res.json(await listInventory({ search, category }));
+    res.json(await listInventory(req, { search, category }));
   }),
 );
 

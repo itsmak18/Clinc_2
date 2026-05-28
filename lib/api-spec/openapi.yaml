@@ -280,11 +280,11 @@ paths:
           schema:
             type: integer
             default: 20
-        - name: offset
+        - name: cursor
           in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
           schema:
-            type: integer
-            default: 0
+            type: string
       responses:
         "200":
           description: List of patients
@@ -414,20 +414,18 @@ paths:
           schema:
             type: integer
             default: 20
-        - name: offset
+        - name: cursor
           in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
           schema:
-            type: integer
-            default: 0
+            type: string
       responses:
         "200":
           description: List of appointments
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Appointment"
+                $ref: "#/components/schemas/PaginatedAppointments"
     post:
       operationId: createAppointment
       tags: [appointments]
@@ -2045,11 +2043,22 @@ components:
             $ref: "#/components/schemas/Patient"
         total:
           type: integer
-        limit:
+        nextCursor:
           type: integer
-        offset:
+          nullable: true
+      required: [patients, total, nextCursor]
+
+    PaginatedAppointments:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Appointment"
+        nextCursor:
           type: integer
-      required: [patients, total, limit, offset]
+          nullable: true
+      required: [data, nextCursor]
 
     CreatePatientBody:
       type: object

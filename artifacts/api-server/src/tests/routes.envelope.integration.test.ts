@@ -39,6 +39,7 @@ vi.mock("@workspace/db", () => {
     },
     usersTable: { id: "id", username: "username", deletedAt: "deletedAt", isActive: "isActive" },
     auditLogsTable: { id: "id" },
+    auditOutboxTable: { id: "id" },
     eq: vi.fn(),
     isNull: vi.fn(),
     and: vi.fn(),

@@ -4,9 +4,11 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { medicalRecordsTable } from "./medical_records";
+import { clinicsTable } from "./clinics";
 
 export const prescriptionsTable = pgTable("prescriptions", {
   id: serial("id").primaryKey(),
+  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   recordId: integer("record_id").references(() => medicalRecordsTable.id),
@@ -16,13 +18,15 @@ export const prescriptionsTable = pgTable("prescriptions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-  index("rx_patient_idx").on(t.patientId),   // M-04
-  index("rx_doctor_idx").on(t.doctorId),     // M-04
-  index("rx_created_idx").on(t.createdAt),   // M-04
+  index("rx_patient_idx").on(t.patientId),
+  index("rx_doctor_idx").on(t.doctorId),
+  index("rx_created_idx").on(t.createdAt),
+  index("rx_clinic_idx").on(t.clinicId),
 ]);
 
 export const insertPrescriptionSchema = createInsertSchema(prescriptionsTable).omit({
   id: true,
+  clinicId: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,

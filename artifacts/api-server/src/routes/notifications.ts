@@ -4,6 +4,7 @@ import { asyncHandler } from "../middlewares/asyncHandler";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { addSSEClient, removeSSEClient } from "../lib/sse";
+import { isShuttingDown } from "../lib/lifecycle";
 import {
   listNotifications,
   markNotificationRead,
@@ -14,6 +15,13 @@ const router = Router();
 router.use(requireAuth);
 
 router.get("/notifications/stream", (req: AuthRequest, res) => {
+  // Refuse new SSE connections during graceful shutdown so that in-flight
+  // connections can drain cleanly and the LB stops routing new traffic here.
+  if (isShuttingDown()) {
+    res.status(503).set("Retry-After", "10").json({ error: "Server draining" });
+    return;
+  }
+
   const userId = req.user!.userId;
 
   res.setHeader("Content-Type", "text/event-stream");

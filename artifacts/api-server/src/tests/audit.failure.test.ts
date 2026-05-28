@@ -1,10 +1,10 @@
 /**
  * audit.failure.test.ts
  *
- * Verifies the audit-write failure-path policy (PR-B2): fire-and-forget with
- * observability. When the DB insert rejects, the caller must NOT throw, the
+ * Verifies the audit outbox failure-path policy: fire-and-forget with
+ * observability. When the outbox insert rejects, the caller must NOT throw, the
  * Prometheus counter `audit_log_write_failures_total` must increment, and Pino
- * must emit a structured `audit_write_failed` error log.
+ * must emit a structured `audit_outbox_write_failed` error log.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -15,7 +15,7 @@ const { insertMock, loggerErrorMock } = vi.hoisted(() => ({
 
 vi.mock("@workspace/db", () => ({
   db: { insert: () => ({ values: insertMock }) },
-  auditLogsTable: {},
+  auditOutboxTable: {},
 }));
 
 vi.mock("../lib/logger", () => ({
@@ -65,7 +65,7 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     await logAudit(fakeReq(), "UPDATE", "invoice", 12);
     expect(loggerErrorMock).toHaveBeenCalledTimes(1);
     const [ctx, msg] = loggerErrorMock.mock.calls[0];
-    expect(msg).toBe("audit_write_failed");
+    expect(msg).toBe("audit_outbox_write_failed");
     expect(ctx).toMatchObject({
       action: "UPDATE",
       entityType: "invoice",

@@ -25,6 +25,20 @@ If a vulnerability has no upstream fix, add an entry to `.pnpmauditignore` with:
 
 Never suppress without a written justification.
 
+## Metrics endpoint protection
+
+`GET /metrics` (Prometheus scrape endpoint) is gated by a bearer token in production. Set `METRICS_TOKEN` in the server environment; the endpoint returns 401 if the `Authorization: Bearer <token>` header doesn't match. In development (`METRICS_TOKEN` unset) the endpoint is open. See `.env.example` for generation command.
+
 ## Secrets scanning
 
 `gitleaks` runs on every PR via `.github/workflows/ci.yml`. Findings block the build. If a secret was committed historically, rotate it — removing it from git history without rotation is not sufficient.
+
+**Local pre-commit gap:** CI scans on push but there is no local pre-commit hook yet. Add one to catch secrets before they leave the machine:
+```bash
+# requires gitleaks installed (https://github.com/gitleaks/gitleaks)
+cat > .git/hooks/pre-commit << 'EOF'
+#!/bin/sh
+gitleaks protect --staged --redact --no-banner
+EOF
+chmod +x .git/hooks/pre-commit
+```

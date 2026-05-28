@@ -1,9 +1,8 @@
 import { db } from "@workspace/db";
-import { invoicesTable, patientsTable } from "@workspace/db";
-import { eq, isNull, desc, gte, lte, and, sql } from "drizzle-orm";
+import { invoicesTable, patientsTable, invoiceItemsTable } from "@workspace/db";
+import { eq, isNull, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
 import { logAudit, logRead } from "../lib/audit";
-import { safeParseInt } from "../lib/validators";
 import { itemsSchema } from "../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
@@ -15,13 +14,39 @@ async function generateInvoiceNumber(): Promise<string> {
   return `INV-${ym}-${String(nextval).padStart(6, "0")}`;
 }
 
+async function fetchInvoiceItems(invoiceId: number) {
+  const rows = await db.select({
+    description: invoiceItemsTable.description,
+    quantity:    invoiceItemsTable.quantity,
+    unitPrice:   invoiceItemsTable.unitPrice,
+  }).from(invoiceItemsTable).where(eq(invoiceItemsTable.invoiceId, invoiceId));
+  return rows.map(r => ({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) }));
+}
+
+async function fetchInvoiceItemsBatch(invoiceIds: number[]) {
+  const map = new Map<number, { description: string; quantity: number; unitPrice: number }[]>();
+  if (!invoiceIds.length) return map;
+  const rows = await db.select({
+    invoiceId:   invoiceItemsTable.invoiceId,
+    description: invoiceItemsTable.description,
+    quantity:    invoiceItemsTable.quantity,
+    unitPrice:   invoiceItemsTable.unitPrice,
+  }).from(invoiceItemsTable).where(inArray(invoiceItemsTable.invoiceId, invoiceIds));
+  for (const r of rows) {
+    const arr = map.get(r.invoiceId) ?? [];
+    arr.push({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) });
+    map.set(r.invoiceId, arr);
+  }
+  return map;
+}
+
 export async function listInvoices(req: AuthRequest, params: { status?: string; patientId?: string }) {
-  const conditions: any[] = [isNull(invoicesTable.deletedAt)];
+  const conditions: any[] = [isNull(invoicesTable.deletedAt), eq(invoicesTable.clinicId, req.user!.clinicId)];
+
   if (params.status) conditions.push(eq(invoicesTable.status, params.status as any));
   if (params.patientId) {
-    const pid = safeParseInt(params.patientId);
-    if (!pid) throw new ValidationError("Invalid patientId");
-    conditions.push(eq(invoicesTable.patientId, pid));
+    const pid = parseInt(params.patientId);
+    if (!isNaN(pid)) conditions.push(eq(invoicesTable.patientId, pid));
   }
 
   const rows = await db.select({
@@ -29,7 +54,6 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
     invoiceNumber: invoicesTable.invoiceNumber,
     patientId: invoicesTable.patientId,
     createdById: invoicesTable.createdById,
-    items: invoicesTable.items,
     subtotal: invoicesTable.subtotal,
     discount: invoicesTable.discount,
     total: invoicesTable.total,
@@ -43,8 +67,9 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
     .where(and(...conditions))
     .orderBy(desc(invoicesTable.createdAt));
 
+  const itemsMap = await fetchInvoiceItemsBatch(rows.map(r => r.id));
   void logRead(req, "invoice", undefined);
-  return rows;
+  return rows.map(r => ({ ...r, items: itemsMap.get(r.id) ?? [] }));
 }
 
 export async function createInvoice(
@@ -58,7 +83,7 @@ export async function createInvoice(
 
   const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
     .where(and(eq(patientsTable.id, data.patientId), isNull(patientsTable.deletedAt)));
-  if (!patient) throw new NotFoundError("patient", data.patientId);
+  if (!patient) throw new NotFoundError("patient", String(data.patientId));
 
   const parsedItems = itemsSchema.safeParse(data.items);
   if (!parsedItems.success) {
@@ -70,56 +95,73 @@ export async function createInvoice(
   const invoiceNumber = await generateInvoiceNumber();
 
   const [invoice] = await db.insert(invoicesTable).values({
+    clinicId: req.user!.clinicId,
     invoiceNumber, patientId: data.patientId, createdById,
-    items: parsedItems.data, subtotal: String(subtotal), discount: String(discount),
+    subtotal: String(subtotal), discount: String(discount),
     total: String(total), notes: data.notes,
   }).returning();
 
+  await db.insert(invoiceItemsTable).values(
+    parsedItems.data.map(item => ({
+      invoiceId: invoice.id,
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: String(item.unitPrice),
+    })),
+  );
+
   await logAudit(req, "CREATE", "invoice", invoice.id);
-  return invoice;
+  return { ...invoice, items: parsedItems.data };
 }
 
 export async function getInvoice(req: AuthRequest, invoiceId: number) {
-  const [invoice] = await db.select().from(invoicesTable)
-    .where(and(eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt)));
+  const conditions: any[] = [eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt), eq(invoicesTable.clinicId, req.user!.clinicId)];
+  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
+  const items = await fetchInvoiceItems(invoiceId);
   void logRead(req, "invoice", invoiceId);
-  return invoice;
+  return { ...invoice, items };
 }
 
 export async function updateInvoice(req: AuthRequest, invoiceId: number, data: { notes?: string }) {
-  const [existing] = await db.select().from(invoicesTable)
-    .where(and(eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt)));
+  const conditions: any[] = [eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt), eq(invoicesTable.clinicId, req.user!.clinicId)];
+  const [existing] = await db.select().from(invoicesTable).where(and(...conditions));
   if (!existing) throw new NotFoundError("invoice", invoiceId);
   if (existing.status === "cancelled") throw new ConflictError("Cannot edit a cancelled invoice.");
 
   const [invoice] = await db.update(invoicesTable)
     .set({ notes: data.notes, updatedAt: new Date() })
-    .where(eq(invoicesTable.id, invoiceId))
+    .where(and(...conditions))
     .returning();
   await logAudit(req, "UPDATE", "invoice", invoiceId, { fields: ["notes"] });
-  return invoice;
+  const items = await fetchInvoiceItems(invoiceId);
+  return { ...invoice, items };
 }
 
 export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason: string) {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+  const conditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId)];
+  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
   if (invoice.status !== "pending") {
     throw new ConflictError(`Invoice is already ${invoice.status}. Cannot cancel.`);
   }
 
+  const cancelConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")];
+
   const [updated] = await db.update(invoicesTable)
     .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")))
+    .where(and(...cancelConditions))
     .returning();
 
   if (!updated) throw new ConflictError("Invoice status changed by a concurrent request.");
   await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, { reason });
-  return updated;
+  const items = await fetchInvoiceItems(invoiceId);
+  return { ...updated, items };
 }
 
 export async function payInvoice(req: AuthRequest, invoiceId: number, amountReceived?: number) {
-  const [invoice] = await db.select().from(invoicesTable).where(eq(invoicesTable.id, invoiceId));
+  const conditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId)];
+  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
 
   if (invoice.status !== "pending") {
@@ -138,15 +180,18 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
     throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
   }
 
+  const payConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")];
+
   const [updated] = await db.update(invoicesTable)
     .set({ status: "paid", paidAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")))
+    .where(and(...payConditions))
     .returning();
 
   if (!updated) throw new ConflictError("Invoice was already paid by a concurrent request.");
 
   await logAudit(req, "PAY", "invoice", invoiceId, { amountReceived });
-  return updated;
+  const items = await fetchInvoiceItems(invoiceId);
+  return { ...updated, items };
 }
 
 export async function getDailySummary(req: AuthRequest, dateStr?: string) {
@@ -157,8 +202,9 @@ export async function getDailySummary(req: AuthRequest, dateStr?: string) {
   const end = new Date(`${date}T23:59:59.999`);
   end.setTime(end.getTime() - getTimezoneOffset(CLINIC_TZ, end));
 
-  const invoices = await db.select().from(invoicesTable)
-    .where(and(isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end)));
+  const conditions: any[] = [isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end), eq(invoicesTable.clinicId, req.user!.clinicId)];
+
+  const invoices = await db.select().from(invoicesTable).where(and(...conditions));
 
   void logRead(req, "invoice", undefined);
   return {

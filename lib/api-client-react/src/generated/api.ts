@@ -74,6 +74,7 @@ import type {
   Notification,
   NurseDashboard,
   Operation,
+  PaginatedAppointments,
   PaginatedPatients,
   Patient,
   PatientFlow,
@@ -1649,8 +1650,8 @@ export const getListAppointmentsUrl = (params?: ListAppointmentsParams) => {
 export const listAppointments = async (
   params?: ListAppointmentsParams,
   options?: RequestInit,
-): Promise<Appointment[]> => {
-  return customFetch<Appointment[]>(getListAppointmentsUrl(params), {
+): Promise<PaginatedAppointments> => {
+  return customFetch<PaginatedAppointments>(getListAppointmentsUrl(params), {
     ...options,
     method: "GET",
   });

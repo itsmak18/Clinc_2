@@ -1,16 +1,16 @@
 # Production Health Scorecard
 
-> Last assessed: **2026-05-18**. Re-score after each major release.
+> Last assessed: **2026-05-28 (P0-4 complete — clinic_id service-layer enforcement: every PHI service query now filters by `AND clinic_id = req.user!.clinicId`; JWT carries clinicId claim; users table gained clinic_id column)**. Re-score after each major release.
 
 | Dimension | Score | Verdict |
 |---|---|---|
-| **Architectural Quality** | **9.0**/10 | Monorepo + OpenAPI contract + Orval codegen. Single-function `evaluate()` kernel owns CSRF + identity + revocation + role; legacy split-middleware design retired. |
-| **Production Readiness** | **8.5**/10 | CI chain green (typecheck → validate:errors → 173 tests). Login-shield WAF-equivalent middleware active. |
-| **Scalability** | **7.0**/10 | SSE on pluggable EventBus (Redis Pub/Sub in prod). Rate limiting pluggable (Redis in prod). Serial PKs remain. |
-| **Maintainability** | **9.0**/10 | CLAUDE.md governance, ADRs, RBAC_GOVERNANCE.md, LOCAL_DEV.md current. Full service layer — all 19 route domains. Auth surface: 3 files (policy.ts, auth-gate.ts, auth.ts). |
-| **Operational Resilience** | **7.0**/10 | Prometheus + Grafana, alerting rules, RUNBOOK.md, DR backup script, POST_LAUNCH_PROCESS.md. |
-| **Security Posture** | **7.5**/10 | v7 auth kernel: CSRF inside evaluate(), per-role JWT TTL + fingerprint, jti replay defense, fail-closed revocation. Login-shield middleware. MFA removed — single-step login for all roles. Pen test + WAF pending. |
-| **Technical Debt** | **7.5**/10 | Drizzle `push` (not versioned migrations — schema drift risk). Legacy `requireAuth`/`requireRole` shims in 19 route files. Legacy HMAC password migration active. Serial PKs. |
+| **Architectural Quality** | **9.2**/10 | Monorepo + OpenAPI contract + Orval codegen. Single-function `evaluate()` kernel owns CSRF + identity + revocation + role. Route-access contract test (67 cases) pins frontend navItems ↔ backend RBAC invariant. |
+| **Production Readiness** | **9.2**/10 | CI chain green (typecheck → validate:errors → full test suite → migration-drift → CodeQL → Trivy → offset-pagination guard). Dockerfile + docker-compose. Versioned Drizzle migrations. Login-shield WAF-equivalent. Route-level code splitting. Root ErrorBoundary. `app.set("trust proxy", ...)` now set — rate-limit and audit IPs correct behind Caddy. |
+| **Scalability** | **8.2**/10 | SSE on pluggable EventBus (Redis Pub/Sub in prod). SSE graceful drain: new connections rejected (503) during shutdown; existing connections held then closed with per-connection jitter (5–15s) to prevent thundering herd on rolling deploy. Rate limiting pluggable (Redis in prod). Cursor pagination on all list endpoints and all frontend pages (hard max 100, `?cursor=<id>`). Redis doctor-scope cache (60s TTL). Serial PKs remain. |
+| **Maintainability** | **9.5**/10 | Single JWT_SECRET source (`jwt-secret.ts`). TTL constants co-located in `auth-constants.ts`. Phase 2 kill-switches centralized. Route-access contract test surfaces RBAC drift on every PR. Dead scripts/stubs removed. |
+| **Operational Resilience** | **8.5**/10 | Prometheus + Grafana, alerting rules, RUNBOOK.md, DR backup script, POST_LAUNCH_PROCESS.md. `/metrics` bearer-token gated. SBOM generated per release (CycloneDX). CodeQL + Trivy fs scan gate in CI. **Audit trail now durable** — `audit_outbox` transactional queue with retry/backoff; under PG outage events are delayed not lost. |
+| **Security Posture** | **9.6 (dormant 9.8 once Phase 2 flag flipped)**/10 | v7 auth kernel + CSRF inside evaluate(), per-role JWT TTL + fingerprint, jti replay defense, fail-closed revocation. **JWT now EdDSA asymmetric** — `/.well-known/jwks.json` live, key rotation overlap via `JWT_PREV_PUBLIC_KEY`, `SESSION_SECRET` is HMAC-only (device fingerprinting). AES-256-GCM field encryption with **KID-aware envelope** (`enc:v2:<kid>:…`) — rotation now operationally possible without stop-the-world sweep. PHI-decryption-capable secrets file-mounted via Docker secrets. Express trust proxy set. Break-glass with SSE alert. **clinic_id enforced at service layer** — every PHI query filters by clinic. Phase 2 device-trust flag-OFF. Pen test + WAF still pending. |
+| **Technical Debt** | **9.0**/10 | Versioned Drizzle migrations in place. Legacy `requireAuth`/`requireRole` shims in 19 route files. Legacy HMAC password migration active. Serial PKs. **`invoices.items` JSONB column dropped** — `invoice_items` normalized table is the sole source of truth (migration `0005_charming_psynapse.sql`). Phase 2 kill-switch scaffolding (`isPhase2Enabled()`) — schedule cleanup ~30 days after enablement (ROADMAP Phase 2.11). |
 
 ## What moved the needle
 
@@ -21,27 +21,75 @@
 - 🔴→🟢 **CSP**: API-only → real SPA coverage via Vite plugin + `<meta>` tag; Vitest regression guard
 - 🔴→🟢 **ESM runtime**: `require()` → `await import()` + top-level await in `runtime/index.ts`
 - 🔴→🟢 **Revocation fail-closed**: `verifyToken` throws on store error (was `console.warn` + allow)
-- 🟡→🟢 **Testing**: No tests → Vitest unit + Supertest integration suite (173 passing)
+- 🟡→🟢 **Testing**: No tests → Vitest unit + Supertest integration suite
 - 🟡→🟢 **Auth kernel (v7)**: Single `evaluate(req, scope, allowedRoles?)` kernel — CSRF, identity, revocation, jti, fingerprint, role. Returns a `Decision` discriminated union. 25-test unit suite covers every branch.
 - 🟡→🟢 **JWT TTL**: Flat 8h → per-role (super_admin 15m, admin 1h, clinical 2h, operational 4h). Cookie `maxAge` aligned to per-role TTL.
 - 🟡→🟢 **Billing SoD**: front_desk creates; `billing_manager` pays/cancels; cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create
 - 🟡→🟢 **Privileged scope**: `PATCH/DELETE /users/:id`, `POST /users/:id/reset-password` use `authGate("privileged")` — jti consumed on use
 - 🟡→🟢 **TTL constants**: `MAX_ROLE_TTL_SEC` in `lib/auth-constants.ts` (re-exported from `lib/auth.ts`), imported by revocation stores to avoid ESM circular dependencies
+- 🟡→🟢 **JWT_SECRET single source**: `lib/jwt-secret.ts` (2026-05-24) — `auth.ts` + `policy.ts` both import from it; duplicate declaration eliminated
+- 🟡→🟢 **ROLE_TTL + COOKIE_TTL_MS co-located**: both in `auth-constants.ts` (2026-05-24) — drift between JWT expiry and cookie maxAge structurally impossible
+- 🟡→🟢 **Route-level code splitting**: all 22 pages `React.lazy()` + `Suspense` (2026-05-24)
+- 🟡→🟢 **Root ErrorBoundary**: rendering crash in any page no longer kills the app (2026-05-24)
+- 🟡→🟢 **`/metrics` gated**: `METRICS_TOKEN` bearer token in prod (2026-05-24)
 - 🟡→🟢 **Login shield**: `middlewares/login-shield.ts` — 4 KB body gate, Content-Type enforcement, empty UA rejection in prod, 20 req/15 min IP layer
 - 🟡→🟢 **CI pipeline**: `.github/workflows/ci.yml` — typecheck, validate:errors, api-server tests
 - 🟡→🟢 **Compliance Dashboard**: `GET /dashboard/compliance` + `ComplianceDashboard.tsx` — audit event counts, 7-day trend, top entities/users, denied events feed
 - 🟡→🟢 **Per-role UI/UX redesign (2026-05-18)**: All 10 roles now land on a dedicated workspace. 7 new dashboard endpoints + pages (Billing, Pharmacist, Nurse, FrontDesk, Imaging×2, Compliance). `getLandingRoute(role)` in `route-access.ts` drives post-login redirect. `navPinnedByRole` elevates each role's primary section in the sidebar. `RoleQuickActions` and `RoleContextLine` in the 40px top bar. `EmptyState` component. `DataTable` density prop. Status palette deduplicated + differentiated (scheduled→slate, requested→sky, in_consultation→violet, paid→emerald). Full EN+AR i18n for all new strings.
 - 🟢→🔴 **MFA removed**: TOTP, recovery codes, `mfa_sessions`, two-step gate — fully removed. Single-step login for all roles.
+- 🟡→🟢 **Cron state machine (2026-05-25)**: No-show cron routes through `validateTransition("no_show", "scheduled", "system")`; bulk update uses `check.toStatus` not a hardcoded string.
+- 🟡→🟢 **VACUUM removed from app layer (2026-05-25)**: Cron block deleted; PostgreSQL autovacuum handles table maintenance.
+- 🟡→🟢 **Audit before/after state (2026-05-25)**: `before_state`/`after_state` JSONB columns on `audit_logs`; `logAudit` signature updated; UPDATE paths pass states separately.
+- 🟡→🟢 **Invoice items normalization (2026-05-25)**: `services_catalog` + `invoice_items` tables created; `createInvoice` dual-writes to normalized table.
+
+- 🟡→🟢 **Express trust proxy (2026-05-27)**: `app.set("trust proxy", "loopback, linklocal, uniquelocal")` added before all middleware. Behind Caddy on the docker bridge network `req.ip` previously resolved to the upstream container IP — rate-limit keys and audit IP fields all collapsed to one identity. 5 regression tests in `trust-proxy.test.ts` pin the setting.
+- 🟡→🟢 **Audit logs compound index (2026-05-27)**: `audit_entity_time_idx (entity_type, entity_id, created_at)` added to `audit_logs`. Enables efficient HIPAA compliance queries. Migration `0004_sudden_spectrum.sql` generated.
+- 🟡→🟢 **Cursor pagination fully wired end-to-end (2026-05-27)**: All 12 frontend call sites (11 pages + `CommandPalette.tsx`) migrated from `offset: 0` to cursor-based parameters. `Appointments.tsx` and `DoctorDashboard.tsx` `.data` unwrap fixes a latent runtime bug where `.map()` was called on a `{ data, nextCursor }` object. OpenAPI spec updated; generated clients regenerated. CI guard blocks regression.
+- 🟡→🟢 **PHI-decryption-capable secrets file-mounted (2026-05-27)**: `SESSION_SECRET`, `FIELD_ENCRYPTION_KEY`, `METRICS_TOKEN` removed from `environment:` block in `docker-compose.prod.yml` — now read from `/run/secrets/*` by the entrypoint. `docker inspect medicore-api` no longer shows these values. Entrypoint fails closed if any secret file is missing or empty.
+- 🟡→🟢 **Route-access contract test (2026-05-27)**: `route-access.contract.test.ts` (67 tests) pins invariant that every frontend-allowed role can reach its page's primary backend endpoint without 403. Found and fixed active production bug: `pharmacist` role missing from `GET /prescriptions` and `GET /prescriptions/:id` — pharmacists got 403 on their own landing page.
+- 🟡→🟢 **CI security tooling (2026-05-27)**: CodeQL SAST (`codeql.yml`), Trivy fs scan (`security-scan.yml`, HIGH/CRITICAL, `ignore-unfixed`, SARIF), and CycloneDX SBOM (`sbom.yml`, Anchore Syft) all added as GitHub Actions workflows. Closes the SAST / dep-CVE / SBOM gap.
+- 🟡→🟢 **Field-encryption KID envelope (2026-05-27)**: `lib/field-encryption.ts` rewritten with KID-aware envelope `enc:v2:<kid>:<iv>:<tag>:<data>`. Key registry supports `FIELD_ENCRYPTION_KEY` (kid=1) + `FIELD_ENCRYPTION_KEY_NEXT` (kid=2). `FIELD_ENCRYPTION_KEY_WRITE_KID` controls active write key. Legacy `enc:v1:` envelopes still decrypt via kid=1. Rotation now possible without stop-the-world re-encryption sweep. 19-test suite pins all paths. `SECURITY.md` has six-step rotation procedure.
+
+- 🟡→🟢 **Erasure ↔ backup blackout coordination (2026-05-28)**: `erasure_blackout_until timestamp` column added to `erasure_requests`. `executeErasure()` sets it to `executedAt + BACKUP_RETENTION_DAYS` (default 7 days). `backup-verify.mjs --restore` now queries for active blackouts after the restore drill and fails if any are found, preventing silent PHI resurrection. RUNBOOK §2.2 has the manual re-anonymization SQL for emergency restores. Migration `0007_wide_zarda.sql`.
+
+- 🟡→🟢 **Audit transactional outbox (2026-05-28)**: `audit_outbox` queue table (unindexed, no FK constraints) added. `logAudit()` now writes to the outbox; a 5-second drain worker (`startAuditDrain()` in `cron.ts`) transfers rows to `audit_logs` with exponential backoff (5s / 30s / 2min / 10min) and up to 5 retries. Rows exhausted after 5 attempts are counted in `audit_log_write_failures_total` + logged `audit_outbox_row_exhausted`. Final drain flush on graceful shutdown before `pool.end()`. `auditOutboxDepthGauge` Prometheus gauge added. The MEDIUM "audit fire-and-forget" risk row is closed.
+
+- 🟡→🟢 **`invoices.items` JSONB dual-write dropped (2026-05-28)**: `ALTER TABLE invoices DROP COLUMN items` (migration `0005_charming_psynapse.sql`). `invoice_items` normalized table is now the sole source of truth. All billing service functions source line-items via two helpers: `fetchInvoiceItems()` (single invoice) and `fetchInvoiceItemsBatch()` (list). API response shape unchanged. Eliminates the dual-source-of-truth desync risk.
+
+- 🟡→🟢 **clinic_id service-layer enforcement (2026-05-28)**: `clinic_id integer NOT NULL DEFAULT 1` added to `usersTable`, `operationsTable`, `inventoryTable` (migration `0008_acoustic_cassandra_nova.sql`). `TokenPayload.clinicId` (optional, backward-compat) + `AuthUser.clinicId` (required, kernel fills `?? 1`). `loginUser()` embeds clinicId in the JWT. Every PHI service query (10 service files: patients, appointments, medical-records, prescriptions, lab, xray, ultrasound, billing, operations, inventory) now conditions on `eq(table.clinicId, req.user!.clinicId)`. Cross-tenant reads structurally blocked at the service layer. The CRITICAL "multi-tenancy decorative" risk row is downgraded to MEDIUM (Postgres RLS + per-tenant DEK remain open).
+
+- 🟡→🟢 **SSE graceful drain (2026-05-28)**: `GET /notifications/stream` returns 503 + `Retry-After: 10` when `isShuttingDown()` is true. `closeAllSSEClients()` now sends `retry: <jitter>` + `event: reconnect` per connection (jitter 5 000–15 000 ms, randomized per connection) instead of the old `event: shutdown`. Frontend `use-notifications-stream.ts` handles the `reconnect` event and uses the server-supplied `retryAfter` delay so clients spread their reconnects across the jitter window. Shutdown sequence gains `SSE_DRAIN_MS` (default 10s) hold step: new SSE connections blocked immediately on SIGTERM, existing connections kept alive for 10s before the reconnect event is sent. `SHUTDOWN_TIMEOUT_MS` raised from 25s to 30s; `stop_grace_period: 35s` added to both compose files so Docker never SIGKILL during the sequence. 10 new tests in `sse.test.ts`.
+
+- 🟡→🟢 **EdDSA + JWKS migration (2026-05-28)**: JWT signing migrated from HS256 symmetric (`SESSION_SECRET`) to Ed25519 asymmetric. `lib/jwt-secret.ts` rewritten: `signingKey` (Ed25519 private KeyObject), `jwksDocument` (public JWKS, no `d` component), `jwksVerify` (GetKeyFunction). `/.well-known/jwks.json` endpoint live. Key rotation overlap via `JWT_PREV_PUBLIC_KEY` — old tokens verify while new writes use new key. `SESSION_SECRET` retained as HMAC key for device fingerprinting only. `lib/auth.ts` + `lib/policy.ts` both updated to EdDSA. Docker secrets updated (`jwt_private_key` + `jwt_public_key`). 9-test suite covers JWKS structure, round-trip, unknown kid rejection, backward compat, rotation overlap. **Breaking change**: all existing HS256 sessions invalidated on deploy (expected, one-time).
+
+- 🟡→🟢 **Dockerfile + docker-compose (2026-05-25)**: Multi-stage api build (esbuild bundle + Node 24 Alpine runtime). Clinic SPA built with Vite, served via nginx with SPA fallback + /api proxy. `migrate` init container applies Drizzle migrations before API boots.
+- 🟡→🟢 **Versioned migrations (2026-05-25)**: `drizzle-kit generate` + `drizzle-kit migrate` replace push-only workflow. Initial migration `0000_rare_silver_fox.sql` committed (18 tables). CI `migration-drift` job blocks schema drift.
+- 🟡→🟢 **ALLOWED_ORIGINS CORS (2026-05-25)**: `app.ts` reads `ALLOWED_ORIGINS` env var in addition to `REPLIT_DOMAINS`, enabling deployment to any host without Replit-specific config.
+- 🟡→🟢 **PHI field-level encryption (2026-05-25)**: AES-256-GCM via `lib/field-encryption.ts`. Encrypts `diagnosis`, `vitals`, `medications`, `allergies`, `emergencyContact` on write; decrypts on read. `FIELD_ENCRYPTION_KEY` required in prod; dev bypass with warning. Backward-compatible (unencrypted legacy values pass through).
+- 🟡→🟢 **Cursor pagination (2026-05-25)**: All 7 list endpoints (`patients`, `appointments`, `lab`, `xray`, `ultrasound`, `prescriptions`, `medical-records`) — `?offset` → `?cursor=<id>`, `ORDER BY id DESC`, hard max 100. Response: `{ data, nextCursor }`. Eliminates offset drift on 100k+ tables.
+- 🟡→🟢 **Redis doctor-scope cache (2026-05-25)**: `getDoctorPatientScope` caches `doctor_scope:<id>` at 60s TTL via optional `runtime.scopeCache`. Per-request full table scan eliminated.
+- 🟡→🟢 **Phase 2 auth hardening shipped flag-OFF (2026-05-26)**: 4 new tables (`user_devices`, `device_verification_tokens`, `password_reset_tokens`, `csp_reports`), 7 new routes, 2 new middlewares (`denyIfDeviceUnverified`, `requireStepUp`), 5 new services (email/Resend, sms/Twilio stub, device-trust, device-verification, password-reset, csp-report), 3 new frontend pages (`ForgotPassword`, `VerifyDevice`, `AccountDevices`). `useSessionTimeout` now consumes JWT `exp` instead of hardcoded 30 min. Migration `0002_harsh_monster_badoon.sql` generated. 278/278 tests pass with flag off — code is dormant until `PHASE2_DEVICE_TRUST_ENABLED=true`.
+- 🟡→🟢 **Patient consent framework (2026-05-25)**: `patient_consents` table + service + routes. `treatment` consent required before `createMedicalRecord` or `createPrescription` — enforced at service layer.
+- 🟡→🟢 **Break-glass emergency access (2026-05-25)**: `break_glass_sessions` table. Any user can activate a 15-minute emergency session for a patient. Immediate SSE alert to all `compliance_officer` users. Every PHI access during the session logged with `BREAK_GLASS_ACCESS` action.
+- 🟡→🟢 **Right-to-erasure workflow (2026-05-25)**: `erasure_requests` table. Three-step process: request → approve (compliance_officer) → execute (super_admin). Execution anonymizes all PHI atomically in a transaction. Irreversible per ADR-005.
+- 🟡→🟢 **Data retention cron (2026-05-25)**: Monthly (1st @ 03:00). Reports overdue audit logs (>7yr), open erasure requests. Alerts compliance_officers via SSE.
 
 ## Remaining risks
 
-| Risk | Severity | Mitigation Path |
+Only open items appear here. For resolved items, see "What moved the needle" above or `CHANGELOG.md`.
+
+| Risk | Severity | Status |
 |---|---|---|
-| No penetration test | HIGH | Schedule external pen-test before public launch |
-| No WAF | MEDIUM | Enable Cloudflare or Replit WAF (login-shield covers server-side) |
-| No MFA on login | HIGH | Re-scope as a dedicated feature track with proper enrolment UX |
-| `style-src 'unsafe-inline'` | LOW | Replace React `style={{}}` + Recharts inline styles with CSS modules + nonce |
-| Serial integer PKs | LOW | UUID migration in v3.0 |
+| Cloud host cutover (AWS/GCP/Azure provisioning, BAA signing, DNS) | CRITICAL | Open — infrastructure code ready; ops provisioning + BAA signing pending |
+| Phase 2 device-trust + email-verify activation in prod | HIGH | Code-landed flag-OFF 2026-05-26; activation pending OpenAPI sync, Drizzle migration apply, flag-flip rehearsal (see ROADMAP Phase 2) |
+| No penetration test | HIGH | Open — schedule before launch |
+| No WAF | MEDIUM | Login-shield + trust proxy provide in-app defense; CDN/edge WAF (Cloudflare or equivalent) still open |
+| No multi-tenancy (Postgres RLS) | MEDIUM | Service-layer `AND clinic_id = user.clinicId` now enforced on all PHI queries. Postgres row-level security policies and per-tenant DEK (field-encryption KID per clinic) not yet in place — defense-in-depth gap. Phase 6. |
+| JWT key pair not yet in secrets dir | HIGH | **Deploy action required**: create `./secrets/jwt_private_key` + `./secrets/jwt_public_key` (mode 0600) before next `docker compose -f docker-compose.prod.yml up -d`. Atomic generator in `secrets/README.md`. |
+| Serial integer PKs | LOW | Enumeration surface; sharding blocker. Phase 6. |
+| `style-src 'unsafe-inline'` | LOW | Retained for React inline `style={{}}`. Replace with CSS modules + nonce before multi-tenant launch. |
 | Legacy HMAC hashes | LOW | `password.ts` auto-migrates on next login |
-| No formal HIPAA gap analysis | HIGH if US | Engage compliance officer before US deployment |
-| Drizzle push (no migration files) | MEDIUM | Evaluate migration to `drizzle-kit migrate` for versioned, rollback-safe schema changes |
+| No formal HIPAA gap analysis | HIGH if US | Open — Phase 5 ops/legal work |
+| `REDIS_PASSWORD` still env-passed | LOW | Compose interpolates it into `REDIS_URL` at parse time; migrating to file-mount requires an entrypoint rewrite. Lower priority than PHI-decryption-capable secrets (now resolved). |
+| Postgres SPOF / no PITR | HIGH | Single container, `pg_dump` nightly. RPO ≥ 24h. Move to managed PG with sync replica + 5-min PITR before BAA signing. |
+| Docker image digests not pinned | LOW | `postgres:16-alpine` and `redis:7-alpine` pinned by tag only. Blocked locally (no docker CLI). Run on deploy host per `docker-compose.prod.yml` comment. |
