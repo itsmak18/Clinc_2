@@ -1,0 +1,59 @@
+# ── Caddy reverse proxy for MediCore production ──────────────────────────────
+# Replaces the nginx :80-only TLS gap (C5). Caddy obtains + auto-renews
+# certs via Let's Encrypt HTTP-01 (or DNS-01 if you add a DNS plugin).
+#
+# Edge responsibilities:
+#   - TLS termination (auto)
+#   - HTTP→HTTPS redirect (auto)
+#   - HSTS preload (A13)
+#   - Block /metrics at the edge (defense in depth — api also gates it)
+#   - Edge rate limit (C6 follow-up — Caddy needs `caddy-ratelimit` plugin)
+#
+# {$CADDY_DOMAIN} comes from the compose `environment:` block.
+
+{$CADDY_DOMAIN} {
+    # Modern TLS + automatic HSTS preload (max-age 2y, includeSubDomains, preload)
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Frame-Options           "DENY"
+        X-Content-Type-Options    "nosniff"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        Permissions-Policy        "camera=(), microphone=(), geolocation=()"
+        # Hide server fingerprint
+        -Server
+    }
+
+    # /metrics is api-internal; the api also gates this with METRICS_TOKEN, but
+    # deny at the edge so probes never reach the backend.
+    @metrics path /metrics /metrics/*
+    respond @metrics "Forbidden" 403
+
+    # ── API: forward /api/* to the api container ──────────────────────────────
+    # SSE buffering disabled via flush_interval.
+    handle /api/* {
+        reverse_proxy api:5000 {
+            flush_interval -1
+            header_up Host              {host}
+            header_up X-Real-IP         {remote_host}
+            header_up X-Forwarded-For   {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # ── Static SPA — handled by the clinic (nginx) container ──────────────────
+    handle {
+        reverse_proxy clinic:80 {
+            header_up Host              {host}
+            header_up X-Real-IP         {remote_host}
+            header_up X-Forwarded-For   {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Structured access log → docker logs (json-file driver in compose)
+    log {
+        output stdout
+        format json
+        level  INFO
+    }
+}

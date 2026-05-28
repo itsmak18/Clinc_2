@@ -2,11 +2,8 @@ import { useState } from "react";
 import { useListLabTests, useCreateLabTest, useUpdateLabTest, useListPatients, useListUsers, getListLabTestsQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,7 +43,6 @@ export default function Lab() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ patientId: "", requestedById: "", testName: "", notes: "" });
 
-  // Inline expand state (replaces dialog for result entry)
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [inlineParams, setInlineParams] = useState<LabParam[]>([emptyParam()]);
   const [inlineNotes, setInlineNotes] = useState("");
@@ -54,7 +50,7 @@ export default function Lab() {
 
   const filterParams = { status: filterStatus as any || undefined };
   const { data: tests, isLoading } = useListLabTests(filterParams, { query: { queryKey: getListLabTestsQueryKey(filterParams) } });
-  const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
+  const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
   const { data: doctors } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
 
   const createMutation = useCreateLabTest({
@@ -63,10 +59,10 @@ export default function Lab() {
         queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() });
         setShowCreate(false);
         setForm({ patientId: "", requestedById: "", testName: "", notes: "" });
-        toast({ title: "Lab test created" });
+        toast({ title: t("labTestCreated") });
       },
-      onError: () => toast({ title: "Failed", variant: "destructive" }),
-    }
+      onError: () => toast({ title: t("failed"), variant: "destructive" }),
+    },
   });
 
   const updateMutation = useUpdateLabTest({
@@ -74,9 +70,9 @@ export default function Lab() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() });
         setExpandedId(null);
-        toast({ title: "Lab results saved" });
+        toast({ title: t("labResultsSaved") });
       },
-    }
+    },
   });
 
   const statuses = ["requested", "in_progress", "completed", "cancelled"];
@@ -109,7 +105,7 @@ export default function Lab() {
   }
 
   const flagColor = (flag: string) =>
-    flag === "H" ? "text-red-600 font-bold" : flag === "L" ? "text-blue-600 font-bold" : "text-green-700";
+    flag === "H" ? "text-[var(--rose-600)] font-bold" : flag === "L" ? "text-blue-600 font-bold" : "text-[var(--teal-700)]";
 
   const allTests = tests ?? [];
   const pendingCount = allTests.filter(t => t.status === "requested" || t.status === "in_progress").length;
@@ -121,191 +117,209 @@ export default function Lab() {
       return t.patient?.fullName?.toLowerCase().includes(q) || t.testName?.toLowerCase().includes(q);
     })
     .sort((a, b) => {
-      if (filterStatus) return 0; // user picked a specific status — respect backend order
+      if (filterStatus) return 0;
       const sa = STATUS_SORT_ORDER[a.status] ?? 99;
       const sb = STATUS_SORT_ORDER[b.status] ?? 99;
       return sa - sb;
     });
 
   return (
-    <div>
-      <PageHeader
-        title={t("lab")}
-        subtitle={
-          <span className="flex items-center gap-2">
-            {allTests.length} tests
-            {pendingCount > 0 && (
-              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                {pendingCount} pending
-              </Badge>
-            )}
-          </span>
-        }
-        actions={
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-lab">
-            <Plus className="w-3.5 h-3.5 me-1" /> Request Test
-          </Button>
-        }
-      />
-      <div className="p-6">
-        <div className="flex gap-3 mb-4">
-          <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or test name…" value={search} onChange={e => setSearch(e.target.value)} />
-          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status"><SelectValue placeholder={t("all")} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all")}</SelectItem>
-              {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            data={sortedFiltered}
-            emptyMessage="No lab tests"
-            expandedRow={expandedId ? (row) => row.id === expandedId ? (
-              <div className="p-4 bg-muted/30 border-t border-border space-y-4">
-                {/* Parameter grid */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Label className="text-xs">Test Parameters</Label>
-                    <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => setInlineParams(ps => [...ps, emptyParam()])}>
-                      <Plus className="w-3 h-3 me-1" /> Add Row
-                    </Button>
-                  </div>
-                  <div className="border border-border rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="text-left px-2 py-1.5 font-medium text-muted-foreground">Parameter</th>
-                          <th className="text-left px-2 py-1.5 font-medium text-muted-foreground w-24">Value</th>
-                          <th className="text-left px-2 py-1.5 font-medium text-muted-foreground w-20">Unit</th>
-                          <th className="text-left px-2 py-1.5 font-medium text-muted-foreground w-28">Ref Range</th>
-                          <th className="text-center px-2 py-1.5 font-medium text-muted-foreground w-16">Flag</th>
-                          <th className="w-8" />
+    <div className="page">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <Input className="h-8 text-sm max-w-xs" placeholder={t("searchByPatientOrTest")} value={search} onChange={e => setSearch(e.target.value)} />
+        <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
+          <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
+            <SelectValue placeholder={t("all")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("all")}</SelectItem>
+            {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {pendingCount > 0 && (
+          <span className="badge badge-rose text-[11px]">{pendingCount} {t("pending")}</span>
+        )}
+        <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-lab">
+          <Plus className="w-3.5 h-3.5" /> {t("requestTest")}
+        </button>
+      </div>
+
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          data={sortedFiltered}
+          emptyMessage={t("noLabTests")}
+          expandedRow={expandedId ? (row) => row.id === expandedId ? (
+            <div className="p-4 bg-[var(--surface-2)] border-t border-[var(--line)] space-y-4">
+              {/* Parameter grid */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-xs">{t("testParameters")}</Label>
+                  <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" onClick={() => setInlineParams(ps => [...ps, emptyParam()])}>
+                    <Plus className="w-3 h-3" /> {t("addRow")}
+                  </button>
+                </div>
+                <div className="border border-[var(--line)] rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-[var(--surface-2)]">
+                      <tr>
+                        <th className="text-start px-2 py-1.5 font-medium text-[var(--ink-muted)]">{t("parameter")}</th>
+                        <th className="text-start px-2 py-1.5 font-medium text-[var(--ink-muted)] w-24">{t("value")}</th>
+                        <th className="text-start px-2 py-1.5 font-medium text-[var(--ink-muted)] w-20">{t("unit")}</th>
+                        <th className="text-start px-2 py-1.5 font-medium text-[var(--ink-muted)] w-28">{t("refRange")}</th>
+                        <th className="text-center px-2 py-1.5 font-medium text-[var(--ink-muted)] w-16">{t("flag")}</th>
+                        <th className="w-8" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inlineParams.map((p, i) => (
+                        <tr key={i} className={cn("border-t border-[var(--line)]", p.flag === "H" ? "bg-[var(--rose-50)]" : p.flag === "L" ? "bg-blue-50/50" : "")}>
+                          <td className="px-1 py-1">
+                            <Input value={p.name} onChange={e => updateParam(i, "name", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1" placeholder="e.g. Hemoglobin" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Input value={p.value} onChange={e => updateParam(i, "value", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-24" placeholder="12.5" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Input value={p.unit} onChange={e => updateParam(i, "unit", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-20" placeholder="g/dL" />
+                          </td>
+                          <td className="px-1 py-1">
+                            <Input value={p.refRange} onChange={e => updateParam(i, "refRange", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-28" placeholder="12.0-16.0" />
+                          </td>
+                          <td className="px-1 py-1 text-center">
+                            <Select value={p.flag || "N"} onValueChange={v => updateParam(i, "flag", v === "N" ? "" : v)}>
+                              <SelectTrigger className={cn("h-7 text-xs w-14 mx-auto", p.flag === "H" ? "text-[var(--rose-600)] font-bold" : p.flag === "L" ? "text-blue-600 font-bold" : "text-[var(--teal-700)]")}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="N"><span className="text-[var(--teal-700)]">N</span></SelectItem>
+                                <SelectItem value="H"><span className="text-[var(--rose-600)] font-bold">H</span></SelectItem>
+                                <SelectItem value="L"><span className="text-blue-600 font-bold">L</span></SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-1 py-1">
+                            <button
+                              className="btn btn-ghost btn-sm h-6 w-6 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)]"
+                              onClick={() => setInlineParams(ps => ps.filter((_, j) => j !== i))}
+                              disabled={inlineParams.length === 1}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {inlineParams.map((p, i) => (
-                          <tr key={i} className={cn("border-t border-border/50", p.flag === "H" ? "bg-red-50/50" : p.flag === "L" ? "bg-blue-50/50" : "")}>
-                            <td className="px-1 py-1">
-                              <Input value={p.name} onChange={e => updateParam(i, "name", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1" placeholder="e.g. Hemoglobin" />
-                            </td>
-                            <td className="px-1 py-1">
-                              <Input value={p.value} onChange={e => updateParam(i, "value", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-24" placeholder="12.5" />
-                            </td>
-                            <td className="px-1 py-1">
-                              <Input value={p.unit} onChange={e => updateParam(i, "unit", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-20" placeholder="g/dL" />
-                            </td>
-                            <td className="px-1 py-1">
-                              <Input value={p.refRange} onChange={e => updateParam(i, "refRange", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-28" placeholder="12.0-16.0" />
-                            </td>
-                            <td className="px-1 py-1 text-center">
-                              <Select value={p.flag || "N"} onValueChange={v => updateParam(i, "flag", v === "N" ? "" : v)}>
-                                <SelectTrigger className={cn("h-7 text-xs w-14 mx-auto", p.flag === "H" ? "text-red-600 font-bold" : p.flag === "L" ? "text-blue-600 font-bold" : "text-green-700")}>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="N"><span className="text-green-700">N</span></SelectItem>
-                                  <SelectItem value="H"><span className="text-red-600 font-bold">H</span></SelectItem>
-                                  <SelectItem value="L"><span className="text-blue-600 font-bold">L</span></SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </td>
-                            <td className="px-1 py-1">
-                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive" onClick={() => setInlineParams(ps => ps.filter((_, j) => j !== i))} disabled={inlineParams.length === 1}>
-                                <Trash2 className="w-3 h-3" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">H = High · L = Low · N = Normal</p>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Notes / Interpretation</Label>
-                  <Textarea value={inlineNotes} onChange={e => setInlineNotes(e.target.value)} rows={2} placeholder="Any additional notes…" />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">{t("status")}</Label>
-                  <Select value={inlineStatus} onValueChange={setInlineStatus}>
-                    <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <Button variant="outline" size="sm" onClick={() => { const t = sortedFiltered.find(x => x.id === expandedId); if (t) handlePrint(t); }} className="gap-1" disabled={!inlineParams.some(p => p.value)}>
-                    <Printer className="w-3.5 h-3.5" /> Print
-                  </Button>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setExpandedId(null)}>{t("cancel")}</Button>
-                    <Button size="sm" onClick={() => expandedId && updateMutation.mutate({ testId: expandedId, data: { results: serializeResults(inlineParams, inlineNotes), status: inlineStatus as any } })} disabled={updateMutation.isPending} data-testid="button-save-results">
-                      {updateMutation.isPending ? t("loading") : t("save")}
-                    </Button>
-                  </div>
+                <p className="text-[10px] text-[var(--ink-muted)] mt-1">H = {t("high")} · L = {t("low")} · N = {t("normal")}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("notesInterpretation")}</Label>
+                <Textarea value={inlineNotes} onChange={e => setInlineNotes(e.target.value)} rows={2} placeholder={t("additionalNotes")} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t("status")}</Label>
+                <Select value={inlineStatus} onValueChange={setInlineStatus}>
+                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-between gap-2">
+                <button
+                  className="btn btn-outline btn-sm gap-1.5"
+                  onClick={() => { const test = sortedFiltered.find(x => x.id === expandedId); if (test) handlePrint(test); }}
+                  disabled={!inlineParams.some(p => p.value)}
+                >
+                  <Printer className="w-3.5 h-3.5" /> {t("print")}
+                </button>
+                <div className="flex gap-2">
+                  <button className="btn btn-outline btn-sm" onClick={() => setExpandedId(null)}>{t("cancel")}</button>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => expandedId && updateMutation.mutate({ testId: expandedId, data: { results: serializeResults(inlineParams, inlineNotes), status: inlineStatus as any } })}
+                    disabled={updateMutation.isPending}
+                    data-testid="button-save-results"
+                  >
+                    {updateMutation.isPending ? t("loading") : t("save")}
+                  </button>
                 </div>
               </div>
-            ) : null : undefined}
-            columns={[
-              { key: "patient", header: "Patient", render: l => (
+            </div>
+          ) : null : undefined}
+          columns={[
+            {
+              key: "patient",
+              header: t("patient"),
+              render: l => (
                 <div>
-                  <span className="font-medium text-sm">{l.patient?.fullName || `#${l.patientId}`}</span>
-                  {l.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{l.patient.mrn}</div>}
+                  <span className="font-medium text-[13px] text-[var(--ink)]">{l.patient?.fullName || `#${l.patientId}`}</span>
+                  {l.patient?.mrn && <div className="text-[11px] text-[var(--ink-muted)] font-mono">{l.patient.mrn}</div>}
                 </div>
-              )},
-              { key: "test", header: t("testName"), render: l => <span className="text-sm font-medium">{l.testName}</span> },
-              { key: "requested", header: "Requested By", render: l => <span className="text-sm">{l.requestedBy?.fullName || `#${l.requestedById}`}</span> },
-              { key: "results", header: "Results", render: l => {
+              ),
+            },
+            { key: "test",      header: t("testName"),     render: l => <span className="text-[13px] font-medium text-[var(--ink)]">{l.testName}</span> },
+            { key: "requested", header: t("requestedBy"),  render: l => <span className="text-[13px] text-[var(--ink)]">{l.requestedBy?.fullName || `#${l.requestedById}`}</span> },
+            {
+              key: "results",
+              header: t("results"),
+              render: l => {
                 const { params: ps } = parseResults(l.results);
-                if (!ps.length) return <span className="text-xs text-muted-foreground">—</span>;
+                if (!ps.length) return <span className="text-[11px] text-[var(--ink-faint)]">—</span>;
                 const abnormal = ps.filter(p => p.flag === "H" || p.flag === "L");
                 return (
                   <div className="text-xs space-y-0.5">
                     {ps.slice(0, 2).map((p, i) => (
                       <div key={i} className="flex gap-1">
-                        <span className="text-muted-foreground">{p.name}:</span>
-                        <span className={cn("font-medium", p.flag === "H" ? "text-red-600" : p.flag === "L" ? "text-blue-600" : "")}>{p.value} {p.unit}</span>
+                        <span className="text-[var(--ink-muted)]">{p.name}:</span>
+                        <span className={cn("font-medium", p.flag === "H" ? "text-[var(--rose-600)]" : p.flag === "L" ? "text-blue-600" : "text-[var(--ink)]")}>{p.value} {p.unit}</span>
                         {p.flag && <span className={flagColor(p.flag)}>{p.flag}</span>}
                       </div>
                     ))}
-                    {ps.length > 2 && <span className="text-muted-foreground">+{ps.length - 2} more</span>}
-                    {abnormal.length > 0 && <div className="text-red-600 text-[10px] font-semibold">{abnormal.length} abnormal</div>}
+                    {ps.length > 2 && <span className="text-[var(--ink-muted)]">+{ps.length - 2} more</span>}
+                    {abnormal.length > 0 && <div className="text-[var(--rose-600)] text-[10px] font-semibold">{abnormal.length} {t("abnormal")}</div>}
                   </div>
                 );
-              }},
-              { key: "date", header: t("date"), render: l => <span className="text-sm">{formatDate(l.createdAt)}</span> },
-              { key: "status", header: t("status"), render: l => <StatusBadge status={l.status} /> },
-              { key: "actions", header: t("actions"), render: l => (
-                <Button size="sm" variant={expandedId === l.id ? "default" : "outline"} className="h-6 text-xs px-2" onClick={(e) => { e.stopPropagation(); openInline(l); }} data-testid={`button-results-${l.id}`}>
-                  <ClipboardList className="w-3 h-3 me-1" />
+              },
+            },
+            { key: "date",    header: t("date"),   render: l => <span className="text-[12px] text-[var(--ink-muted)]">{formatDate(l.createdAt)}</span> },
+            { key: "status",  header: t("status"), render: l => <StatusBadge status={l.status} /> },
+            {
+              key: "actions",
+              header: t("actions"),
+              render: l => (
+                <button
+                  className={cn("btn btn-sm h-6 text-xs px-2 gap-1", expandedId === l.id ? "btn-primary" : "btn-outline")}
+                  onClick={e => { e.stopPropagation(); openInline(l); }}
+                  data-testid={`button-results-${l.id}`}
+                >
+                  <ClipboardList className="w-3 h-3" />
                   {expandedId === l.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                </Button>
-              )},
-            ]}
-          />
-        </div>
+                </button>
+              ),
+            },
+          ]}
+        />
       </div>
 
-      {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Request Lab Test</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("requestLabTest")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label className="text-xs">Patient *</Label>
+              <Label className="text-xs">{t("patient")} *</Label>
               <Select value={form.patientId} onValueChange={v => setForm(f => ({ ...f, patientId: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select patient" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
                 <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Requested By *</Label>
+              <Label className="text-xs">{t("requestedBy")} *</Label>
               <Select value={form.requestedById} onValueChange={v => setForm(f => ({ ...f, requestedById: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select doctor" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t("selectDoctor")} /></SelectTrigger>
                 <SelectContent>{doctors?.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.fullName}</SelectItem>)}</SelectContent>
               </Select>
             </div>
@@ -319,10 +333,15 @@ export default function Lab() {
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), testName: form.testName, notes: form.notes || undefined } as any })} disabled={createMutation.isPending} data-testid="button-save-lab">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), testName: form.testName, notes: form.notes || undefined } as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-lab"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

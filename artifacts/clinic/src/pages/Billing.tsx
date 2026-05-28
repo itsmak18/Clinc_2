@@ -2,15 +2,12 @@ import { useState } from "react";
 import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListUsers, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
 import { Plus, DollarSign, Trash2, Printer } from "lucide-react";
@@ -36,7 +33,7 @@ export default function Billing() {
   const params = { status: filterStatus as any || undefined };
   const { data: invoices, isLoading } = useListInvoices(params, { query: { queryKey: getListInvoicesQueryKey(params) } });
   const { data: dailySummary } = useGetDailyBillingSummary({ date: today }, { query: { queryKey: getGetDailyBillingSummaryQueryKey({ date: today }) } });
-  const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
+  const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
   const { data: users } = useListUsers({}, { query: { queryKey: getListUsersQueryKey({}) } });
 
   const subtotal = items.reduce((s, i) => s + i.total, 0);
@@ -60,10 +57,10 @@ export default function Billing() {
         queryClient.invalidateQueries({ queryKey: getGetDailyBillingSummaryQueryKey() });
         setShowCreate(false);
         setItems([{ description: "", quantity: 1, unitPrice: 0, total: 0 }]);
-        toast({ title: "Invoice created" });
+        toast({ title: t("invoiceCreated") });
       },
-      onError: () => toast({ title: "Failed", variant: "destructive" }),
-    }
+      onError: () => toast({ title: t("failed"), variant: "destructive" }),
+    },
   });
 
   const payMutation = usePayInvoice({
@@ -72,156 +69,178 @@ export default function Billing() {
         queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetDailyBillingSummaryQueryKey() });
         setShowPay(null);
-        toast({ title: "Payment recorded" });
+        toast({ title: t("paymentRecorded") });
       },
-    }
+    },
   });
 
   const statuses = ["pending", "paid", "cancelled"];
 
   return (
-    <div>
-      <PageHeader
-        title={t("billing")}
-        subtitle="Invoices & cash receipts"
-        actions={
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-create-invoice">
-            <Plus className="w-3.5 h-3.5 me-1" /> {t("invoice")}
-          </Button>
-        }
-      />
-      <div className="p-6 space-y-4">
-        {/* Daily summary */}
-        {dailySummary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[
-              { label: "Today's Revenue", value: `$${formatCurrency(dailySummary.totalRevenue)}`, color: "text-green-600" },
-              { label: "Total Invoices", value: dailySummary.totalInvoices },
-              { label: "Paid", value: dailySummary.paidInvoices },
-              { label: "Pending", value: dailySummary.pendingInvoices, color: "text-orange-600" },
-            ].map((s, i) => (
-              <Card key={i} className="border border-border">
-                <CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
-                  <p className={`text-xl font-bold mt-0.5 ${s.color || ""}`}>{s.value}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        <div className="flex gap-3 mb-2">
-          <Input
-            className="h-8 text-sm max-w-xs"
-            placeholder="Search by patient or invoice #…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
-              <SelectValue placeholder={t("all")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all")}</SelectItem>
-              {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-            </SelectContent>
-          </Select>
+    <div className="page">
+      {/* Daily summary metrics */}
+      {dailySummary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          {[
+            { label: t("billingTodayRevenue"),   value: `$${formatCurrency(dailySummary.totalRevenue)}`,   tone: "teal"  },
+            { label: t("billingTotalInvoices"),   value: dailySummary.totalInvoices,                       tone: ""      },
+            { label: t("billingPaid"),            value: dailySummary.paidInvoices,                        tone: "teal"  },
+            { label: t("billingPending"),         value: dailySummary.pendingInvoices,                     tone: "amber" },
+          ].map((s, i) => (
+            <div key={i} className="card card-pad">
+              <p className="text-[11px] text-[var(--ink-muted)] mb-1">{s.label}</p>
+              <p className={`text-xl font-bold text-[var(--${s.tone || "ink"}${s.tone ? "-700" : ""})]`}>{s.value}</p>
+            </div>
+          ))}
         </div>
+      )}
 
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            rowClassName={inv => {
-              if (inv.status !== "pending") return "";
-              const daysOld = Math.floor((Date.now() - new Date(inv.createdAt).getTime()) / 86400000);
-              return daysOld >= 7 ? "bg-red-50 dark:bg-red-950/20" : daysOld >= 3 ? "bg-orange-50 dark:bg-orange-950/20" : "";
-            }}
-            data={(invoices ?? []).filter(inv => {
-              if (!search) return true;
-              const q = search.toLowerCase();
-              return (inv as any).patient?.fullName?.toLowerCase().includes(q) || inv.invoiceNumber?.toLowerCase().includes(q);
-            })}
-            emptyMessage="No invoices"
-            columns={[
-              { key: "num", header: t("invoiceNumber"), render: inv => <span className="font-mono text-xs font-semibold text-primary">{inv.invoiceNumber}</span> },
-              { key: "patient", header: "Patient", render: inv => <span className="font-medium text-sm">{inv.patient?.fullName || `#${inv.patientId}`}</span> },
-              { key: "total", header: t("total"), render: inv => <span className="font-semibold text-sm">${formatCurrency(Number(inv.total))}</span> },
-              { key: "status", header: t("status"), render: inv => <StatusBadge status={inv.status} /> },
-              { key: "date", header: t("date"), render: inv => <span className="text-sm">{formatDate(inv.createdAt)}</span> },
-              { key: "actions", header: t("actions"), render: inv => (
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <Input
+          className="h-8 text-sm max-w-xs"
+          placeholder={t("searchByPatientOrInvoice")}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
+          <SelectTrigger className="h-8 text-sm w-36" data-testid="select-filter-status">
+            <SelectValue placeholder={t("all")} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("all")}</SelectItem>
+            {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-invoice">
+          <Plus className="w-3.5 h-3.5" /> {t("invoice")}
+        </button>
+      </div>
+
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          rowClassName={inv => {
+            if (inv.status !== "pending") return "";
+            const daysOld = Math.floor((Date.now() - new Date(inv.createdAt).getTime()) / 86400000);
+            return daysOld >= 7 ? "bg-[var(--rose-50)]" : daysOld >= 3 ? "bg-amber-50/60" : "";
+          }}
+          data={(invoices ?? []).filter(inv => {
+            if (!search) return true;
+            const q = search.toLowerCase();
+            return (inv as any).patient?.fullName?.toLowerCase().includes(q) || inv.invoiceNumber?.toLowerCase().includes(q);
+          })}
+          emptyMessage={t("noInvoices")}
+          columns={[
+            { key: "num",     header: t("invoiceNumber"), render: inv => <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{inv.invoiceNumber}</span> },
+            { key: "patient", header: t("patient"),       render: inv => <span className="font-medium text-[13px] text-[var(--ink)]">{inv.patient?.fullName || `#${inv.patientId}`}</span> },
+            { key: "total",   header: t("total"),         render: inv => <span className="font-semibold text-[13px] text-[var(--ink)]">${formatCurrency(Number(inv.total))}</span> },
+            { key: "status",  header: t("status"),        render: inv => <StatusBadge status={inv.status} /> },
+            { key: "date",    header: t("date"),           render: inv => <span className="text-[12px] text-[var(--ink-muted)]">{formatDate(inv.createdAt)}</span> },
+            {
+              key: "actions",
+              header: t("actions"),
+              render: inv => (
                 <div className="flex items-center gap-1.5">
                   {inv.status === "pending" && (
-                    <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-700 border-green-200 hover:bg-green-50" onClick={(e) => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }} data-testid={`button-pay-${inv.id}`}>
-                      <DollarSign className="w-3 h-3 me-1" />{t("payNow")}
-                    </Button>
+                    <button
+                      className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1 text-[var(--teal-700)]"
+                      onClick={e => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }}
+                      data-testid={`button-pay-${inv.id}`}
+                    >
+                      <DollarSign className="w-3 h-3" />{t("payNow")}
+                    </button>
                   )}
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground" onClick={e => { e.stopPropagation(); openPrintWindow(invoiceHtml(inv as any), `Invoice ${inv.invoiceNumber ?? inv.id}`); }} title="Print invoice" data-testid={`button-print-inv-${inv.id}`}>
+                  <button
+                    className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--ink-muted)]"
+                    onClick={e => { e.stopPropagation(); openPrintWindow(invoiceHtml(inv as any), `Invoice ${inv.invoiceNumber ?? inv.id}`); }}
+                    title={t("printInvoice")}
+                    data-testid={`button-print-inv-${inv.id}`}
+                  >
                     <Printer className="w-3.5 h-3.5" />
-                  </Button>
+                  </button>
                 </div>
-              )},
-            ]}
-          />
-        </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       {/* Create Invoice */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>New Invoice</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("newInvoice")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Patient *</Label>
+                <Label className="text-xs">{t("patient")} *</Label>
                 <Select value={patientId} onValueChange={setPatientId}>
-                  <SelectTrigger data-testid="select-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
+                  <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
                   <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Created By *</Label>
+                <Label className="text-xs">{t("createdBy")} *</Label>
                 <Select value={createdById} onValueChange={setCreatedById}>
-                  <SelectTrigger data-testid="select-staff"><SelectValue placeholder="Select staff" /></SelectTrigger>
+                  <SelectTrigger data-testid="select-staff"><SelectValue placeholder={t("selectStaff")} /></SelectTrigger>
                   <SelectContent>{users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.fullName}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             </div>
 
             <div>
-              <Label className="text-xs font-semibold">Items</Label>
+              <Label className="text-xs font-semibold">{t("items")}</Label>
               <div className="space-y-2 mt-2">
                 {items.map((item, idx) => (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                     <Input className="col-span-5 h-7 text-xs" placeholder={t("description")} value={item.description} onChange={e => updateItem(idx, "description", e.target.value)} />
                     <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("quantity")} value={item.quantity} onChange={e => updateItem(idx, "quantity", parseFloat(e.target.value) || 0)} />
                     <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("unitPrice")} value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} />
-                    <div className="col-span-2 text-xs font-medium text-right">${formatCurrency(item.total)}</div>
-                    <Button size="sm" variant="ghost" className="col-span-1 h-7 w-7 p-0 text-destructive" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}>
+                    <div className="col-span-2 text-xs font-medium text-end text-[var(--ink)]">${formatCurrency(item.total)}</div>
+                    <button
+                      className="col-span-1 btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
+                      onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}
+                    >
                       <Trash2 className="w-3 h-3" />
-                    </Button>
+                    </button>
                   </div>
                 ))}
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setItems(prev => [...prev, { description: "", quantity: 1, unitPrice: 0, total: 0 }])} data-testid="button-add-item">
-                  <Plus className="w-3 h-3 me-1" />{t("addItem")}
-                </Button>
+                <button
+                  className="btn btn-outline btn-sm h-7 text-xs gap-1"
+                  onClick={() => setItems(prev => [...prev, { description: "", quantity: 1, unitPrice: 0, total: 0 }])}
+                  data-testid="button-add-item"
+                >
+                  <Plus className="w-3 h-3" />{t("addItem")}
+                </button>
               </div>
             </div>
 
-            <div className="flex justify-end gap-4 text-sm border-t border-border pt-3">
-              <div className="space-y-1 text-right">
-                <div className="flex gap-4"><span className="text-muted-foreground">{t("subtotal")}</span><span className="font-medium">${formatCurrency(subtotal)}</span></div>
+            <div className="flex justify-end gap-4 text-sm border-t border-[var(--line)] pt-3">
+              <div className="space-y-1 text-end">
+                <div className="flex gap-4">
+                  <span className="text-[var(--ink-muted)]">{t("subtotal")}</span>
+                  <span className="font-medium text-[var(--ink)]">${formatCurrency(subtotal)}</span>
+                </div>
                 <div className="flex gap-4 items-center">
-                  <span className="text-muted-foreground">{t("discount")}</span>
+                  <span className="text-[var(--ink-muted)]">{t("discount")}</span>
                   <Input className="h-7 w-24 text-xs" type="number" value={discount} onChange={e => setDiscount(e.target.value)} />
                 </div>
-                <div className="flex gap-4"><span className="font-semibold">{t("total")}</span><span className="font-bold text-primary">${formatCurrency(total)}</span></div>
+                <div className="flex gap-4">
+                  <span className="font-semibold text-[var(--ink)]">{t("total")}</span>
+                  <span className="font-bold text-[var(--teal-700)]">${formatCurrency(total)}</span>
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: { patientId: parseInt(patientId), createdById: parseInt(createdById), items: items as any, discount: parseFloat(discount) } as any })} disabled={createMutation.isPending} data-testid="button-save-invoice">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: { patientId: parseInt(patientId), createdById: parseInt(createdById), items: items as any, discount: parseFloat(discount) } as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-invoice"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>
@@ -233,14 +252,19 @@ export default function Billing() {
           <DialogHeader><DialogTitle>{t("payNow")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label className="text-xs">Amount Received *</Label>
+              <Label className="text-xs">{t("amountReceived")} *</Label>
               <Input type="number" value={amountReceived} onChange={e => setAmountReceived(e.target.value)} data-testid="input-amount-received" />
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setShowPay(null)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => showPay && payMutation.mutate({ invoiceId: showPay, data: { amountReceived: parseFloat(amountReceived) } })} disabled={payMutation.isPending} data-testid="button-confirm-pay">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowPay(null)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => showPay && payMutation.mutate({ invoiceId: showPay, data: { amountReceived: parseFloat(amountReceived) } })}
+                disabled={payMutation.isPending}
+                data-testid="button-confirm-pay"
+              >
                 {payMutation.isPending ? t("loading") : t("confirm")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

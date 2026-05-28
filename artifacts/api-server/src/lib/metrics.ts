@@ -26,10 +26,16 @@ register.registerMetric(httpRequestsTotal);
 
 export const auditLogWriteFailuresTotal = new client.Counter({
   name: "audit_log_write_failures_total",
-  help: "Audit log writes that failed at the DB layer (fire-and-forget policy)",
+  help: "Audit outbox rows exhausted after max retry attempts — permanent loss",
   labelNames: ["action", "entity_type"],
 });
 register.registerMetric(auditLogWriteFailuresTotal);
+
+export const auditOutboxDepthGauge = new client.Gauge({
+  name: "audit_outbox_depth",
+  help: "Number of audit events pending drain from the outbox (sampled at each drain tick)",
+});
+register.registerMetric(auditOutboxDepthGauge);
 
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({

@@ -1,37 +1,35 @@
 import { useState } from "react";
 import { useListAuditLogs, getListAuditLogsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatDateTime, exportToCSV } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Download, Eye, Shield, ShieldAlert } from "lucide-react";
 
-const ACTION_COLORS: Record<string, string> = {
-  CREATE:               "bg-green-100 text-green-800",
-  UPDATE:               "bg-blue-100 text-blue-800",
-  DELETE:               "bg-red-100 text-red-800",
-  CANCEL:               "bg-orange-100 text-orange-800",
-  READ:                 "bg-gray-100 text-gray-700",
-  LOGIN_SUCCESS:        "bg-purple-100 text-purple-800",
-  LOGIN_FAILED:         "bg-red-200 text-red-900",
-  LOGIN_LOCKED:         "bg-red-300 text-red-950",
-  LOGOUT:               "bg-slate-100 text-slate-700",
-  PAY:                  "bg-emerald-100 text-emerald-800",
-  CHECK_IN:             "bg-yellow-100 text-yellow-800",
-  TRIAGE_START:         "bg-orange-100 text-orange-800",
-  TRIAGE_COMPLETE:      "bg-blue-100 text-blue-800",
-  CONSULTATION_START:   "bg-indigo-100 text-indigo-800",
-  DIAGNOSTICS_REQUESTED:"bg-purple-100 text-purple-800",
-  PENDING_PAYMENT:      "bg-pink-100 text-pink-800",
-  COMPLETE:             "bg-green-100 text-green-800",
-  RESET_PASSWORD:       "bg-amber-100 text-amber-800",
-  TOGGLE_SHIFT:         "bg-cyan-100 text-cyan-800",
+const ACTION_TONE: Record<string, string> = {
+  CREATE:                "badge-teal",
+  UPDATE:                "badge-blue",
+  DELETE:                "badge-rose",
+  CANCEL:                "badge-sand",
+  READ:                  "",
+  LOGIN_SUCCESS:         "badge-teal",
+  LOGIN_FAILED:          "badge-rose",
+  LOGIN_LOCKED:          "badge-rose",
+  LOGOUT:                "",
+  PAY:                   "badge-teal",
+  CHECK_IN:              "badge-sand",
+  TRIAGE_START:          "badge-sand",
+  TRIAGE_COMPLETE:       "badge-blue",
+  CONSULTATION_START:    "badge-blue",
+  DIAGNOSTICS_REQUESTED: "badge-blue",
+  PENDING_PAYMENT:       "badge-sand",
+  COMPLETE:              "badge-teal",
+  RESET_PASSWORD:        "badge-sand",
+  TOGGLE_SHIFT:          "badge-blue",
 };
 
 const ENTITY_TYPES = [
@@ -49,23 +47,23 @@ const ALL_ACTIONS = [
 
 export default function AuditLog() {
   const { t } = useI18n();
-  const [dateFrom, setDateFrom]   = useState("");
-  const [dateTo, setDateTo]       = useState("");
-  const [action, setAction]       = useState("");
+  const [dateFrom,   setDateFrom]   = useState("");
+  const [dateTo,     setDateTo]     = useState("");
+  const [action,     setAction]     = useState("");
   const [entityType, setEntityType] = useState("");
   const [detailsRow, setDetailsRow] = useState<object | null>(null);
 
   const params = {
-    dateFrom:   dateFrom    || undefined,
-    dateTo:     dateTo      || undefined,
-    action:     action      || undefined,
-    entityType: entityType  || undefined,
+    dateFrom:   dateFrom   || undefined,
+    dateTo:     dateTo     || undefined,
+    action:     action     || undefined,
+    entityType: entityType || undefined,
     limit: 200,
     offset: 0,
   };
 
   const { data: logs, isLoading } = useListAuditLogs(params, {
-    query: { queryKey: getListAuditLogsQueryKey(params) }
+    query: { queryKey: getListAuditLogsQueryKey(params) },
   });
 
   const securityEvents = (logs ?? []).filter(l =>
@@ -73,19 +71,56 @@ export default function AuditLog() {
   ).length;
 
   return (
-    <div>
-      <PageHeader
-        title={t("audit")}
-        subtitle="Complete audit trail of all system actions"
-        actions={
-          <div className="flex gap-2 items-center">
-            {securityEvents > 0 && (
-              <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
-                <ShieldAlert className="w-3.5 h-3.5" />
-                {securityEvents} security {securityEvents === 1 ? "event" : "events"}
-              </div>
-            )}
-            <Button size="sm" variant="outline" onClick={() => exportToCSV(
+    <div className="page">
+      {/* Filters */}
+      <div className="flex gap-3 mb-4 flex-wrap items-end">
+        <div className="space-y-1">
+          <Label className="text-xs">{t("dateFrom")}</Label>
+          <Input type="date" className="h-8 text-sm w-36" value={dateFrom} onChange={e => setDateFrom(e.target.value)} data-testid="input-date-from" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">{t("dateTo")}</Label>
+          <Input type="date" className="h-8 text-sm w-36" value={dateTo} onChange={e => setDateTo(e.target.value)} data-testid="input-date-to" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">{t("action")}</Label>
+          <Select value={action || "all"} onValueChange={v => setAction(v === "all" ? "" : v)}>
+            <SelectTrigger className="h-8 text-sm w-44"><SelectValue placeholder={t("allActions")} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("allActions")}</SelectItem>
+              {ALL_ACTIONS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">{t("entityType")}</Label>
+          <Select value={entityType || "all"} onValueChange={v => setEntityType(v === "all" ? "" : v)}>
+            <SelectTrigger className="h-8 text-sm w-36"><SelectValue placeholder={t("allEntities")} /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("allEntities")}</SelectItem>
+              {ENTITY_TYPES.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {(dateFrom || dateTo || action || entityType) && (
+          <button
+            className="btn btn-ghost btn-sm h-8 self-end"
+            onClick={() => { setDateFrom(""); setDateTo(""); setAction(""); setEntityType(""); }}
+          >
+            {t("clear")}
+          </button>
+        )}
+
+        <div className="ms-auto flex items-center gap-2 self-end">
+          {securityEvents > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-[var(--amber-700)] bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              {securityEvents} {t("securityEvents")}
+            </div>
+          )}
+          <button
+            className="btn btn-outline btn-sm gap-1.5"
+            onClick={() => exportToCSV(
               (logs ?? []).map(l => ({
                 Timestamp:  new Date(l.createdAt).toISOString(),
                 Action:     l.action,
@@ -97,105 +132,87 @@ export default function AuditLog() {
                 IP:         l.ipAddress ?? "",
               })),
               `audit-log-${new Date().toISOString().split("T")[0]}.csv`
-            )}>
-              <Download className="w-3.5 h-3.5 me-1" /> Export CSV
-            </Button>
-          </div>
-        }
-      />
-      <div className="p-6">
-        {/* Filters */}
-        <div className="flex gap-3 mb-4 flex-wrap items-end">
-          <div className="space-y-1">
-            <Label className="text-xs">{t("dateFrom")}</Label>
-            <Input type="date" className="h-8 text-sm w-36" value={dateFrom} onChange={e => setDateFrom(e.target.value)} data-testid="input-date-from" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">{t("dateTo")}</Label>
-            <Input type="date" className="h-8 text-sm w-36" value={dateTo} onChange={e => setDateTo(e.target.value)} data-testid="input-date-to" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Action</Label>
-            <Select value={action || "all"} onValueChange={v => setAction(v === "all" ? "" : v)}>
-              <SelectTrigger className="h-8 text-sm w-44"><SelectValue placeholder="All actions" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All actions</SelectItem>
-                {ALL_ACTIONS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Entity Type</Label>
-            <Select value={entityType || "all"} onValueChange={v => setEntityType(v === "all" ? "" : v)}>
-              <SelectTrigger className="h-8 text-sm w-36"><SelectValue placeholder="All entities" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All entities</SelectItem>
-                {ENTITY_TYPES.map(e => <SelectItem key={e} value={e}>{e}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          {(dateFrom || dateTo || action || entityType) && (
-            <Button variant="ghost" size="sm" className="h-8 self-end" onClick={() => { setDateFrom(""); setDateTo(""); setAction(""); setEntityType(""); }}>
-              Clear
-            </Button>
-          )}
-          <span className="text-xs text-muted-foreground self-end ms-auto">{logs?.length ?? 0} records</span>
-        </div>
-
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            data={logs ?? []}
-            emptyMessage="No audit logs matching filters"
-            rowClassName={l =>
-              ["LOGIN_FAILED", "LOGIN_LOCKED"].includes(l.action) ? "bg-red-50/60 dark:bg-red-950/10" : ""
-            }
-            columns={[
-              { key: "action", header: "Action", render: l => (
-                <Badge className={`text-xs border-none font-mono whitespace-nowrap ${ACTION_COLORS[l.action] ?? "bg-gray-100 text-gray-700"}`}>
-                  {["LOGIN_FAILED", "LOGIN_LOCKED"].includes(l.action) && <ShieldAlert className="w-3 h-3 me-1 inline" />}
-                  {l.action}
-                </Badge>
-              )},
-              { key: "entity", header: "Entity", render: l => (
-                <div>
-                  <span className="font-medium text-sm capitalize">{l.entityType?.replace(/_/g, " ") ?? "—"}</span>
-                  {l.entityId && <span className="text-muted-foreground text-xs"> #{l.entityId}</span>}
-                </div>
-              )},
-              { key: "user", header: "User", render: l => (
-                <div>
-                  <div className="text-sm font-medium">{l.user?.fullName || <span className="text-muted-foreground italic">Unknown</span>}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{l.user?.username ?? ""}</div>
-                  <div className="text-xs text-muted-foreground">{l.ipAddress}</div>
-                </div>
-              )},
-              { key: "time", header: "Timestamp", render: l => (
-                <span className="text-sm text-muted-foreground whitespace-nowrap">{formatDateTime(l.createdAt)}</span>
-              )},
-              { key: "details", header: "", render: l => {
-                if (!l.details || Object.keys(l.details as object).length === 0) return null;
-                return (
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" title="View details"
-                    onClick={e => { e.stopPropagation(); setDetailsRow(l.details as object); }}>
-                    <Eye className="w-3.5 h-3.5 text-muted-foreground" />
-                  </Button>
-                );
-              }},
-            ]}
-          />
+            )}
+          >
+            <Download className="w-3.5 h-3.5" /> {t("exportCsv")}
+          </button>
+          <span className="text-xs text-[var(--ink-muted)]">{logs?.length ?? 0} {t("records")}</span>
         </div>
       </div>
 
-      {/* Details dialog */}
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          data={logs ?? []}
+          emptyMessage={t("noAuditLogs")}
+          rowClassName={l =>
+            ["LOGIN_FAILED", "LOGIN_LOCKED"].includes(l.action) ? "bg-[var(--rose-50)]" : ""
+          }
+          columns={[
+            {
+              key: "action",
+              header: t("action"),
+              render: l => (
+                <span className={cn("badge text-[10px] font-mono whitespace-nowrap", ACTION_TONE[l.action] ?? "")}>
+                  {["LOGIN_FAILED", "LOGIN_LOCKED"].includes(l.action) && <ShieldAlert className="w-3 h-3 me-1 inline" />}
+                  {l.action}
+                </span>
+              ),
+            },
+            {
+              key: "entity",
+              header: t("entity"),
+              render: l => (
+                <div>
+                  <span className="font-medium text-[13px] text-[var(--ink)] capitalize">{l.entityType?.replace(/_/g, " ") ?? "—"}</span>
+                  {l.entityId && <span className="text-[var(--ink-muted)] text-[11px]"> #{l.entityId}</span>}
+                </div>
+              ),
+            },
+            {
+              key: "user",
+              header: t("user"),
+              render: l => (
+                <div>
+                  <div className="text-[13px] font-medium text-[var(--ink)]">{l.user?.fullName || <span className="text-[var(--ink-faint)] italic">{t("unknown")}</span>}</div>
+                  <div className="text-[11px] text-[var(--ink-muted)] font-mono">{l.user?.username ?? ""}</div>
+                  <div className="text-[11px] text-[var(--ink-muted)]">{l.ipAddress}</div>
+                </div>
+              ),
+            },
+            {
+              key: "time",
+              header: t("timestamp"),
+              render: l => <span className="text-[12px] text-[var(--ink-muted)] whitespace-nowrap">{formatDateTime(l.createdAt)}</span>,
+            },
+            {
+              key: "details",
+              header: "",
+              render: l => {
+                if (!l.details || Object.keys(l.details as object).length === 0) return null;
+                return (
+                  <button
+                    className="btn btn-ghost btn-sm h-6 w-6 p-0"
+                    title={t("viewDetails")}
+                    onClick={e => { e.stopPropagation(); setDetailsRow(l.details as object); }}
+                  >
+                    <Eye className="w-3.5 h-3.5 text-[var(--ink-muted)]" />
+                  </button>
+                );
+              },
+            },
+          ]}
+        />
+      </div>
+
       <Dialog open={!!detailsRow} onOpenChange={() => setDetailsRow(null)}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Shield className="w-4 h-4" /> Audit Event Details
+              <Shield className="w-4 h-4" /> {t("auditEventDetails")}
             </DialogTitle>
           </DialogHeader>
-          <pre className="text-xs bg-muted rounded-md p-4 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed">
+          <pre className="text-xs bg-[var(--surface-2)] rounded-lg p-4 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed text-[var(--ink)]">
             {JSON.stringify(detailsRow, null, 2)}
           </pre>
         </DialogContent>

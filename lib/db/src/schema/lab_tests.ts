@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { appointmentsTable } from "./appointments";
+import { clinicsTable } from "./clinics";
 
 export const labTestStatusEnum = pgEnum("lab_test_status", [
   "requested",
@@ -14,10 +15,11 @@ export const labTestStatusEnum = pgEnum("lab_test_status", [
 
 export const labTestsTable = pgTable("lab_tests", {
   id: serial("id").primaryKey(),
+  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   requestedById: integer("requested_by_id").notNull().references(() => usersTable.id),
   performedById: integer("performed_by_id").references(() => usersTable.id),
-  appointmentId: integer("appointment_id").references(() => appointmentsTable.id), // M-05: FK for accurate discharge linking
+  appointmentId: integer("appointment_id").references(() => appointmentsTable.id),
   testName: text("test_name").notNull(),
   results: text("results"),
   status: labTestStatusEnum("status").notNull().default("requested"),
@@ -27,13 +29,15 @@ export const labTestsTable = pgTable("lab_tests", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("lab_patient_idx").on(t.patientId),
-  index("lab_appt_idx").on(t.appointmentId), // M-05
+  index("lab_appt_idx").on(t.appointmentId),
   index("lab_created_idx").on(t.createdAt),
   index("lab_status_idx").on(t.status),
+  index("lab_clinic_idx").on(t.clinicId),
 ]);
 
 export const insertLabTestSchema = createInsertSchema(labTestsTable).omit({
   id: true,
+  clinicId: true,
   createdAt: true,
   updatedAt: true,
   deletedAt: true,

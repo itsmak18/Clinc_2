@@ -13,13 +13,15 @@ import {
 const router = Router();
 router.use(requireAuth);
 
-// ── Read: nurses and lab staff can also read prescriptions ────────────────
+// ── Read: nurses, lab staff, and pharmacists can also read prescriptions ──
+// Pharmacist's landing route is /prescriptions (getLandingRoute) — denying
+// them GET access means login → immediate 403. Caught by route-access drift test.
 router.get(
   "/prescriptions",
-  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { patientId, limit, offset } = req.query as Record<string, string | undefined>;
-    res.json(await listPrescriptions(req, { patientId, limit, offset }));
+    const { patientId, limit, cursor } = req.query as Record<string, string | undefined>;
+    res.json(await listPrescriptions(req, { patientId, limit, cursor }));
   }),
 );
 
@@ -35,7 +37,7 @@ router.post(
 // ── Read single ──────────────────────────────────────────────────────────
 router.get(
   "/prescriptions/:prescriptionId",
-  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.prescriptionId);
     if (!id) throw new ValidationError("Invalid prescription ID");

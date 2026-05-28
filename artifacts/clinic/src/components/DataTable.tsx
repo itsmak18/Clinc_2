@@ -49,7 +49,7 @@ export default function DataTable<T>({ columns, data, isLoading, emptyMessage, o
             {columns.map(col => (
               <th
                 key={col.key}
-                className={cn(headPad, "text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide", col.className)}
+                className={cn(headPad, "text-start text-xs font-semibold text-muted-foreground uppercase tracking-wide", col.className)}
               >
                 {col.header}
               </th>

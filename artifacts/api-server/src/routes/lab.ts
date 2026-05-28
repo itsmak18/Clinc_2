@@ -10,8 +10,8 @@ router.use(requireAuth);
 router.use("/lab", requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff"));
 
 router.get("/lab/tests", asyncHandler(async (req: AuthRequest, res) => {
-  const { status, patientId, limit, offset } = req.query as Record<string, string | undefined>;
-  res.json(await listLabTests(req, { status, patientId, limit, offset }));
+  const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
+  res.json(await listLabTests(req, { status, patientId, limit, cursor }));
 }));
 
 router.post("/lab/tests",

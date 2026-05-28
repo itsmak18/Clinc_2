@@ -1,12 +1,10 @@
 import { useState } from "react";
-import { useListOperations, useCreateOperation, useUpdateOperation, useListPatients, useListUsers, getListOperationsQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListOperations, useCreateOperation, useListPatients, useListUsers, getListOperationsQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +27,7 @@ export default function Operations() {
 
   const params = { status: filterStatus as any || undefined };
   const { data: operations, isLoading } = useListOperations(params, { query: { queryKey: getListOperationsQueryKey(params) } });
-  const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
+  const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
   const { data: doctors } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
 
   const createMutation = useCreateOperation({
@@ -38,78 +36,73 @@ export default function Operations() {
         queryClient.invalidateQueries({ queryKey: getListOperationsQueryKey() });
         setShowCreate(false);
         setForm({ patientId: "", surgeonId: "", procedureName: "", scheduledAt: "", operatingRoom: "", notes: "" });
-        toast({ title: "Operation scheduled" });
+        toast({ title: t("operationScheduled") });
       },
-      onError: () => toast({ title: "Failed", variant: "destructive" }),
+      onError: () => toast({ title: t("operationScheduleFailed"), variant: "destructive" }),
     }
   });
 
   const statuses = ["scheduled", "in_progress", "completed", "cancelled"];
 
   return (
-    <div>
-      <PageHeader
-        title={t("operations")}
-        subtitle={`${operations?.length ?? 0} operations`}
-        actions={canWrite ? (
-          <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-schedule-operation">
-            <Plus className="w-3.5 h-3.5 me-1" /> Schedule Operation
-          </Button>
-        ) : undefined}
-      />
-      <div className="p-6">
-        <div className="flex gap-3 mb-4">
-          <Input
-            className="h-8 text-sm max-w-xs"
-            placeholder="Search by patient or procedure…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="h-8 text-sm w-36"><SelectValue placeholder={t("all")} /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all")}</SelectItem>
-              {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            data={(operations ?? []).filter(op => {
-              if (!search) return true;
-              const q = search.toLowerCase();
-              return op.patient?.fullName?.toLowerCase().includes(q) || op.procedureName?.toLowerCase().includes(q);
-            })}
-            emptyMessage="No operations scheduled"
-            columns={[
-              { key: "patient", header: "Patient", render: op => <span className="font-medium text-sm">{op.patient?.fullName || `#${op.patientId}`}</span> },
-              { key: "procedure", header: t("procedureName"), render: op => <span className="text-sm font-medium">{op.procedureName}</span> },
-              { key: "surgeon", header: t("surgeon"), render: op => <span className="text-sm">{op.surgeon?.fullName || `#${op.surgeonId}`}</span> },
-              { key: "room", header: t("operatingRoom"), render: op => <span className="text-sm">{op.operatingRoom}</span> },
-              { key: "time", header: t("scheduledAt"), render: op => <span className="text-sm">{formatDateTime(op.scheduledAt)}</span> },
-              { key: "status", header: t("status"), render: op => <StatusBadge status={op.status} /> },
-            ]}
-          />
-        </div>
+    <div className="page">
+      <div className="flex gap-3 mb-4 flex-wrap items-center">
+        <Input
+          className="h-8 text-sm max-w-xs"
+          placeholder={t("searchByPatientOrProcedure")}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
+          <SelectTrigger className="h-8 text-sm w-36"><SelectValue placeholder={t("all")} /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("all")}</SelectItem>
+            {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {canWrite && (
+          <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-schedule-operation">
+            <Plus className="w-3.5 h-3.5" /> {t("scheduleOperation")}
+          </button>
+        )}
+      </div>
+
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          data={(operations ?? []).filter(op => {
+            if (!search) return true;
+            const q = search.toLowerCase();
+            return op.patient?.fullName?.toLowerCase().includes(q) || op.procedureName?.toLowerCase().includes(q);
+          })}
+          emptyMessage={t("noOperationsScheduled")}
+          columns={[
+            { key: "patient",    header: t("patient"),       render: op => <span className="font-medium text-[13px] text-[var(--ink)]">{op.patient?.fullName || `#${op.patientId}`}</span> },
+            { key: "procedure",  header: t("procedureName"), render: op => <span className="text-[13px] font-medium text-[var(--ink)]">{op.procedureName}</span> },
+            { key: "surgeon",    header: t("surgeon"),       render: op => <span className="text-[13px] text-[var(--ink)]">{op.surgeon?.fullName || `#${op.surgeonId}`}</span> },
+            { key: "room",       header: t("operatingRoom"), render: op => <span className="text-[13px] text-[var(--ink)]">{op.operatingRoom}</span> },
+            { key: "time",       header: t("scheduledAt"),   render: op => <span className="text-[12px] text-[var(--ink-muted)]">{formatDateTime(op.scheduledAt)}</span> },
+            { key: "status",     header: t("status"),        render: op => <StatusBadge status={op.status} /> },
+          ]}
+        />
       </div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Schedule Operation</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t("scheduleOperation")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Patient *</Label>
+                <Label className="text-xs">{t("patient")} *</Label>
                 <Select value={form.patientId} onValueChange={v => setForm(f => ({ ...f, patientId: v }))}>
-                  <SelectTrigger data-testid="select-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
+                  <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
                   <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("surgeon")} *</Label>
                 <Select value={form.surgeonId} onValueChange={v => setForm(f => ({ ...f, surgeonId: v }))}>
-                  <SelectTrigger data-testid="select-surgeon"><SelectValue placeholder="Select surgeon" /></SelectTrigger>
+                  <SelectTrigger data-testid="select-surgeon"><SelectValue placeholder={t("selectDoctor2")} /></SelectTrigger>
                   <SelectContent>{doctors?.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.fullName}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
@@ -133,10 +126,15 @@ export default function Operations() {
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), surgeonId: parseInt(form.surgeonId), scheduledAt: new Date(form.scheduledAt).toISOString(), staffAssigned: [] } as any })} disabled={createMutation.isPending} data-testid="button-save-operation">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), surgeonId: parseInt(form.surgeonId), scheduledAt: new Date(form.scheduledAt).toISOString(), staffAssigned: [] } as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-operation"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

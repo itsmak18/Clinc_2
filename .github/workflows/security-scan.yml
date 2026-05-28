@@ -1,0 +1,61 @@
+name: Security Scan (Trivy)
+
+# Filesystem scan for vulnerable dependencies and misconfigurations.
+# Complements:
+#   - `pnpm audit` in ci.yml (audit at install time, dep CVEs only)
+#   - audit-weekly.yml (weekly re-audit of the locked tree)
+#   - gitleaks in ci.yml (secrets scan)
+#
+# Trivy adds: CVE lookups across the *resolved* dep tree (more accurate than
+# package.json metadata), Dockerfile misconfiguration detection (the `config`
+# scanner), and license posture. SARIF output uploads to the Security tab so
+# findings appear inline on PRs.
+#
+# Container image scan is NOT yet wired (would require building the image in CI
+# first — non-trivial). Tracked as a follow-up.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC — staggered from audit-weekly (09:00)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy-fs:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy (vulnerabilities + Dockerfile misconfigurations)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # Skip the `secret` scanner — gitleaks in ci.yml already covers that
+          # and Trivy's secret scanner false-positives on test fixtures.
+          scanners: vuln,config
+          severity: HIGH,CRITICAL
+          # Don't fail CI on CVEs that have no upstream fix available yet —
+          # those are tracked-only, not actionable on our side. Matches the
+          # review's "block on HIGH CVE without vendor fix" guidance.
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "1"
+
+      - name: Upload SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs

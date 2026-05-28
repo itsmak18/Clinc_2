@@ -45,9 +45,28 @@ export function useNotificationsStream() {
         }
       });
 
+      // Server sends this during graceful shutdown with a per-connection jitter
+      // delay (5–15s) so clients spread their reconnects rather than all hitting
+      // the new pod at once. Use the server-supplied retryAfter when present.
+      es.addEventListener("reconnect", (e: MessageEvent) => {
+        es.close();
+        esRef.current = null;
+        let delay = 5000;
+        try {
+          const d = JSON.parse(e.data) as { retryAfter?: number };
+          if (typeof d.retryAfter === "number" && d.retryAfter > 0) {
+            delay = d.retryAfter;
+          }
+        } catch {
+          // use default delay
+        }
+        reconnectTimer.current = setTimeout(connect, delay);
+      });
+
       es.onerror = () => {
         es.close();
         esRef.current = null;
+        // Fixed 5s backoff for network errors (not server-initiated drain).
         reconnectTimer.current = setTimeout(connect, 5000);
       };
     }

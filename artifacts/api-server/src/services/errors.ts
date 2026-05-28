@@ -44,3 +44,12 @@ export class UnauthorizedError extends Error {
     this.name = "UnauthorizedError";
   }
 }
+
+export class ConsentRequiredError extends Error {
+  readonly status = 422;
+  readonly errorDef: ErrorDef = E.CONSENT_REQUIRED;
+  constructor(reason = "Patient consent is required for this action") {
+    super(reason);
+    this.name = "ConsentRequiredError";
+  }
+}

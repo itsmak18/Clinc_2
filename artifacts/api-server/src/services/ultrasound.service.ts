@@ -1,8 +1,7 @@
 import { db } from "@workspace/db";
 import { ultrasoundRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
-import { eq, isNull, desc, and, inArray } from "drizzle-orm";
+import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
-import { safeParseInt } from "../lib/validators";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
@@ -10,26 +9,28 @@ import type { AuthRequest } from "../middlewares/auth";
 
 export async function listUltrasounds(
   req: AuthRequest,
-  params: { status?: string; patientId?: string; limit?: string; offset?: string },
+  params: { status?: string; patientId?: string; limit?: string; cursor?: string },
 ) {
-  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 200);
-  const off = parseInt(params.offset ?? "0") || 0;
-  const conditions: any[] = [isNull(ultrasoundRecordsTable.deletedAt)];
+  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
+  const conditions: any[] = [isNull(ultrasoundRecordsTable.deletedAt), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
 
   if (isDoctorScoped(req.user?.role)) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
     if (allowed.length === 0) {
       void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: 0 });
-      return [];
+      return { data: [], nextCursor: null };
     }
     conditions.push(inArray(ultrasoundRecordsTable.patientId, allowed));
   }
 
   if (params.status) conditions.push(eq(ultrasoundRecordsTable.status, params.status as any));
   if (params.patientId) {
-    const pid = safeParseInt(params.patientId);
-    if (!pid) throw new ValidationError("Invalid patientId");
-    conditions.push(eq(ultrasoundRecordsTable.patientId, pid));
+    const pid = parseInt(params.patientId);
+    if (!isNaN(pid)) conditions.push(eq(ultrasoundRecordsTable.patientId, pid));
+  }
+  if (params.cursor) {
+    const cursorId = parseInt(params.cursor);
+    if (!isNaN(cursorId)) conditions.push(lt(ultrasoundRecordsTable.id, cursorId));
   }
 
   const rows = await db.select({
@@ -50,22 +51,24 @@ export async function listUltrasounds(
     .leftJoin(patientsTable, eq(ultrasoundRecordsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(ultrasoundRecordsTable.requestedById, usersTable.id))
     .where(and(...conditions))
-    .orderBy(desc(ultrasoundRecordsTable.createdAt))
-    .limit(lim).offset(off);
+    .orderBy(desc(ultrasoundRecordsTable.id))
+    .limit(lim);
 
+  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: rows.length });
-  return rows;
+  return { data: rows, nextCursor };
 }
 
 export async function createUltrasound(
   req: AuthRequest,
-  data: { patientId: number; requestedById: number; examType: string; bodyPart: string; notes?: string },
+  data: { patientId: number | string; requestedById: number | string; examType: string; bodyPart: string; notes?: string },
 ) {
   if (!data.patientId || !data.requestedById || !data.examType || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
   }
   const [record] = await db.insert(ultrasoundRecordsTable).values({
-    patientId: data.patientId, requestedById: data.requestedById,
+    clinicId: req.user!.clinicId,
+    patientId: Number(data.patientId), requestedById: Number(data.requestedById),
     examType: data.examType as any, bodyPart: data.bodyPart, notes: data.notes,
   }).returning();
   await logAudit(req, "CREATE", "ultrasound", record.id);
@@ -73,7 +76,8 @@ export async function createUltrasound(
 }
 
 export async function getUltrasound(req: AuthRequest, id: number) {
-  const [record] = await db.select().from(ultrasoundRecordsTable).where(eq(ultrasoundRecordsTable.id, id));
+  const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
+  const [record] = await db.select().from(ultrasoundRecordsTable).where(and(...conditions));
   if (!record) throw new NotFoundError("ultrasound record", id);
 
   if (isDoctorScoped(req.user?.role)) {
@@ -90,9 +94,10 @@ export async function updateUltrasound(
   id: number,
   data: { imageUrl?: string; imageFileName?: string; report?: string; status?: string; performedById?: number },
 ) {
+  const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
   const [record] = await db.update(ultrasoundRecordsTable)
     .set({ ...data, status: data.status as any, updatedAt: new Date() })
-    .where(eq(ultrasoundRecordsTable.id, id))
+    .where(and(...conditions))
     .returning();
   if (!record) throw new NotFoundError("ultrasound record", id);
 

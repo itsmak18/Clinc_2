@@ -9,27 +9,36 @@ import {
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/auth";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
 import DischargeSheet from "@/components/DischargeSheet";
 import DayScheduleView from "@/components/DayScheduleView";
 import GlobalSearch from "@/components/GlobalSearch";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime, exportToCSV } from "@/lib/api";
-import { Phone, Globe, Building2, Plus, UserCheck, Stethoscope, CreditCard, CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Phone, Globe, Building2, Plus, UserCheck, Stethoscope, CreditCard,
+  CheckCircle, AlertTriangle, FileText, Download, CalendarDays, List,
+} from "lucide-react";
 
 const ALL_STATUSES = [
   "scheduled", "checked_in", "in_triage", "ready_for_doctor",
   "in_consultation", "awaiting_diagnostics", "pending_payment",
-  "completed", "cancelled", "no_show", "in_progress"
+  "completed", "cancelled", "no_show", "in_progress",
 ];
+
+function bookingSourceBadge(source: string | null | undefined) {
+  if (!source || source === "walk_in")
+    return <span className="badge text-[10px] gap-0.5"><Building2 className="w-2.5 h-2.5" /> Walk-in</span>;
+  if (source === "phone")
+    return <span className="badge badge-sand text-[10px] gap-0.5"><Phone className="w-2.5 h-2.5" /> Phone</span>;
+  return <span className="badge badge-blue text-[10px] gap-0.5"><Globe className="w-2.5 h-2.5" /> Online</span>;
+}
 
 export default function Appointments() {
   const { t } = useI18n();
@@ -52,13 +61,13 @@ export default function Appointments() {
     status: filterStatus as any || undefined,
     date: filterDate || undefined,
     limit: 50,
-    offset: 0,
   };
 
-  const { data: appointments, isLoading } = useListAppointments(params, {
-    query: { queryKey: getListAppointmentsQueryKey(params), refetchInterval: 30000 }
+  const { data: appointmentsResp, isLoading } = useListAppointments(params, {
+    query: { queryKey: getListAppointmentsQueryKey(params), refetchInterval: 30000 },
   });
-  const { data: patients } = useListPatients({ limit: 200, offset: 0 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200, offset: 0 }) } });
+  const appointments = appointmentsResp?.data ?? [];
+  const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
   const { data: users } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
 
   const invalidateAll = () => {
@@ -72,30 +81,26 @@ export default function Appointments() {
         invalidateAll();
         setShowCreate(false);
         setForm({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "", bookingSource: "walk_in" });
-        toast({ title: "Appointment created" });
+        toast({ title: t("appointmentCreated") });
       },
-      onError: () => toast({ title: "Failed to create appointment", variant: "destructive" }),
-    }
+      onError: () => toast({ title: t("appointmentCreateFailed"), variant: "destructive" }),
+    },
   });
 
   const checkInMutation = useCheckInPatient({
-    mutation: {
-      onSuccess: () => { invalidateAll(); toast({ title: "Patient checked in" }); },
-    }
+    mutation: { onSuccess: () => { invalidateAll(); toast({ title: t("patientCheckedIn") }); } },
   });
 
   const cancelMutation = useCancelAppointment({
-    mutation: {
-      onSuccess: () => { invalidateAll(); toast({ title: "Appointment cancelled" }); },
-    }
+    mutation: { onSuccess: () => { invalidateAll(); toast({ title: t("appointmentCancelled") }); } },
   });
 
   const transitionHooks = {
-    triage: useStartTriage(),
-    consult: useStartConsultation(),
+    triage:      useStartTriage(),
+    consult:     useStartConsultation(),
     diagnostics: useRequestDiagnostics(),
-    payment: usePendingPayment(),
-    complete: useCompleteAppointment(),
+    payment:     usePendingPayment(),
+    complete:    useCompleteAppointment(),
   } as const;
 
   type TransitionKey = keyof typeof transitionHooks;
@@ -107,44 +112,66 @@ export default function Appointments() {
       invalidateAll();
       toast({ title: label });
     } catch {
-      toast({ title: `Failed: ${label}`, variant: "destructive" });
+      toast({ title: `${t("failed")}: ${label}`, variant: "destructive" });
     } finally {
       setTransitionLoading(null);
     }
   };
 
   const role = user?.role;
-  const isNurse = role === "nurse" || role === "admin" || role === "super_admin";
-  const isDoctor = role === "doctor" || role === "admin" || role === "super_admin";
+  const isNurse   = role === "nurse"      || role === "admin" || role === "super_admin";
+  const isDoctor  = role === "doctor"     || role === "admin" || role === "super_admin";
   const isFrontDesk = role === "front_desk" || role === "admin" || role === "super_admin";
 
-  const bookingSourceBadge = (source: string | null | undefined) => {
-    if (!source || source === "walk_in") return <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5"><Building2 className="w-2.5 h-2.5" /> Walk-in</Badge>;
-    if (source === "phone") return <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 border-orange-300 text-orange-700 bg-orange-50"><Phone className="w-2.5 h-2.5" /> Phone</Badge>;
-    return <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5 border-blue-300 text-blue-700 bg-blue-50"><Globe className="w-2.5 h-2.5" /> Online</Badge>;
-  };
-
   return (
-    <div>
+    <div className="page">
       {isFrontDeskUser && (
-        <div className="px-6 pt-4 pb-0">
+        <div className="mb-4">
           <GlobalSearch />
         </div>
       )}
-      <PageHeader
-        title={t("appointments")}
-        subtitle={`${appointments?.length ?? 0} appointments`}
-        actions={
-          <div className="flex gap-2">
-            <div className="flex border border-border rounded-md overflow-hidden">
-              <Button size="sm" variant={viewMode === "list" ? "default" : "ghost"} className="rounded-none h-8 px-2.5" onClick={() => setViewMode("list")}>
-                <List className="w-3.5 h-3.5 me-1" /> List
-              </Button>
-              <Button size="sm" variant={viewMode === "day" ? "default" : "ghost"} className="rounded-none h-8 px-2.5 border-s border-border" onClick={() => setViewMode("day")}>
-                <CalendarDays className="w-3.5 h-3.5 me-1" /> Day
-              </Button>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => exportToCSV(
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {/* View toggle */}
+        <div className="flex border border-[var(--line)] rounded-lg overflow-hidden">
+          <button
+            className={cn("h-8 px-3 text-xs flex items-center gap-1.5 transition-colors", viewMode === "list" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+            onClick={() => setViewMode("list")}
+          >
+            <List className="w-3.5 h-3.5" /> {t("list")}
+          </button>
+          <button
+            className={cn("h-8 px-3 text-xs flex items-center gap-1.5 border-s border-[var(--line)] transition-colors", viewMode === "day" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+            onClick={() => setViewMode("day")}
+          >
+            <CalendarDays className="w-3.5 h-3.5" /> {t("dayView")}
+          </button>
+        </div>
+
+        {viewMode === "list" && (
+          <Input className="h-8 text-sm max-w-xs" placeholder={t("searchByPatientOrReason")} value={search} onChange={e => setSearch(e.target.value)} />
+        )}
+        <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date" />
+        {viewMode === "list" && (
+          <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
+            <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
+              <SelectValue placeholder={t("all")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("all")}</SelectItem>
+              {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+        {(filterDate || filterStatus) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDate(""); setFilterStatus(""); }}>{t("clear")}</button>
+        )}
+
+        <div className="ms-auto flex items-center gap-2">
+          <button
+            className="btn btn-outline btn-sm gap-1.5"
+            onClick={() => exportToCSV(
               (appointments ?? []).map(a => ({
                 Patient: (a.patient as any)?.fullName ?? `#${a.patientId}`,
                 MRN: (a.patient as any)?.mrn ?? "",
@@ -155,43 +182,22 @@ export default function Appointments() {
                 Notes: a.notes ?? "",
               })),
               `appointments-${new Date().toISOString().split("T")[0]}.csv`
-            )} data-testid="button-export-appointments">
-              <Download className="w-3.5 h-3.5 me-1" /> Export CSV
-            </Button>
-            <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
-              <Plus className="w-3.5 h-3.5 me-1" /> {t("newAppointment")}
-            </Button>
-          </div>
-        }
-      />
-      <div className="p-6">
-        <div className="flex gap-3 mb-4 flex-wrap">
-          {viewMode === "list" && (
-            <Input className="h-8 text-sm max-w-xs" placeholder="Search by patient or reason…" value={search} onChange={e => setSearch(e.target.value)} />
-          )}
-          <Input type="date" className="h-8 text-sm w-40" value={filterDate} onChange={e => setFilterDate(e.target.value)} data-testid="input-filter-date"
-            title={viewMode === "day" ? "Schedule date" : "Filter by date"}
-          />
-          {viewMode === "list" && (
-            <Select value={filterStatus || "all"} onValueChange={v => setFilterStatus(v === "all" ? "" : v)}>
-              <SelectTrigger className="h-8 text-sm w-44" data-testid="select-filter-status">
-                <SelectValue placeholder={t("all")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("all")}</SelectItem>
-                {ALL_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
-          {(filterDate || filterStatus) && (
-            <Button variant="ghost" size="sm" onClick={() => { setFilterDate(""); setFilterStatus(""); }}>Clear</Button>
-          )}
+            )}
+            data-testid="button-export-appointments"
+          >
+            <Download className="w-3.5 h-3.5" /> {t("exportCsv")}
+          </button>
+          <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
+            <Plus className="w-3.5 h-3.5" /> {t("newAppointment")}
+          </button>
         </div>
+      </div>
 
-        {viewMode === "day" ? (
-          <DayScheduleView appointments={(appointments ?? []) as any} selectedDate={dayViewDate} />
-        ) : (
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
+      {/* Content */}
+      {viewMode === "day" ? (
+        <DayScheduleView appointments={(appointments ?? []) as any} selectedDate={dayViewDate} />
+      ) : (
+        <div className="card overflow-hidden">
           <DataTable
             isLoading={isLoading}
             data={(appointments ?? []).filter(a => {
@@ -202,110 +208,110 @@ export default function Appointments() {
                 a.reason?.toLowerCase().includes(q)
               );
             })}
-            emptyMessage="No appointments found"
+            emptyMessage={t("noAppointmentsFound")}
             columns={[
-              { key: "patient", header: "Patient", render: a => (
-                <div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium text-sm">{a.patient?.fullName || `#${a.patientId}`}</span>
-                    {(a.patient as any)?.allergies && (
-                      <span title={`Allergies: ${(a.patient as any).allergies}`}>
-                        <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />
-                      </span>
-                    )}
-                    {bookingSourceBadge((a as any).bookingSource)}
-                  </div>
-                  {a.patient?.mrn && <div className="text-xs text-muted-foreground font-mono">{a.patient.mrn}</div>}
-                  {(a.patient as any)?.allergies && (
-                    <div className="text-xs text-destructive mt-0.5 truncate max-w-[180px]">
-                      ⚠ {(a.patient as any).allergies}
+              {
+                key: "patient",
+                header: t("patient"),
+                render: a => (
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-[13px] text-[var(--ink)]">{a.patient?.fullName || `#${a.patientId}`}</span>
+                      {(a.patient as any)?.allergies && (
+                        <span title={`Allergies: ${(a.patient as any).allergies}`}>
+                          <AlertTriangle className="w-3.5 h-3.5 text-[var(--rose-500)] flex-shrink-0" />
+                        </span>
+                      )}
+                      {bookingSourceBadge((a as any).bookingSource)}
                     </div>
-                  )}
-                </div>
-              )},
-              { key: "doctor", header: t("doctorLabel"), render: a => <span className="text-sm">{a.doctor?.fullName || `#${a.doctorId}`}</span> },
-              { key: "time", header: t("scheduledAt"), render: a => <span className="text-sm">{formatDateTime(a.scheduledAt)}</span> },
-              { key: "reason", header: t("reason"), render: a => <span className="text-sm max-w-xs truncate block">{a.reason}</span> },
-              { key: "status", header: t("status"), render: a => <StatusBadge status={a.status} /> },
-              { key: "actions", header: t("actions"), render: a => {
-                const busy = transitionLoading === a.id;
-                return (
-                  <div className="flex gap-1 flex-wrap">
-                    {/* Check-in: Front Desk for scheduled */}
-                    {a.status === "scheduled" && isFrontDesk && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); checkInMutation.mutate({ appointmentId: a.id }); }}
-                        data-testid={`button-checkin-${a.id}`}>
-                        <UserCheck className="w-3 h-3 me-1" />{t("checkIn")}
-                      </Button>
-                    )}
-                    {/* Triage: Nurse for checked_in */}
-                    {a.status === "checked_in" && isNurse && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-blue-600 border-blue-200 hover:bg-blue-50" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); transition(a.id, "triage", "Triage started"); }}>
-                        Triage
-                      </Button>
-                    )}
-                    {/* Consult: Doctor for ready_for_doctor */}
-                    {a.status === "ready_for_doctor" && isDoctor && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-purple-600 border-purple-200 hover:bg-purple-50" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); transition(a.id, "consult", "Consultation started"); }}>
-                        <Stethoscope className="w-3 h-3 me-1" />Consult
-                      </Button>
-                    )}
-                    {/* Diagnostics: Doctor for in_consultation */}
-                    {a.status === "in_consultation" && isDoctor && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); transition(a.id, "diagnostics", "Awaiting diagnostics"); }}>
-                        Diagnostics
-                      </Button>
-                    )}
-                    {/* Payment: Doctor/Nurse for in_consultation/awaiting_diagnostics */}
-                    {["in_consultation", "awaiting_diagnostics"].includes(a.status) && (isDoctor || isNurse) && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-amber-600 border-amber-200 hover:bg-amber-50" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); transition(a.id, "payment", "Pending payment"); }}>
-                        <CreditCard className="w-3 h-3 me-1" />Payment
-                      </Button>
-                    )}
-                    {/* Complete: Front Desk for pending_payment */}
-                    {a.status === "pending_payment" && isFrontDesk && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-green-600 border-green-200 hover:bg-green-50" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); transition(a.id, "complete", "Appointment completed"); }}>
-                        <CheckCircle className="w-3 h-3 me-1" />Complete
-                      </Button>
-                    )}
-                    {/* Cancel: early stages */}
-                    {["scheduled", "checked_in", "in_triage"].includes(a.status) && isFrontDesk && (
-                      <Button size="sm" variant="ghost" className="h-6 text-xs px-2 text-destructive hover:text-destructive" disabled={busy}
-                        onClick={(e) => { e.stopPropagation(); cancelMutation.mutate({ appointmentId: a.id }); }}>
-                        {t("cancel")}
-                      </Button>
-                    )}
-                    {/* Print discharge sheet: completed or pending_payment */}
-                    {["pending_payment", "completed"].includes(a.status) && (
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2 text-slate-600 border-slate-200 hover:bg-slate-50"
-                        onClick={(e) => { e.stopPropagation(); setDischargeApptId(a.id); }}
-                        title="Print Visit Summary">
-                        <FileText className="w-3 h-3 me-1" />Summary
-                      </Button>
+                    {a.patient?.mrn && <div className="text-[11px] text-[var(--ink-muted)] font-mono">{a.patient.mrn}</div>}
+                    {(a.patient as any)?.allergies && (
+                      <div className="text-[11px] text-[var(--rose-500)] mt-0.5 truncate max-w-[180px]">
+                        ⚠ {(a.patient as any).allergies}
+                      </div>
                     )}
                   </div>
-                );
-              }},
+                ),
+              },
+              { key: "doctor",  header: t("doctorLabel"),  render: a => <span className="text-[13px] text-[var(--ink)]">{a.doctor?.fullName || `#${a.doctorId}`}</span> },
+              { key: "time",    header: t("scheduledAt"),  render: a => <span className="text-[12px] text-[var(--ink-muted)]">{formatDateTime(a.scheduledAt)}</span> },
+              { key: "reason",  header: t("reason"),       render: a => <span className="text-[13px] text-[var(--ink)] max-w-xs truncate block">{a.reason}</span> },
+              { key: "status",  header: t("status"),       render: a => <StatusBadge status={a.status} /> },
+              {
+                key: "actions",
+                header: t("actions"),
+                render: a => {
+                  const busy = transitionLoading === a.id;
+                  return (
+                    <div className="flex gap-1 flex-wrap">
+                      {a.status === "scheduled" && isFrontDesk && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" disabled={busy}
+                          onClick={e => { e.stopPropagation(); checkInMutation.mutate({ appointmentId: a.id }); }}
+                          data-testid={`button-checkin-${a.id}`}>
+                          <UserCheck className="w-3 h-3" />{t("checkIn")}
+                        </button>
+                      )}
+                      {a.status === "checked_in" && isNurse && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "triage", t("triageStarted")); }}>
+                          {t("triage")}
+                        </button>
+                      )}
+                      {a.status === "ready_for_doctor" && isDoctor && (
+                        <button className="btn btn-primary btn-sm h-6 text-xs px-2 gap-1" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "consult", t("consultationStarted")); }}>
+                          <Stethoscope className="w-3 h-3" />{t("consult")}
+                        </button>
+                      )}
+                      {a.status === "in_consultation" && isDoctor && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "diagnostics", t("awaitingDiagnostics")); }}>
+                          {t("diagnostics")}
+                        </button>
+                      )}
+                      {["in_consultation", "awaiting_diagnostics"].includes(a.status) && (isDoctor || isNurse) && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "payment", t("pendingPayment")); }}>
+                          <CreditCard className="w-3 h-3" />{t("payment")}
+                        </button>
+                      )}
+                      {a.status === "pending_payment" && isFrontDesk && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "complete", t("appointmentCompleted")); }}>
+                          <CheckCircle className="w-3 h-3" />{t("complete")}
+                        </button>
+                      )}
+                      {["scheduled", "checked_in", "in_triage"].includes(a.status) && isFrontDesk && (
+                        <button className="btn btn-ghost btn-sm h-6 text-xs px-2 text-[var(--rose-500)]" disabled={busy}
+                          onClick={e => { e.stopPropagation(); cancelMutation.mutate({ appointmentId: a.id }); }}>
+                          {t("cancel")}
+                        </button>
+                      )}
+                      {["pending_payment", "completed"].includes(a.status) && (
+                        <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1"
+                          onClick={e => { e.stopPropagation(); setDischargeApptId(a.id); }}
+                          title={t("printVisitSummary")}>
+                          <FileText className="w-3 h-3" />{t("summary")}
+                        </button>
+                      )}
+                    </div>
+                  );
+                },
+              },
             ]}
           />
         </div>
-        )}
-      </div>
+      )}
 
+      {/* Create Appointment Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{t("newAppointment")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <Label className="text-xs">Patient *</Label>
+              <Label className="text-xs">{t("patient")} *</Label>
               <Select value={form.patientId} onValueChange={v => setForm(f => ({ ...f, patientId: v }))}>
-                <SelectTrigger data-testid="select-patient"><SelectValue placeholder="Select patient" /></SelectTrigger>
+                <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
                 <SelectContent>
                   {patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName} ({p.mrn})</SelectItem>)}
                 </SelectContent>
@@ -314,7 +320,7 @@ export default function Appointments() {
             <div className="space-y-1">
               <Label className="text-xs">{t("doctorLabel")} *</Label>
               <Select value={form.doctorId} onValueChange={v => setForm(f => ({ ...f, doctorId: v }))}>
-                <SelectTrigger data-testid="select-doctor"><SelectValue placeholder="Select doctor" /></SelectTrigger>
+                <SelectTrigger data-testid="select-doctor"><SelectValue placeholder={t("selectDoctor")} /></SelectTrigger>
                 <SelectContent>
                   {users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.fullName}</SelectItem>)}
                 </SelectContent>
@@ -334,22 +340,27 @@ export default function Appointments() {
             </div>
             {isFrontDeskUser && (
               <div className="space-y-1">
-                <Label className="text-xs">Booking Source</Label>
+                <Label className="text-xs">{t("bookingSource")}</Label>
                 <Select value={form.bookingSource} onValueChange={v => setForm(f => ({ ...f, bookingSource: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="walk_in"><Building2 className="w-3.5 h-3.5 inline me-1.5" />Walk-in</SelectItem>
-                    <SelectItem value="phone"><Phone className="w-3.5 h-3.5 inline me-1.5" />Phone</SelectItem>
-                    <SelectItem value="online"><Globe className="w-3.5 h-3.5 inline me-1.5" />Online</SelectItem>
+                    <SelectItem value="walk_in"><Building2 className="w-3.5 h-3.5 inline me-1.5" />{t("walkIn")}</SelectItem>
+                    <SelectItem value="phone"><Phone className="w-3.5 h-3.5 inline me-1.5" />{t("phone")}</SelectItem>
+                    <SelectItem value="online"><Globe className="w-3.5 h-3.5 inline me-1.5" />{t("online")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), scheduledAt: new Date(form.scheduledAt).toISOString() } as any })} disabled={createMutation.isPending} data-testid="button-save-appointment">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), scheduledAt: new Date(form.scheduledAt).toISOString() } as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-appointment"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

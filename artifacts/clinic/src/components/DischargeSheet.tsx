@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Printer, X, Loader2 } from "lucide-react";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/api";
 
@@ -114,9 +113,9 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
         <DialogHeader className="flex flex-row items-center justify-between gap-2 pb-2 border-b">
           <DialogTitle className="text-base font-semibold">Visit Discharge Summary</DialogTitle>
           <div className="flex gap-2 ms-auto">
-            <Button size="sm" onClick={handlePrint} disabled={!data || loading} className="gap-1.5">
+            <button className="btn btn-primary btn-sm gap-1.5" onClick={handlePrint} disabled={!data || loading}>
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF
-            </Button>
+            </button>
           </div>
         </DialogHeader>
 
@@ -208,11 +207,11 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                     <table className="w-full text-[10px] border-collapse">
                       <thead>
                         <tr className="bg-blue-50">
-                          <th className="text-left p-1.5 border border-blue-100 font-semibold">Medication</th>
-                          <th className="text-left p-1.5 border border-blue-100 font-semibold">Dosage</th>
-                          <th className="text-left p-1.5 border border-blue-100 font-semibold">Frequency</th>
-                          <th className="text-left p-1.5 border border-blue-100 font-semibold">Duration</th>
-                          <th className="text-left p-1.5 border border-blue-100 font-semibold">Instructions</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Medication</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Dosage</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Frequency</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Duration</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Instructions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -240,10 +239,10 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                 <table className="w-full text-[10px] border-collapse">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Test</th>
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Status</th>
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Results</th>
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Notes</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Test</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Status</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Results</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -267,9 +266,9 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                 <table className="w-full text-[10px] border-collapse">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Body Part</th>
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Status</th>
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Report</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Body Part</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Status</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Report</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -297,19 +296,19 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                 <table className="w-full text-[10px] border-collapse mb-2">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-left p-1.5 border border-blue-100 font-semibold">Description</th>
-                      <th className="text-right p-1.5 border border-blue-100 font-semibold">Qty</th>
-                      <th className="text-right p-1.5 border border-blue-100 font-semibold">Unit Price</th>
-                      <th className="text-right p-1.5 border border-blue-100 font-semibold">Total</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Description</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Qty</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Unit Price</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(inv.items as InvoiceItem[]).map((item, i) => (
                       <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-muted/20"}>
                         <td className="p-1.5 border border-border/50">{item.description}</td>
-                        <td className="p-1.5 border border-border/50 text-right">{item.quantity}</td>
-                        <td className="p-1.5 border border-border/50 text-right">${formatCurrency(item.unitPrice)}</td>
-                        <td className="p-1.5 border border-border/50 text-right font-medium">${formatCurrency(item.total)}</td>
+                        <td className="p-1.5 border border-border/50 text-end">{item.quantity}</td>
+                        <td className="p-1.5 border border-border/50 text-end">${formatCurrency(item.unitPrice)}</td>
+                        <td className="p-1.5 border border-border/50 text-end font-medium">${formatCurrency(item.total)}</td>
                       </tr>
                     ))}
                   </tbody>

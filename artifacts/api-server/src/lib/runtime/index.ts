@@ -4,10 +4,18 @@ import type { RevocationStore } from "./revocation-store";
 
 export type { EventBus, RateStore, RevocationStore };
 
+export interface ScopeCache {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string, mode: "EX", ttl: number): Promise<void>;
+  del(key: string): Promise<void>;
+}
+
 export interface Runtime {
   eventBus: EventBus;
   rateStore: RateStore;
   revocationStore: RevocationStore;
+  /** Redis-backed doctor-scope cache. Undefined when SESSION_STORE=memory. */
+  scopeCache?: ScopeCache;
   dispose(): Promise<void>;
 }
 
@@ -25,8 +33,6 @@ if (process.env["NODE_ENV"] === "production" && sessionStore === "memory") {
   );
 }
 
-// Uses dynamic import() instead of require() so this module works correctly
-// under both Vitest (native ESM, no banner shim) and the esbuild prod bundle.
 async function buildRuntime(): Promise<Runtime> {
   if (sessionStore === "redis") {
     const { default: Redis } = await import("ioredis");
@@ -45,12 +51,20 @@ async function buildRuntime(): Promise<Runtime> {
     const rateStore = createRedisRateStore(client);
     const revocationStore = createRedisRevocationStore(client);
 
+    // Scope cache shares the main client connection
+    const scopeCache: ScopeCache = {
+      get: (key) => client.get(key),
+      set: (key, value, _mode, ttl) => client.set(key, value, "EX", ttl).then(() => undefined),
+      del: (key) => client.del(key).then(() => undefined),
+    };
+
     console.info("[runtime] session_store=redis");
 
     return {
       eventBus,
       rateStore,
       revocationStore,
+      scopeCache,
       async dispose() {
         await Promise.all([
           eventBus.dispose(),
@@ -74,6 +88,7 @@ async function buildRuntime(): Promise<Runtime> {
     eventBus,
     rateStore,
     revocationStore,
+    // scopeCache: undefined in memory mode — getDoctorPatientScope falls back to DB on every call
     async dispose() {
       await Promise.all([
         eventBus.dispose(),
@@ -85,6 +100,4 @@ async function buildRuntime(): Promise<Runtime> {
 }
 
 // Top-level await — valid in ESM (package.json "type": "module", target: "es2022").
-// This fixes the Vitest ESM mode failure caused by require() calls that only
-// worked under the esbuild banner shim in the prod build.
 export const runtime = await buildRuntime();

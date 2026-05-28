@@ -6,9 +6,15 @@ import { asyncHandler } from "../middlewares/asyncHandler";
 import { ValidationError } from "../services/errors";
 import { setCsrfCookie, clearCsrfCookie } from "../lib/csrf-cookie";
 import { signToken } from "../lib/auth";
+import { COOKIE_TTL_MS } from "../lib/auth-constants";
 import { loginUser, logoutUser, getMe, changePassword } from "../services/auth.service";
 import { logAudit } from "../lib/audit";
 import { ipRateLimit } from "../middlewares/rateLimiter";
+import {
+  setDeviceCookie,
+  readDeviceCookie,
+  DEVICE_COOKIE_NAME,
+} from "../lib/device-fingerprint";
 
 const router = Router();
 
@@ -17,21 +23,6 @@ const loginSchema = z.object({
   username: z.string().min(1).max(64),
   password: z.string().min(1).max(256),
 });
-
-
-// Shared helper: build and set the session cookie for a user after full auth
-const COOKIE_TTL_MS: Record<string, number> = {
-  super_admin:        15 * 60 * 1000,
-  admin:          1 * 60 * 60 * 1000,
-  doctor:         2 * 60 * 60 * 1000,
-  nurse:          2 * 60 * 60 * 1000,
-  compliance_officer: 2 * 60 * 60 * 1000,
-  billing_manager: 4 * 60 * 60 * 1000,
-  front_desk:      4 * 60 * 60 * 1000,
-  xray_staff:      4 * 60 * 60 * 1000,
-  lab_staff:       4 * 60 * 60 * 1000,
-  pharmacist:      4 * 60 * 60 * 1000,
-};
 
 // ---------------------------------------------------------------------------
 // Login
@@ -50,6 +41,9 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
       ip: req.ip || "unknown",
       userAgent: req.headers["user-agent"],
       acceptLanguage: req.headers["accept-language"],
+      deviceIdCookie: readDeviceCookie(req),
+      platform: req.headers["sec-ch-ua-platform"] as string | undefined,
+      clientHints: req.headers["x-client-hints"] as string | undefined,
     });
   } catch (err: any) {
     // These two response shapes stay raw (NOT the canonical envelope) because the
@@ -68,6 +62,18 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
     throw err;
   }
 
+  // Phase 2 — privileged-role new-device block. No session issued.
+  if (result.outcome === "pending_verification") {
+    setDeviceCookie(res, result.deviceId);
+    // Generic shape that does NOT leak account existence (matches
+    // forgot-password response surface).
+    res.status(202).json({
+      status: "pending_verification",
+      message: result.message,
+    });
+    return;
+  }
+
   // Full session — set cookies
   const isProduction = process.env.NODE_ENV === "production";
   const cookieMaxAge = COOKIE_TTL_MS[result.user.role] ?? 4 * 60 * 60 * 1000;
@@ -79,8 +85,12 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
     path: "/",
   });
   setCsrfCookie(res);
+  setDeviceCookie(res, result.deviceId);
 
-  res.json({ user: result.user });
+  res.json({
+    user: result.user,
+    deviceUnverified: result.deviceUnverified,
+  });
 }));
 
 

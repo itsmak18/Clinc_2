@@ -157,6 +157,22 @@ describe("validateTransition — super_admin bypass", () => {
   });
 });
 
+// ── system actor bypass (cron jobs) ──────────────────────────────────────────
+
+describe("validateTransition — system actor bypass", () => {
+  it("[INVARIANT] system can perform no_show from scheduled", () => {
+    const result = validateTransition("no_show", "scheduled", "system");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.toStatus).toBe("no_show");
+  });
+
+  it("[INVARIANT] system still cannot transition from an invalid state", () => {
+    const result = validateTransition("no_show", "completed", "system");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+  });
+});
+
 // ── Result shape validation ───────────────────────────────────────────────────
 
 describe("validateTransition — result shape", () => {

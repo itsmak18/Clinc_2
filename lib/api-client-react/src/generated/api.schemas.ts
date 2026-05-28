@@ -118,48 +118,7 @@ export interface Patient {
 export interface PaginatedPatients {
   patients: Patient[];
   total: number;
-  limit: number;
-  offset: number;
-}
-
-export type CreatePatientBodyGender =
-  (typeof CreatePatientBodyGender)[keyof typeof CreatePatientBodyGender];
-
-export const CreatePatientBodyGender = {
-  male: "male",
-  female: "female",
-} as const;
-
-export interface CreatePatientBody {
-  fullName: string;
-  fullNameAr?: string;
-  dateOfBirth: string;
-  gender: CreatePatientBodyGender;
-  phone: string;
-  address?: string;
-  bloodType?: string;
-  allergies?: string;
-  emergencyContact?: string;
-}
-
-export type UpdatePatientBodyGender =
-  (typeof UpdatePatientBodyGender)[keyof typeof UpdatePatientBodyGender];
-
-export const UpdatePatientBodyGender = {
-  male: "male",
-  female: "female",
-} as const;
-
-export interface UpdatePatientBody {
-  fullName?: string;
-  fullNameAr?: string;
-  dateOfBirth?: string;
-  gender?: UpdatePatientBodyGender;
-  phone?: string;
-  address?: string;
-  bloodType?: string;
-  allergies?: string;
-  emergencyContact?: string;
+  nextCursor: number | null;
 }
 
 export type AppointmentStatus =
@@ -216,6 +175,51 @@ export interface Appointment {
   triageStartedAt?: string | null;
   consultationStartedAt?: string | null;
   createdAt: string;
+}
+
+export interface PaginatedAppointments {
+  data: Appointment[];
+  nextCursor: number | null;
+}
+
+export type CreatePatientBodyGender =
+  (typeof CreatePatientBodyGender)[keyof typeof CreatePatientBodyGender];
+
+export const CreatePatientBodyGender = {
+  male: "male",
+  female: "female",
+} as const;
+
+export interface CreatePatientBody {
+  fullName: string;
+  fullNameAr?: string;
+  dateOfBirth: string;
+  gender: CreatePatientBodyGender;
+  phone: string;
+  address?: string;
+  bloodType?: string;
+  allergies?: string;
+  emergencyContact?: string;
+}
+
+export type UpdatePatientBodyGender =
+  (typeof UpdatePatientBodyGender)[keyof typeof UpdatePatientBodyGender];
+
+export const UpdatePatientBodyGender = {
+  male: "male",
+  female: "female",
+} as const;
+
+export interface UpdatePatientBody {
+  fullName?: string;
+  fullNameAr?: string;
+  dateOfBirth?: string;
+  gender?: UpdatePatientBodyGender;
+  phone?: string;
+  address?: string;
+  bloodType?: string;
+  allergies?: string;
+  emergencyContact?: string;
 }
 
 export interface Vitals {
@@ -1123,7 +1127,10 @@ export type ListPatientsParams = {
   search?: string;
   isActive?: boolean;
   limit?: number;
-  offset?: number;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
 };
 
 export type ListAppointmentsParams = {
@@ -1132,7 +1139,10 @@ export type ListAppointmentsParams = {
   patientId?: number;
   status?: ListAppointmentsStatus;
   limit?: number;
-  offset?: number;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
 };
 
 export type ListAppointmentsStatus =

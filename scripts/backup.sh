@@ -1,27 +1,17 @@
 #!/bin/bash
-set -e
+# DEPRECATED — kept only so existing cron entries don't silently break.
+# Use scripts/backup-verify.mjs directly. See docs/BACKUP_KEY_MANAGEMENT.md.
+#
+# This wrapper now requires the same env as backup-verify.mjs:
+#   DATABASE_URL, BACKUP_STORAGE_PATH, BACKUP_GPG_RECIPIENT (in prod),
+#   OFFSITE_UPLOAD_COMMAND (recommended).
+set -euo pipefail
 
-# Load environment variables if available
-if [ -f .env ]; then
-  source .env
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "${SCRIPT_DIR}/../.env" ]; then
+  set -a; . "${SCRIPT_DIR}/../.env"; set +a
 fi
 
-if [ -z "$DATABASE_URL" ]; then
-  echo "Error: DATABASE_URL is not set"
-  exit 1
-fi
-
-BACKUP_DIR="./backups"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-FILENAME="medicore_db_$TIMESTAMP.sql.gz"
-
-mkdir -p "$BACKUP_DIR"
-
-echo "Starting database backup..."
-# pg_dump using connection string
-pg_dump "$DATABASE_URL" | gzip > "$BACKUP_DIR/$FILENAME"
-
-echo "Backup completed successfully: $BACKUP_DIR/$FILENAME"
-
-# In a real production scenario, you would sync this to S3:
-# aws s3 cp "$BACKUP_DIR/$FILENAME" s3://my-offsite-backups/
+echo "[backup.sh] Deprecated wrapper — forwarding to backup-verify.mjs" >&2
+exec node "${SCRIPT_DIR}/backup-verify.mjs" "$@"

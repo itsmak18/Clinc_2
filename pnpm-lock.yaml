@@ -94,9 +94,6 @@ importers:
 
   artifacts/api-server:
     dependencies:
-      '@opentelemetry/api':
-        specifier: ^1.9.1
-        version: 1.9.1
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod

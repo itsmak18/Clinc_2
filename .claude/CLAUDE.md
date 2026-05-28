@@ -27,13 +27,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Core architecture**: pnpm monorepo → React SPA + Express 5 REST API + PostgreSQL via Drizzle ORM. API contract is code-generated from an OpenAPI spec.
 
-**Main modules**: Patients, Appointments (state machine), Triage (nurse kanban), Medical Records, Prescriptions, X-Ray, Ultrasound, Lab, Billing, Operations, Inventory, Reports, Notifications (SSE), Users, Audit Log, Per-role Dashboards (10 roles), Schedule.
+**Main modules**: Patients, Appointments (state machine), Triage (nurse kanban), Medical Records, Prescriptions, X-Ray, Ultrasound, Lab, Billing, Operations, Inventory, Reports, Notifications (SSE), Users, Audit Log, Per-role Dashboards (10 roles), Schedule, Doctor Consult (tabbed EHR), Doctor Orders, Doctor Inbox, Nurse Vitals (rapid entry), Front-Desk Check-in.
 
 **Runtime**: Node.js 24, TypeScript 5.9, React 19, Vite 7, Express 5, PostgreSQL 16, pnpm workspaces.
 
-**Infrastructure**: Local-first development (PostgreSQL 16 on localhost, no Redis required in dev). Production target: Replit autoscale or any Node host. No Docker. CI pipeline: `.github/workflows/ci.yml` (typecheck → lint → validate:errors → test → audit → secrets-scan → build → ci-gate). Weekly `audit-weekly.yml` re-audits the locked dependency tree and opens a `security`-labeled issue on new HIGH/CRITICAL findings.
+**Infrastructure**: Local-first development (PostgreSQL 16 on localhost, no Redis required in dev). Production target: Docker Compose (Postgres 16 + Redis 7 + api + clinic/nginx) deployable to any HIPAA-eligible host (AWS/GCP/Azure). CI pipeline: `.github/workflows/ci.yml` (typecheck → lint → validate:errors → test → audit → secrets-scan → build → migration-drift → ci-gate). Weekly `audit-weekly.yml` re-audits the locked dependency tree and opens a `security`-labeled issue on new HIGH/CRITICAL findings.
 
 > **MFA status**: TOTP MFA was fully designed, implemented, and then **completely removed** to restore single-step login. No MFA columns exist on `users`, no `mfa_sessions` table exists, no `mfa.service.ts` exists, and no MFA routes exist on `/auth`. Do not reference, implement, or invoke any MFA functionality until it is explicitly re-scoped.
+
+> **Bayan Design Port status — complete (2026-05-27)**: The frontend visual system was fully ported from Bayan Clinic OS. Tokens live in `artifacts/clinic/src/index.css` (mint/sage editorial palette, `[data-palette]` / `[data-voice]` / `[data-density]` variants, `[dir="rtl"]` Arabic font swap). UI uses Bayan CSS classes (`.page`, `.card`, `.card-pad`, `.btn`, `.btn-primary`, `.btn-outline`, `.btn-ghost`, `.btn-danger`, `.btn-sm`, `.badge`, `.badge-teal|sage|sand|rose|blue|amber`). The shadcn primitives in `components/ui/**` are not touched — they continue to define the semantic Tailwind tokens (`bg-card`, `text-foreground`, etc.) which now resolve to Bayan vars via `@theme inline`. Application code MUST NOT import `PageHeader`, `Button`, or `Badge` from shadcn — use Bayan CSS classes on plain `<button>` / `<span>`. Doctor app gained five sub-routes — `/today`, `/consult`, `/orders`, `/inbox` plus `/checkin` (front_desk) and `/vitals` (nurse). `getLandingRoute` sends doctor → `/today`, front_desk → `/checkin`. `App.tsx` wraps the route block in `RouteErrorReset` keyed by `useLocation()` so errors clear on navigation. Global `:focus-visible` outline (2px teal-500) is in `index.css` — no need to add `focus-visible:*` Tailwind classes per element. Self-hosted fonts remain a deferred optimization (Google Fonts CDN with `display=swap` is current).
+
+> **Phase 2 — Auth Hardening status (code-landed flag-OFF 2026-05-26)**: The compensating control for the removed MFA is **device-trust + email verification on new devices**, gated behind `PHASE2_DEVICE_TRUST_ENABLED` (default false). With the flag off the entire system is dormant and login behavior is byte-identical to Phase 1. Sub-flags: `PHASE2_EMAIL_VERIFY_ENABLED`, `PHASE2_STEP_UP_ENABLED`, `PHASE2_STRICT_PASSWORD_POLICY`, `PHASE2_CSP_REPORT_ENABLED` (all auto-false when the master is false). New tables: `user_devices`, `device_verification_tokens`, `password_reset_tokens`, `csp_reports` (migration `0002_harsh_monster_badoon.sql` generated, not yet applied to prod). New routes: `POST /auth/verify-device`, `POST /auth/wasnt-me`, `GET/DELETE /account/devices/:id`, `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/admin-reset/:userId`, `POST /api/csp-report`. New middlewares: `denyIfDeviceUnverified()`, `requireStepUp(action)`. Pending before flag-flip: OpenAPI spec sync + codegen; `RESEND_API_KEY` + domain verification; CI matrix runs the suite with flag both on and off; staging flag-flip rehearsal. ASN/country are **not** part of the device fingerprint (cellular handoff would flip them on every login) — they live on `user_devices` as risk signals only.
 
 ---
 
@@ -43,7 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | Frontend | React 19, Vite 7, Wouter, TanStack Query v5, Radix UI, Tailwind CSS 4.1 |
 | Backend | Express 5, Pino, Helmet, express-rate-limit |
-| Auth | `jose` HS256 JWT + `jti` + `fph` fingerprint binding, HttpOnly cookie `clinic_token`, per-role TTL |
+| Auth | `jose` **EdDSA (Ed25519)** JWT + `kid` header + `jti` + `fph` fingerprint binding, HttpOnly cookie `clinic_token`, per-role TTL. JWKS at `GET /.well-known/jwks.json`. Phase 2 (flag-OFF): `__Host-device_id` cookie + HMAC device fingerprint + email-verified trust + `dvu` claim for unverified devices. |
 | Database | PostgreSQL 16, Drizzle ORM, drizzle-zod |
 | Validation | Zod (shared via `@workspace/api-zod`, generated by Orval) — always `zod/v4` |
 | Codegen | Orval from `lib/api-spec/openapi.yaml` |
@@ -75,9 +79,12 @@ pnpm run build
 # Typecheck (all packages)
 pnpm run typecheck
 
-# Database schema push — uses drizzle-kit push (NOT versioned migrations)
-pnpm --filter @workspace/db run push             # Safe push
-pnpm --filter @workspace/db run push-force       # Force push (DESTRUCTIVE — drops columns)
+# Database migrations — versioned (drizzle-kit generate + migrate)
+pnpm --filter @workspace/db run db:generate      # Generate migration SQL from schema diff
+pnpm --filter @workspace/db run db:migrate       # Apply pending migrations to the DB
+pnpm --filter @workspace/db run db:push          # Dev-only: push schema directly (no migration file)
+pnpm --filter @workspace/db run db:push-force    # Force push (DESTRUCTIVE — drops columns)
+# Workflow: edit schema → db:generate → commit migration file → db:migrate (staging then prod)
 
 # API codegen — run after editing lib/api-spec/openapi.yaml
 pnpm --filter @workspace/api-spec run codegen
@@ -86,7 +93,7 @@ pnpm --filter @workspace/api-spec run codegen
 pnpm --filter @workspace/scripts run seed        # Truncates users, patients, appointments, inventory, notifications
 
 # Run tests
-pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite (211 tests)
+pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite
 
 # Validate error codes (CI step — run before tests)
 pnpm --filter @workspace/api-server run validate:errors
@@ -145,7 +152,7 @@ lib/api-zod/src/generated/            ← backend validates against
 - Raw `fetch()` calls to mutation endpoints MUST include `X-CSRF-Token` read from `_csrf` cookie. Orval-generated `customFetch` does this automatically — **always use the generated hook or the underlying generated function** (e.g. `useStartTriage()` / `listPatients()`) for anything under `/api/*`. Hand-written `fetch("/api/...")` in `pages/**` is blocked by a CI grep guard in `.github/workflows/ci.yml` (lint job). Two read-only legacy `fetch(apiUrl(...))` paths in `components/GlobalSearch.tsx` and `components/DischargeSheet.tsx` hit GET endpoints — no CSRF risk, but migrate when next touched.
 
 **Backend patterns**
-- Middleware order in `app.ts`: `correlationId → strip-x-session-state/x-security-flags → helmet(csp) → cors → pinoHttp → metricsMiddleware → express.json/urlencoded → cookieParser → [login-shield on POST /auth/login] → [globalMutationLimiter on all other mutations] → router`
+- Middleware order in `app.ts`: **`trust proxy (loopback,linklocal,uniquelocal)` →** `correlationId → strip-x-session-state/x-security-flags → helmet(csp) → cors → pinoHttp → metricsMiddleware → express.json/urlencoded → cookieParser → [login-shield on POST /auth/login] → [globalMutationLimiter on all other mutations] → router`. Trust proxy MUST be first so `req.ip` resolves correctly behind Caddy.
 - CSRF is not a separate middleware mount — it runs inside the v7 kernel (`lib/policy.ts`) for `write`/`privileged` scopes on mutation methods (POST, PUT, PATCH, DELETE).
 - All routes under `/api`. Prefer `authGate(scope, allowedRoles?)` from `middlewares/auth-gate.ts` for new code. Legacy `requireAuth`/`requireRole` shims (in `middlewares/auth.ts`) delegate to `authGate("write", ...)` and remain for existing route files.
 - Full role list: `super_admin | admin | doctor | nurse | front_desk | xray_staff | lab_staff | compliance_officer | billing_manager | pharmacist`
@@ -153,22 +160,25 @@ lib/api-zod/src/generated/            ← backend validates against
 - **Service layer**: Routes = HTTP only (parse params, call service, map errors). Services = business logic, DB queries, scope checks, audit calls. ESLint `no-restricted-imports` on `src/routes/**` blocks direct `@workspace/db` / `drizzle-orm` imports — enforced by the `lint` CI job (blocking). The TS parser is configured via `typescript-eslint` in `artifacts/api-server/eslint.config.mjs`.
 - **Error envelope**: Every error response shares the canonical shape `{ success: false, error_code, error_name, session_state, message, request_id, timestamp }`. Three exit paths emit it: `middlewares/asyncHandler.ts` for domain errors thrown from services (`NotFoundError`, `ValidationError`, `ForbiddenError`, `ConflictError`, `UnauthorizedError` from `services/errors.ts`); `middlewares/envelope.ts::notFoundHandler` for unmatched routes; `middlewares/envelope.ts::globalErrorHandler` for Postgres errors (23505 → CONFLICT, 23503 → VALIDATION) and unrecognised errors. Two intentional non-envelope shapes remain in `routes/auth.ts` (429 rate-limit returns `retryAfterSecs`; 401 invalid-creds returns `attemptsRemaining`) because the Login page reads those fields — promoting them would require extending the envelope. Documented inline.
 - All mutations: `logAudit(req, action, entityType, entityId)` from service layer. All PHI reads: `logRead` (single-record) or `logAudit(req, "READ_LIST", ...)` (list endpoints). Denied attempts: `logDenied`. All wrappers in `lib/audit.ts`.
-- **Audit-write failure policy = fire-and-forget + observability.** When the audit insert rejects, the PHI read still returns 200 — the failure is recorded via Prometheus counter `audit_log_write_failures_total{action,entity_type}` and a structured Pino `audit_write_failed` error log carrying `{ action, entityType, entityId, userId, requestId, err }`. Prometheus alert: `increase(audit_log_write_failures_total[5m]) > 0`. Never block a read on audit-DB health; never swallow the failure silently — the catch in `lib/audit.ts` is the only sanctioned path.
+- **Multi-tenant isolation (CRITICAL)**: Every PHI service query — SELECT, INSERT, UPDATE, DELETE — MUST include `eq(table.clinicId, req.user!.clinicId)` in its conditions array. Missing this filter allows cross-tenant data leakage the moment a second clinic onboards. The policy kernel guarantees `req.user!.clinicId` is always a number (filled with `payload.clinicId ?? 1` for backward compat). For `INSERT` statements, set `clinicId: req.user!.clinicId` in `.values({...})`. For `UPDATE`/`DELETE`, add `eq(table.clinicId, req.user!.clinicId)` alongside any other conditions.
+- **Audit write path = transactional outbox.** `logAudit()` inserts into `audit_outbox` (unindexed, no FK constraints — fast writes). The PHI operation never blocks on audit-DB health. A 5-second `setInterval` drain worker (`drainAuditOutbox()`) transfers rows to `audit_logs` with exponential backoff (5 s/30 s/2 min/10 min) and up to 5 attempts. Exhausted rows (all 5 attempts failed) are counted in `audit_log_write_failures_total` and logged `audit_outbox_row_exhausted`. Outbox write failures (outbox INSERT itself fails) log `audit_outbox_write_failed`. Never block a read on audit-DB health; never write directly to `audit_logs` from `logAudit()` — the outbox is the only sanctioned write path. Test mocks of `@workspace/db` that cover any route triggering `logAudit()` must include `auditOutboxTable: {}` in the mock.
 - Validate all route integer params with `safeParseInt` or `validateParamInt` middleware from `lib/validators.ts`.
+- **Pagination**: All list endpoints use cursor pagination (`?cursor=<id>&limit=<n>`). Hard max 100 rows. `ORDER BY id DESC`. Response: `{ data, nextCursor }` (nextCursor is the last id, or null on final page). Never use `?offset` — offset pagination drifts on insert-heavy tables. `params.patientId`, `params.doctorId` etc. from `req.query` are strings — always `parseInt()` before passing to Drizzle integer columns.
 - Soft-delete: filter `isNull(table.deletedAt)` in all queries.
 - Global mutation rate limit: `ipRateLimit(100, 15 * 60 * 1000)` applied to all POST/PUT/PATCH/DELETE routes except `/auth/login` (which gets the stricter login-shield). Do not add redundant per-route rate limiters for normal mutations.
 
 **Database**
 - All tables use `serial` PKs and `createdAt`/`updatedAt` timestamps.
 - Soft-delete via `deletedAt` column on most domain tables.
-- JSONB columns and their guard schemas (in `artifacts/api-server/src/lib/jsonb-schemas.ts`): `medical_records.vitals` → `vitalsSchema`; `prescriptions.medications` → `medicationsSchema`; `operations.staffAssigned` → `staffAssignedSchema` (default `[]`); `invoices.items` → `itemsSchema`. `audit_logs.details` is intentionally unconstrained. **Never `db.insert` / `db.update` a JSONB column without `safeParse` against the matching schema** — services are the only callers, never bypass.
+- JSONB columns and their guard schemas (in `artifacts/api-server/src/lib/jsonb-schemas.ts`): `medical_records.vitals` → `vitalsSchema`; `prescriptions.medications` → `medicationsSchema`; `operations.staffAssigned` → `staffAssignedSchema` (default `[]`). `audit_logs.details` is intentionally unconstrained. **Never `db.insert` / `db.update` a JSONB column without `safeParse` against the matching schema** — services are the only callers, never bypass. `itemsSchema` (in `jsonb-schemas.ts`) is retained for input validation in `billing.service.ts` `createInvoice()` — the `invoices.items` JSONB column was dropped in migration `0005_charming_psynapse.sql`; `invoice_items` is now the sole source of truth for line-items.
 - `medical_records` has `isGlobal boolean NOT NULL DEFAULT false` and `globalReason text` — when `isGlobal=true` any doctor can read the record regardless of patient assignment. Only `super_admin` can set this flag via `PATCH /medical-records/:id/global-flag` (body: `{ isGlobal, reason }`, reason ≥ 20 chars).
-- Schema is managed via `drizzle-kit push` (not versioned migrations). Push is non-rollback-safe — always validate destructive changes before running `push-force`.
+- Schema is managed via versioned Drizzle migrations (`db:generate` → `db:migrate`). `drizzle-kit push` / `push-force` are reserved for local dev only — never run against staging or prod. The CI `migration-drift` job enforces that every schema change has a committed migration file.
 
 **SSE (real-time)**
 - `emitToUser(userId, event, data)` in `lib/sse.ts` publishes via `runtime.eventBus` — in-memory (dev) or Redis Pub/Sub (prod).
 - **SSE payloads must NOT contain PHI** — use IDs only. Frontend fetches full records via authenticated API hooks.
-- Frontend `useNotificationsStream` auto-reconnects with 5s backoff. Successful notification invalidates the relevant React Query cache key.
+- **Graceful drain (P1-8)**: `GET /notifications/stream` returns `503 + Retry-After: 10` when `isShuttingDown()` is true — new connections refused. `closeAllSSEClients()` sends per-connection jittered `retry: <5000–15000ms>` + `event: reconnect\ndata: {retryAfter}` before `res.end()`. Shutdown sequence holds connections for `SSE_DRAIN_MS` (default 10s, 0 in tests) before calling `closeAllSSEClients()`. Docker compose `stop_grace_period: 35s` ensures Docker does not SIGKILL mid-drain.
+- Frontend `useNotificationsStream` handles `reconnect` event using `data.retryAfter` delay (server-supplied jitter). Falls back to fixed 5s on `onerror` (network failure). Successful notification invalidates the relevant React Query cache key.
 
 ---
 
@@ -176,8 +186,12 @@ lib/api-zod/src/generated/            ← backend validates against
 
 | Layer | Implementation |
 |---|---|
-| Authentication | `jose` HS256 JWT + `jti` claim + `fph` fingerprint (SHA-256 of User-Agent + Accept-Language, first 16 hex chars) |
+| Authentication | `jose` **EdDSA (Ed25519)** JWT + `kid` header + `jti` claim + `fph` fingerprint (SHA-256 of User-Agent + Accept-Language, first 16 hex chars). Public keys at `GET /api/.well-known/jwks.json`. `SESSION_SECRET` is HMAC key for device fingerprinting only (no longer JWT signing). |
 | MFA | **Removed.** Single-step login for all roles. No TOTP, no recovery codes, no `mfa_sessions`. Re-scope before implementing. |
+| Phase 2 device trust | Code-landed flag-OFF (2026-05-26). When `PHASE2_DEVICE_TRUST_ENABLED=true`: HMAC fingerprint matches an existing `user_devices` row → trusted; otherwise privileged roles (super_admin/admin/compliance_officer/doctor) get blocked with `pending_verification` until the email link is clicked, non-privileged roles get an `allow_unverified` session with `dvu=true` claim. First-ever login auto-trusts; subsequent logins after flag-flip auto-trust with `trust_source='grandfathered'`. Email-link tokens 15-min TTL, single-use, fingerprint-bound (different-device clicks fail closed). Helper: `isPhase2Enabled()` in `lib/auth-constants.ts`. |
+| Phase 2 step-up | Code-landed flag-OFF. `requireStepUp(action)` middleware in `middlewares/step-up.ts` — re-verifies password via `X-Step-Up` header for destructive actions (delete user, void invoice, role escalation, bulk export). Audits `STEP_UP_OK` / `STEP_UP_FAILED`. Gated by `PHASE2_STEP_UP_ENABLED`. |
+| Phase 2 password policy | Code-landed flag-OFF. Strict mode (`PHASE2_STRICT_PASSWORD_POLICY=true`) requires 12 chars + special + dictionary blocklist + HIBP k-anonymity. Sync helper `validatePasswordStrength()` for length/composition; async `validatePasswordStrictAsync()` adds HIBP. Falls open on HIBP outage (network error → allow). |
+| Phase 2 CSP report | Code-landed flag-OFF. `helmet` emits `report-uri /api/csp-report` when `PHASE2_CSP_REPORT_ENABLED=true`. Reports persisted to `csp_reports` table (90-day retention recommended; not enforced yet). |
 | JWT TTL by role | `super_admin` 15m · `admin` 1h · `doctor`/`nurse`/`compliance_officer` 2h · `billing_manager`/`front_desk`/`xray_staff`/`lab_staff`/`pharmacist` 4h |
 | Cookie | `clinic_token`: HttpOnly, Secure (prod), SameSite=Strict, `maxAge` = per-role TTL ms |
 | Authorization | `evaluate()` kernel in `lib/policy.ts` — `super_admin` auto-bypasses role check |
@@ -186,10 +200,15 @@ lib/api-zod/src/generated/            ← backend validates against
 | CSRF | Origin exact-match + double-submit cookie (`X-CSRF-Token` vs `_csrf` cookie), method-gated on mutations inside `evaluate()`. No `CSRF_EXEMPT_PATHS`. |
 | Rate Limiting | Login: `rateLimiter.ts` DB-backed (5/15 min, 30 min lockout) + login-shield IP layer (20/15 min). Mutations: global IP rate limit (100/15 min). Pluggable `RateStore` (memory dev / Redis prod). |
 | Data Scoping | SQL-level doctor scope via `getDoctorPatientScope()` + `inArray()` |
+| Multi-tenant isolation | Every PHI service query filters by `eq(table.clinicId, req.user!.clinicId)`. `AuthUser.clinicId` is always populated by the policy kernel (`payload.clinicId ?? 1`). Postgres RLS policies and per-tenant DEK still open (Phase 6). |
 | Fingerprint binding | `fph` claim checked on every request; mismatch → error 1004; `FINGERPRINT_BINDING=disabled` env var as emergency bypass |
 | Logging | Pino — PHI fields (`fullName`, `vitals`, `phone`, `email`, etc.) → `[REDACTED]` |
-| Audit Trail | `audit_logs` table — append-only, 7-year retention, immutable; every read logs `AUDIT_LOG_READ`. Write failures = fire-and-forget + Prometheus `audit_log_write_failures_total` + Pino `audit_write_failed` (see Architecture Rules). |
+| Audit Trail | `audit_logs` table — append-only, 7-year retention, immutable; every read logs `AUDIT_LOG_READ`. Writes go via `audit_outbox` (unindexed, no FK) → drained every 5 s to `audit_logs` with exponential backoff (5 s/30 s/2 min/10 min, max 5 attempts). Exhausted rows counted in `audit_log_write_failures_total` + logged `audit_outbox_row_exhausted`. `auditOutboxDepthGauge` Prometheus gauge sampled at each drain tick. Final drain flush on graceful shutdown before `pool.end()`. |
 | Billing SoD | `front_desk` creates invoices; `billing_manager`/admin pays/cancels; cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create |
+| PHI Field Encryption | AES-256-GCM via `lib/field-encryption.ts`. Fields: `diagnosis`, `vitals`, `medications`, `allergies`, `emergencyContact`. Current envelope: `enc:v2:<kid>:<iv>:<tag>:<data>`. Legacy `enc:v1:` envelopes still decrypt via kid="1". Key registry: `FIELD_ENCRYPTION_KEY` (kid=1), optional `FIELD_ENCRYPTION_KEY_NEXT` (kid=2 during rotation). `FIELD_ENCRYPTION_KEY_WRITE_KID` (default "1") controls active write kid. Prod fail-closed if write kid has no registered key. Rotation procedure in `SECURITY.md`. |
+| Patient Consent | `patient_consents` table. `treatment` consent required before `createMedicalRecord` / `createPrescription` (service-layer check via `hasActiveConsent`). Throws `ConsentRequiredError` (HTTP 422, code 3010). |
+| Break-Glass Access | `break_glass_sessions` table. 15-min TTL. Immediate SSE alert to all `compliance_officer` users. Every PHI access during session logs `BREAK_GLASS_ACCESS`. Owner or compliance_officer can revoke early. |
+| Right-to-Erasure | `erasure_requests` table. Three-step: request → approve → execute (super_admin only). Execution anonymizes all PHI in a DB transaction — irreversible (ADR-005). |
 | SSE Payloads | IDs only — no PHI |
 | CORS | Dev: `localhost:*` + `127.0.0.1:*`. Prod: `REPLIT_DOMAINS` + optional `ALLOWED_ORIGINS` env var. No-origin requests (curl/Postman) are allowed through — CORS is not a CSRF substitute. |
 | Error Handling | No stack traces in 5xx responses (production). Canonical error envelope: `{ success, error_code, error_name, session_state, message, request_id, timestamp }` — 20 stable codes in `src/errors.ts`. 404 + global 5xx emit the envelope via `middlewares/envelope.ts`; domain errors via `middlewares/asyncHandler.ts`. The 2 raw shapes in `routes/auth.ts` (429/401 with `retryAfterSecs` / `attemptsRemaining`) are intentional. |
@@ -223,14 +242,54 @@ notification_type:  patient_arrived | lab_ready | xray_ready | ultrasound_ready 
 DATABASE_URL=postgresql://user:pass@host:5432/clinic_db
 PORT=5000
 NODE_ENV=development
-SESSION_SECRET=<32-byte hex — required in production>
+SESSION_SECRET=<32-byte hex>
+  # HMAC key for device fingerprinting (Phase 2 device-trust). NO LONGER used for JWT signing.
   # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  # PRODUCTION: mounted from ./secrets/session_secret — do NOT put in environment: block.
+JWT_PRIVATE_KEY=<PKCS8 PEM Ed25519 private key>  # Signs all JWTs. Required in production.
+  # Generate pair atomically — see secrets/README.md. PRODUCTION: mounted from ./secrets/jwt_private_key.
+JWT_PUBLIC_KEY=<SPKI PEM Ed25519 public key>      # Advertised via /.well-known/jwks.json.
+  # PRODUCTION: mounted from ./secrets/jwt_public_key. Must match JWT_PRIVATE_KEY.
+JWT_KID=1                            # kid string for current signing key. Default "1". Increment on rotation.
+JWT_PREV_PUBLIC_KEY=                 # Previous public key (SPKI PEM) for rotation overlap window. Optional.
+JWT_PREV_KID=                        # kid of JWT_PREV_PUBLIC_KEY. Optional.
 BCRYPT_ROUNDS=12
 SESSION_STORE=memory          # "memory" (default) | "redis" — set to "redis" in production
 REDIS_URL=redis://localhost:6379  # required when SESSION_STORE=redis
 REPLIT_DOMAINS=               # comma-separated Replit host domains for CORS + allowed origins
 ALLOWED_ORIGINS=              # optional comma-separated additional CORS origins (e.g. https://myapp.example.com)
 FINGERPRINT_BINDING=          # set to "disabled" to bypass fph fingerprint checks (emergency lever only — RUNBOOK §5)
+FIELD_ENCRYPTION_KEY=         # 64 hex chars (32 bytes) for AES-256-GCM PHI field encryption — kid="1"
+  # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  # Required in production — server refuses to start without it. Dev: omit to run unencrypted (warning logged).
+  # Encrypts: diagnosis, vitals (medical_records); medications (prescriptions); allergies, emergencyContact (patients).
+  # PRODUCTION: mounted from ./secrets/field_encryption_key — do NOT put in environment: block.
+FIELD_ENCRYPTION_KEY_NEXT=    # Optional. 64 hex chars. kid="2". Present only during key rotation overlap.
+FIELD_ENCRYPTION_KEY_WRITE_KID=  # Which kid new writes use. Default "1". Set to "2" to promote next key.
+
+# ─── Phase 2: Auth Hardening (all default OFF) ──────────────────────────────
+PHASE2_DEVICE_TRUST_ENABLED=false
+  # MASTER SWITCH. When false the entire Phase 2 system is dormant and login
+  # behavior is byte-identical to Phase 1. Flip to "true" to activate device
+  # trust + new-device email verification + step-up + strict password policy.
+  # All sub-flags below are auto-false when this is false.
+PHASE2_EMAIL_VERIFY_ENABLED=false   # §2.2 — new-device email link flow
+PHASE2_STEP_UP_ENABLED=false        # §2.7 — re-prompt password on destructive actions
+PHASE2_STRICT_PASSWORD_POLICY=false # §2.8 — 12-char + special + HIBP k-anon + dictionary
+PHASE2_CSP_REPORT_ENABLED=false     # §2.8 — CSP report-uri + /api/csp-report ingestion
+
+# Phase 2 — transactional email (required when PHASE2_EMAIL_VERIFY_ENABLED=true)
+RESEND_API_KEY=                # Resend bearer token. Omit to console-log emails in dev.
+EMAIL_FROM_ADDRESS=MediCore <no-reply@medicore.local>
+
+# Phase 2 — SMS fallback for privileged-role verification (optional)
+SMS_PROVIDER=                  # "twilio" or empty (stub)
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+
+# Phase 2 — public URL used in email verification + reset links
+APP_PUBLIC_URL=                # e.g. https://medicore.example.com (no trailing slash)
 ```
 
 ---
@@ -270,11 +329,12 @@ Priority: **Correctness → Security → Performance → Maintainability → DX*
 
 ## Adding a New Page (Frontend)
 
-1. Create `artifacts/clinic/src/pages/NewPage.tsx`
-2. Import it in `App.tsx`
-3. Add `<Route path="/new-path"><Guard ...><NewPage /></Guard></Route>`
-4. Add the path + allowed roles to `lib/route-access.ts` (`navItems` array)
-5. Add nav item to `Layout.tsx` sidebar with role visibility condition
+1. Create `artifacts/clinic/src/pages/NewPage.tsx`. Use Bayan CSS classes on the root (`<div className="page">`), `.card` / `.card-pad` for sections, plain `<button className="btn btn-primary btn-sm">` for buttons, `<span className="badge badge-teal text-xs">` for badges. Do NOT import `PageHeader`, `Button`, or `Badge` from `@/components/ui/*` in application code.
+2. All user-facing strings via `useI18n()` — add EN + AR keys to `hooks/i18n.tsx`.
+3. Import the page lazily in `App.tsx`: `const NewPage = lazy(() => import("@/pages/NewPage"));`
+4. Add `<Route path="/new-path"><Guard path="/new-path" role={role}><NewPage /></Guard></Route>` inside the existing `Switch`. The route block is already wrapped in `RouteErrorReset` so per-route error resets are automatic.
+5. Add the path + allowed roles to `lib/route-access.ts` (`navItems` array); pin to a role's quick-nav by editing `navPinnedByRole`.
+6. The `Layout.tsx` sidebar reads `navItems` and `navPinnedByRole` directly — no manual sidebar edit needed.
 
 ## Adding a New Route (Backend)
 
@@ -341,11 +401,39 @@ const schema = z.object({ name: z.string() });
 
 ---
 
+## Obsidian as Primary Memory
+
+The **Obsidian vault** is the single source of truth for project knowledge, decisions, and history. Before starting any non-trivial task:
+
+- Search the vault for existing notes, decision records, or architecture docs related to the task
+- Prefer vault context over recalling from conversation history when the two conflict
+
+After every task, update the vault (see Task Completion Rule below).
+
+The vault path is: `C:\Users\xxmoh\OneDrive\Documents\Obsidian Vault\MediCore\`
+
+---
+
+## Task Completion Rule
+
+**After every completed task**, update the following before closing out:
+
+1. **[docs/CHANGELOG.md](../docs/CHANGELOG.md)** — add an entry describing what was done (feature, fix, refactor, etc.)
+2. **[docs/HEALTH_STATUS.md](../docs/HEALTH_STATUS.md)** — update scores or notes if the task affects production health
+3. **[docs/ROADMAP.md](../docs/ROADMAP.md)** — mark completed items, add newly surfaced items
+4. **[docs/MIGRATION_NOTES.md](../docs/MIGRATION_NOTES.md)** — record any breaking changes, deprecated patterns, or lessons learned
+5. **This file (CLAUDE.md)** — update any rules, constraints, architecture notes, or checklists that changed as a result of the task
+6. **Obsidian vault** — add or update the relevant note (feature log, decision record, architecture note, or daily log) to keep the vault in sync with the codebase
+
+> Skip docs that are genuinely unaffected by the task — but when in doubt, update.
+
+---
+
 ## Feature Checklist
 
 Every time you add a feature:
 
-- [ ] New DB table? → create `lib/db/src/schema/new_table.ts`, export in `schema/index.ts`, run `pnpm --filter @workspace/db run push`
+- [ ] New DB table? → create `lib/db/src/schema/new_table.ts`, export in `schema/index.ts`, run `pnpm --filter @workspace/db run db:generate`, commit the migration file, then run `pnpm --filter @workspace/db run db:migrate`
 - [ ] New API route? → create `services/new_module.service.ts` (business logic + DB), then `routes/new_module.ts` (HTTP only), register in `routes/index.ts`
 - [ ] New page? → create `pages/NewPage.tsx`, add to `App.tsx`, add to `route-access.ts` (`navItems`), add to `Layout.tsx` sidebar
 - [ ] New OpenAPI endpoint? → update `lib/api-spec/openapi.yaml`, run `pnpm --filter @workspace/api-spec run codegen`
@@ -360,16 +448,39 @@ Every time you add a feature:
 ## Never Do This
 
 - Never install new UI libraries (no MUI, Ant Design, Chakra, etc.) — use shadcn/ui only
+- Never import `PageHeader`, `Button` from `@/components/ui/button`, or `Badge` from `@/components/ui/badge` in application code (pages, components outside `components/ui/`). Use Bayan CSS classes on plain `<button>` / `<span>`: `.btn .btn-primary .btn-sm`, `.badge .badge-teal`, etc. The shadcn primitive files themselves stay untouched.
+- Never use directional Tailwind classes in application code: NO `ml-*`, `mr-*`, `pl-*`, `pr-*`, `text-left`, `text-right`, `border-l-*`, `border-r-*`. Always logical: `ms-*`, `me-*`, `ps-*`, `pe-*`, `text-start`, `text-end`, `border-s-*`, `border-e-*`. RTL relies on this.
+- Never use old shadcn theme tokens in application code: NO `text-muted-foreground`, `bg-card`, `border-border`, `text-foreground`, `bg-primary`, `text-primary`, `text-destructive`, `bg-muted`. Always Bayan CSS vars: `text-[var(--ink-muted)]`, `bg-[var(--surface)]`, `border-[var(--line)]`, `text-[var(--ink)]`, `text-[var(--teal-600)]`, `text-[var(--rose-500)]`, `bg-[var(--surface-2)]`.
 - Never use `import { z } from "zod"` — always use `"zod/v4"`
 - Never use `react-router` — the router is `wouter`
 - Never hardcode UI strings or colors
 - Never block `super_admin` from any action
 - Never guess file paths — check the folder structure above first
-- Never write a DB migration manually — use `drizzle-kit push` (or plan a migration to versioned migrations)
+- Never write a DB migration manually — use `drizzle-kit generate` to produce migration SQL, then `drizzle-kit migrate` to apply it. `drizzle-kit push` is dev-only (no file generated, not safe for staging/prod).
 - Never edit generated files in `api-client-react/src/generated/` or `api-zod/src/generated/` — but `lib/api-client-react/src/custom-fetch.ts` IS editable
 - **Never import `@workspace/db` or `drizzle-orm` directly in route files** — DB access belongs in the service layer
 - Never call `requireAuth` + `requireRole` together on the same route — use a single `authGate(scope, allowedRoles?)` instead
 - Never introduce MFA code (`otplib`, TOTP, recovery codes, `mfa_sessions`) until MFA is explicitly re-scoped as a feature
+- Never check `process.env.PHASE2_*` directly in code — always go through the helpers in `lib/auth-constants.ts` (`isPhase2Enabled()`, `isEmailVerifyEnabled()`, etc.). The helpers compose the master switch correctly; raw env checks bypass that.
+- Never treat the Phase 2 kill-switch as permanent architecture. It is scaffolding — schedule deletion ~30 days after `PHASE2_DEVICE_TRUST_ENABLED=true` lands in prod (ROADMAP Phase 2.11). Until then, CI must run the suite with the flag both on AND off or the off-path bit-rots.
+- **Never put `SESSION_SECRET`, `FIELD_ENCRYPTION_KEY`, or `METRICS_TOKEN` in the `environment:` block of `docker-compose.prod.yml`.** These are file-mounted via Docker secrets since 2026-05-27. Adding them back to `environment:` exposes them to `docker inspect`.
+- Never remove `app.set("trust proxy", "loopback, linklocal, uniquelocal")` from `app.ts`. Without it, `req.ip` resolves to the upstream proxy container IP — all rate-limit and audit entries collapse to one identity.
+
+---
+
+## Bayan Design System ✅ Complete (2026-05-27)
+
+Tokens live in `artifacts/clinic/src/index.css`. Class palette:
+
+- **Layout:** `.page` (page root, padding + max-width), `.card` (surface + border + radius), `.card-pad` (default card padding), `.card-pad-lg`
+- **Buttons:** `.btn` (base), `.btn-primary` (teal-600), `.btn-outline` (transparent + line border), `.btn-ghost` (transparent + transparent border, hover bg), `.btn-danger` (rose-500), `.btn-sm` (h:28 px:10 text:12), `.btn-lg`, `.btn-icon`. Pending state: add `data-pending="true"` for a centered spinner.
+- **Badges:** `.badge` (base), `.badge-teal`, `.badge-sage`, `.badge-sand`, `.badge-rose`, `.badge-blue`, `.badge-amber`
+- **Nav items:** `.nav-item` + `.is-active` for sidebar entries
+- **CSS vars (use these — never `text-foreground` etc.):** `--ink`, `--ink-soft`, `--ink-muted`, `--ink-faint`, `--bg`, `--surface`, `--surface-2`, `--line`, `--teal-50…800`, `--sage-*`, `--sand-*`, `--rose-*`, `--amber-*`, `--blue-*`
+- **Voice/density/palette:** `<html data-palette="mint|sage|plum|indigo" data-voice="editorial|modern|classical" data-density="compact|comfortable|spacious">`. Switch via the gear icon in the sidebar footer (Tweaks panel) — persists to `localStorage.clinic.*`.
+- **Focus rings:** Global `:focus-visible` rule in `index.css` covers `a`, `button`, `input`, `select`, `textarea`, `[role=button|tab|menuitem]`, `[tabindex]`. Do not duplicate via Tailwind `focus-visible:*` classes.
+
+`PageHeader`, `Button`, `Badge` shadcn primitives are NOT used in application code anymore. Dialog, Input, Label, Select, Tabs, Switch, Textarea, Tooltip from `components/ui/*` are still used.
 
 ---
 

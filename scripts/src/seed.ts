@@ -1,5 +1,6 @@
 import { db, sql } from "@workspace/db";
 import {
+  clinicsTable,
   usersTable, patientsTable, appointmentsTable, inventoryTable,
   notificationsTable
 } from "@workspace/db";
@@ -31,7 +32,15 @@ async function seed() {
 
   // Clear existing data for a clean re-seed
   console.log("Clearing existing data...");
-  await db.execute(sql`TRUNCATE TABLE notifications, inventory, appointments, patients, users RESTART IDENTITY CASCADE`);
+  await db.execute(sql`TRUNCATE TABLE notifications, inventory, appointments, patients, users, clinics RESTART IDENTITY CASCADE`);
+
+  // The default clinic must exist before any PHI row — every PHI table has
+  // clinic_id NOT NULL DEFAULT 1 REFERENCES clinics(id). See plan item E1.
+  console.log("Creating default clinic (id=1)...");
+  await db.insert(clinicsTable).values({
+    name: "Default Clinic",
+    nameAr: "العيادة الافتراضية",
+  });
 
   // Users
   console.log("Creating users with bcrypt hashes...");

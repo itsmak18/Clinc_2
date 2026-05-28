@@ -254,10 +254,34 @@ describe("Fingerprint", () => {
     process.env.FINGERPRINT_BINDING = prev;
   });
 
-  it("fph absent → skipped (legacy token policy)", async () => {
+  it("fph absent + iat within grandfather window → passes (legacy token)", async () => {
+    // Global test setup sets FPH_GRANDFATHER_UNTIL=9999999999 so every test-issued
+    // token is within the grandfather window. This asserts the grandfather branch.
     goodJwt();
     const d = await evaluate(makeReq(), "read");
     expect(d.ok).toBe(true);
+    expect(d.trace.find(s => s.op === "fingerprint")?.detail).toBe("grandfathered");
+  });
+
+  it("[A1] fph absent + no grandfather window → AUTH_FINGERPRINT_REQUIRED (1007)", async () => {
+    const prev = process.env.FPH_GRANDFATHER_UNTIL;
+    process.env.FPH_GRANDFATHER_UNTIL = "0";
+    goodJwt();
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.error.code).toBe(E.AUTH_FINGERPRINT_REQUIRED.code);
+    process.env.FPH_GRANDFATHER_UNTIL = prev;
+  });
+
+  it("[A1] fph absent + iat AFTER grandfather cutoff → AUTH_FINGERPRINT_REQUIRED", async () => {
+    const prev = process.env.FPH_GRANDFATHER_UNTIL;
+    // VALID_PAYLOAD.iat = 1000; cutoff at 999 → token iat > cutoff → fail closed.
+    process.env.FPH_GRANDFATHER_UNTIL = "999";
+    goodJwt();
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.error.code).toBe(E.AUTH_FINGERPRINT_REQUIRED.code);
+    process.env.FPH_GRANDFATHER_UNTIL = prev;
   });
 });
 

@@ -3,14 +3,11 @@ import { useLocation } from "wouter";
 import { useListPatients, useCreatePatient, listPatients, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
-import PageHeader from "@/components/PageHeader";
 import DataTable from "@/components/DataTable";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/auth";
 import { formatDate } from "@/lib/api";
@@ -27,16 +24,14 @@ export default function Patients() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
     fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male" as "male" | "female",
-    phone: "", address: "", bloodType: "", allergies: "", emergencyContact: ""
+    phone: "", address: "", bloodType: "", allergies: "", emergencyContact: "",
   });
 
-  // Barcode scanner (keyboard-wedge): accumulates chars in <50ms intervals
   const barcodeBuffer = useRef("");
   const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is focused on an input/textarea
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -45,16 +40,16 @@ export default function Patients() {
         barcodeBuffer.current = "";
         if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
         if (mrn.length >= 4) {
-          listPatients({ search: mrn, limit: 1, offset: 0 })
+          listPatients({ search: mrn, limit: 1 })
             .then(data => {
               const patient = data?.patients?.[0];
               if (patient) {
                 setLocation(`/patients/${patient.id}`);
               } else {
-                toast({ title: `No patient found for MRN: ${mrn}`, variant: "destructive" });
+                toast({ title: t("noPatientFoundMrn"), variant: "destructive" });
               }
             })
-            .catch(() => toast({ title: "Barcode scan failed", variant: "destructive" }));
+            .catch(() => toast({ title: t("barcodeScanFailed"), variant: "destructive" }));
         }
         return;
       }
@@ -62,20 +57,17 @@ export default function Patients() {
       if (e.key.length === 1) {
         barcodeBuffer.current += e.key;
         if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
-        // If no new key in 200ms, reset buffer (manual typing threshold)
-        barcodeTimer.current = setTimeout(() => {
-          barcodeBuffer.current = "";
-        }, 200);
+        barcodeTimer.current = setTimeout(() => { barcodeBuffer.current = ""; }, 200);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setLocation, toast]);
+  }, [setLocation, toast, t]);
 
   const { data, isLoading } = useListPatients(
-    { search: search || undefined, limit: 50, offset: 0 },
-    { query: { queryKey: getListPatientsQueryKey({ search: search || undefined, limit: 50, offset: 0 }) } }
+    { search: search || undefined, limit: 50 },
+    { query: { queryKey: getListPatientsQueryKey({ search: search || undefined, limit: 50 }) } }
   );
 
   const createMutation = useCreatePatient({
@@ -84,22 +76,36 @@ export default function Patients() {
         queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
         setShowCreate(false);
         setForm({ fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male", phone: "", address: "", bloodType: "", allergies: "", emergencyContact: "" });
-        toast({ title: "Patient registered successfully" });
+        toast({ title: t("patientRegisteredSuccess") });
       },
-      onError: () => toast({ title: "Failed to register patient", variant: "destructive" }),
-    }
+      onError: () => toast({ title: t("patientRegisterFailed"), variant: "destructive" }),
+    },
   });
 
   const patients = data?.patients ?? [];
 
   return (
-    <div>
-      <PageHeader
-        title={t("patients")}
-        subtitle={`${data?.total ?? 0} total patients`}
-        actions={
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => exportToCSV(
+    <div className="page">
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--ink-muted)]" />
+          <Input
+            className="ps-9 h-8 text-sm"
+            placeholder={`${t("search")} ${t("byNameOrMrn")}...`}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            data-testid="input-search-patients"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)] bg-[var(--surface-2)] rounded px-2 py-1 border border-[var(--line)]">
+          <Scan className="w-3.5 h-3.5" />
+          <span>{t("barcodeScanSupported")}</span>
+        </div>
+        <div className="ms-auto flex items-center gap-2">
+          <button
+            className="btn btn-outline btn-sm gap-1.5"
+            onClick={() => exportToCSV(
               patients.map(p => ({
                 MRN: p.mrn,
                 Name: p.fullName,
@@ -113,78 +119,92 @@ export default function Patients() {
                 Status: p.isActive ? "Active" : "Inactive",
               })),
               `patients-${new Date().toISOString().split("T")[0]}.csv`
-            )} data-testid="button-export-patients">
-              <Download className="w-3.5 h-3.5 me-1" /> Export CSV
-            </Button>
-            <Button size="sm" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
-              <Plus className="w-3.5 h-3.5 me-1" /> {t("registerPatient")}
-            </Button>
-          </div>
-        }
-      />
-
-      <div className="p-6">
-        <div className="flex gap-3 mb-4">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input
-              className="ps-9 h-8 text-sm"
-              placeholder={`${t("search")} by name or MRN...`}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              data-testid="input-search-patients"
-            />
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 rounded px-2 py-1 border border-border/50">
-            <Scan className="w-3.5 h-3.5" />
-            <span>Barcode scan supported</span>
-          </div>
+            )}
+            data-testid="button-export-patients"
+          >
+            <Download className="w-3.5 h-3.5" /> {t("exportCsv")}
+          </button>
+          <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
+            <Plus className="w-3.5 h-3.5" /> {t("registerPatient")}
+          </button>
         </div>
+      </div>
 
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <DataTable
-            isLoading={isLoading}
-            emptyMessage="No patients found"
-            data={patients}
-            onRowClick={p => setLocation(`/patients/${p.id}`)}
-            columns={[
-              { key: "mrn", header: t("mrn"), render: p => <span className="font-mono text-xs font-semibold text-primary">{p.mrn}</span> },
-              { key: "name", header: t("name"), render: p => (
+      <div className="card overflow-hidden">
+        <DataTable
+          isLoading={isLoading}
+          emptyMessage={t("noPatientsFound")}
+          data={patients}
+          onRowClick={p => setLocation(`/patients/${p.id}`)}
+          columns={[
+            {
+              key: "mrn",
+              header: t("mrn"),
+              render: p => <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{p.mrn}</span>,
+            },
+            {
+              key: "name",
+              header: t("name"),
+              render: p => (
                 <div>
-                  <div className="font-medium text-sm">{p.fullName}</div>
-                  {p.fullNameAr && <div className="text-xs text-muted-foreground">{p.fullNameAr}</div>}
+                  <div className="font-medium text-[13px] text-[var(--ink)]">{p.fullName}</div>
+                  {p.fullNameAr && <div className="text-[11px] text-[var(--ink-muted)]">{p.fullNameAr}</div>}
                 </div>
-              )},
-              { key: "gender", header: t("gender"), render: p => <span className="capitalize text-sm">{t(p.gender as any)}</span> },
-              { key: "dob", header: t("dateOfBirth"), render: p => (
-                <span className="text-sm">{formatDate(p.dateOfBirth)} <span className="text-muted-foreground text-xs">({calcAge(p.dateOfBirth)})</span></span>
-              )},
-              { key: "phone", header: t("phone"), render: p => <span className="text-sm">{p.phone}</span> },
-              { key: "blood", header: t("bloodType"), render: p => p.bloodType ? <Badge variant="outline" className="text-xs">{p.bloodType}</Badge> : <span className="text-muted-foreground">-</span> },
-              { key: "status", header: t("status"), render: p => (
-                <Badge variant={p.isActive ? "default" : "secondary"} className="text-xs">
+              ),
+            },
+            { key: "gender",  header: t("gender"),      render: p => <span className="capitalize text-[13px] text-[var(--ink)]">{t(p.gender as any)}</span> },
+            {
+              key: "dob",
+              header: t("dateOfBirth"),
+              render: p => (
+                <span className="text-[13px] text-[var(--ink)]">
+                  {formatDate(p.dateOfBirth)} <span className="text-[11px] text-[var(--ink-muted)]">({calcAge(p.dateOfBirth)})</span>
+                </span>
+              ),
+            },
+            { key: "phone",   header: t("phone"),        render: p => <span className="text-[13px] text-[var(--ink)]">{p.phone}</span> },
+            {
+              key: "blood",
+              header: t("bloodType"),
+              render: p => p.bloodType
+                ? <span className="badge text-[11px]">{p.bloodType}</span>
+                : <span className="text-[var(--ink-faint)]">—</span>,
+            },
+            {
+              key: "status",
+              header: t("status"),
+              render: p => (
+                <span className={`badge text-[11px] ${p.isActive ? "badge-teal" : ""}`}>
                   {p.isActive ? t("active") : t("inactive")}
-                </Badge>
-              )},
-              { key: "actions", header: t("actions"), render: p => (
+                </span>
+              ),
+            },
+            {
+              key: "actions",
+              header: t("actions"),
+              render: p => (
                 <div className="flex gap-1">
                   {["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "") && (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
-                      onClick={(e) => { e.stopPropagation(); setLocation(`/patients/${p.id}`); }}>
+                    <button
+                      className="btn btn-ghost btn-sm h-6 text-xs px-2"
+                      onClick={e => { e.stopPropagation(); setLocation(`/patients/${p.id}`); }}
+                    >
                       {t("view")}
-                    </Button>
+                    </button>
                   )}
                   {["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "") && (
-                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2"
-                      onClick={(e) => { e.stopPropagation(); setLocation(`/patients/${p.id}?edit=true`); }}>
+                    <button
+                      className="btn btn-ghost btn-sm h-6 text-xs px-2"
+                      onClick={e => { e.stopPropagation(); setLocation(`/patients/${p.id}?edit=true`); }}
+                    >
                       {t("edit")}
-                    </Button>
+                    </button>
                   )}
                 </div>
-              )},
-            ]}
-          />
-        </div>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
@@ -242,10 +262,15 @@ export default function Patients() {
               <Input value={form.emergencyContact} onChange={e => setForm(f => ({ ...f, emergencyContact: e.target.value }))} />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>{t("cancel")}</Button>
-              <Button size="sm" onClick={() => createMutation.mutate({ data: form as any })} disabled={createMutation.isPending} data-testid="button-save-patient">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => createMutation.mutate({ data: form as any })}
+                disabled={createMutation.isPending}
+                data-testid="button-save-patient"
+              >
                 {createMutation.isPending ? t("loading") : t("save")}
-              </Button>
+              </button>
             </div>
           </div>
         </DialogContent>

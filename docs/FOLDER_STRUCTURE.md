@@ -13,7 +13,8 @@ Clinic-Hub/
 │   │       │   ├── appointment-state-machine.ts  ← valid status transitions + guard
 │   │       │   ├── audit.ts          ← logAudit(req, action, entityType, entityId) + logRead + logDenied
 │   │       │   ├── auth.ts           ← JWT sign/verify (per-role TTL + fph fingerprint), revokeAllTokensForUser, fingerprintRequest; re-exports MAX_ROLE_TTL_SEC
-│   │       │   ├── auth-constants.ts ← MAX_ROLE_TTL_SEC = 4h (source of truth; avoids ESM circular dep with auth.ts)
+│   │       │   ├── auth-constants.ts ← ROLE_TTL (jose strings) + COOKIE_TTL_MS (ms) + MAX_ROLE_TTL_SEC — single source; drift between JWT expiry and cookie maxAge impossible
+│   │       │   ├── jwt-secret.ts     ← JWT_SECRET (TextEncoder of SESSION_SECRET); production guard; imported by auth.ts + policy.ts — never redeclare inline
 │   │       │   ├── csp.ts            ← cspDirectives export (single source of truth for Helmet + meta tag)
 │   │       │   ├── csrf-cookie.ts    ← setCsrfCookie(res) + clearCsrfCookie(res); 24-byte hex _csrf cookie
 │   │       │   ├── dateUtils.ts      ← date helpers
@@ -85,20 +86,25 @@ Clinic-Hub/
 │   │       │   ├── ultrasound.ts
 │   │       │   ├── users.ts
 │   │       │   └── xray.ts
-│   │       └── tests/
+│   │       └── tests/                ← Vitest unit + Supertest integration (count: see CI badge)
 │   │           ├── appointment-state-machine.test.ts
+│   │           ├── audit.failure.test.ts
 │   │           ├── auth-flow.integration.test.ts  ← supertest: login exempt, logout CSRF, cookie clear, revocation
 │   │           ├── csp.test.ts       ← 11 assertions guarding cspDirectives (script-src regression guard)
+│   │           ├── customFetch.csrf.test.ts
+│   │           ├── envelope.integration.test.ts
 │   │           ├── health.test.ts
 │   │           ├── jsonb-schemas.test.ts
+│   │           ├── mfa-orphans.test.ts
 │   │           ├── password.test.ts
 │   │           ├── policy.unit.test.ts ← 25 tests covering every evaluate() branch (CSRF, token, revocation, jti, fingerprint, role)
 │   │           ├── rateLimiter.test.ts
+│   │           ├── routes.envelope.integration.test.ts
 │   │           ├── scope.test.ts
 │   │           └── validators.test.ts
 │   └── clinic/
 │       └── src/
-│           ├── App.tsx               ← register ALL new routes here; 401 interceptor wires logout
+│           ├── App.tsx               ← register ALL new routes here; 401 interceptor wires logout; root ErrorBoundary; all pages React.lazy() + Suspense (route-level code splitting)
 │           ├── pages/
 │           │   ├── AccessDenied.tsx
 │           │   ├── Appointments.tsx

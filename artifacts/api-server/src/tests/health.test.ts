@@ -122,3 +122,22 @@ describe("readiness probe (/healthz/ready) response shape", () => {
     expect(latencyMs).toBeLessThan(100); // should be near-instant in tests
   });
 });
+
+// ── H7: shutdown drain ────────────────────────────────────────────────────────
+
+describe("[H7] readiness reports 503 once beginShutdown() fires", () => {
+  beforeEach(() => mockPoolQuery.mockReset());
+
+  it("ok=false + checks.shutdown=draining when isShuttingDown() is true", async () => {
+    mockPoolQuery.mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
+    const { checkReadiness } = await import("../services/health.service");
+    const { beginShutdown } = await import("../lib/lifecycle");
+    beginShutdown();
+    const result = await checkReadiness();
+    expect(result.ok).toBe(false);
+    expect(result.checks.shutdown).toEqual({ status: "draining" });
+    // The lifecycle flag is process-wide — no reset hook exists by design
+    // (real shutdown is terminal). Subsequent tests in this file don't read
+    // it, but order-after-this test matters if more were added.
+  });
+});

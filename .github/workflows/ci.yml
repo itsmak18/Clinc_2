@@ -75,6 +75,20 @@ jobs:
           fi
           echo "OK — no raw fetch('/api/...') in clinic pages."
 
+      # Pagination guard: CLAUDE.md mandates cursor pagination ("Never use ?offset").
+      # The Patients + Appointments endpoints migrated from offset → cursor in the
+      # OpenAPI spec; a regression here puts the frontend back on a parameter the
+      # backend silently ignores. Audit-logs is the one intentional offset survivor
+      # and lives in pages/AuditLog.tsx, so it is excluded.
+      - name: Block "offset:" param in clinic pages + components
+        run: |
+          if grep -rnE "\boffset:\s*[0-9]" artifacts/clinic/src/pages/ artifacts/clinic/src/components/ \
+               --exclude=AuditLog.tsx ; then
+            echo "::error::offset: pagination is forbidden — use cursor per CLAUDE.md. AuditLog.tsx is the only intentional exception."
+            exit 1
+          fi
+          echo "OK — no offset:N pagination params in clinic pages/components."
+
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
@@ -172,11 +186,44 @@ jobs:
       - name: Build all packages
         run: pnpm -r --if-present run build
 
+  # ── 7. Migration Drift Check ──────────────────────────────────────────────────
+  # Fails if a schema change was pushed without a corresponding migration file.
+  # Runs drizzle-kit generate (no DB needed) and checks whether any new SQL
+  # was produced. If the migrations/ directory changed, the schema is ahead of
+  # its migration history — the developer must run db:generate and commit.
+  migration-drift:
+    name: Migration Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Check for uncommitted migration drift
+        run: |
+          pnpm --filter @workspace/db run db:generate
+          if ! git diff --quiet lib/db/migrations/; then
+            echo "::error::Schema drift detected — run 'pnpm --filter @workspace/db run db:generate' and commit the new migration file."
+            git diff --name-only lib/db/migrations/
+            exit 1
+          fi
+          echo "OK — no migration drift."
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -186,7 +233,8 @@ jobs:
                 "${{ needs.test.result }}" != "success" ||
                 "${{ needs.audit.result }}" != "success" ||
                 "${{ needs.secrets-scan.result }}" != "success" ||
-                "${{ needs.build.result }}" != "success" ]]; then
+                "${{ needs.build.result }}" != "success" ||
+                "${{ needs.migration-drift.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

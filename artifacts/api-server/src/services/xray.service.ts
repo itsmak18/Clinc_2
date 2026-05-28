@@ -1,8 +1,7 @@
 import { db } from "@workspace/db";
 import { xrayRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
-import { eq, isNull, desc, and, inArray } from "drizzle-orm";
+import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
-import { safeParseInt } from "../lib/validators";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
@@ -10,23 +9,25 @@ import type { AuthRequest } from "../middlewares/auth";
 
 export async function listXrays(
   req: AuthRequest,
-  params: { status?: string; patientId?: string; limit?: string; offset?: string },
+  params: { status?: string; patientId?: string; limit?: string; cursor?: string },
 ) {
-  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 200);
-  const off = parseInt(params.offset ?? "0") || 0;
-  const conditions: any[] = [isNull(xrayRecordsTable.deletedAt)];
+  const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
+  const conditions: any[] = [isNull(xrayRecordsTable.deletedAt), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
 
   if (isDoctorScoped(req.user?.role)) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) return [];
+    if (allowed.length === 0) return { data: [], nextCursor: null };
     conditions.push(inArray(xrayRecordsTable.patientId, allowed));
   }
 
   if (params.status) conditions.push(eq(xrayRecordsTable.status, params.status as any));
   if (params.patientId) {
-    const pid = safeParseInt(params.patientId);
-    if (!pid) throw new ValidationError("Invalid patientId");
-    conditions.push(eq(xrayRecordsTable.patientId, pid));
+    const pid = parseInt(params.patientId);
+    if (!isNaN(pid)) conditions.push(eq(xrayRecordsTable.patientId, pid));
+  }
+  if (params.cursor) {
+    const cursorId = parseInt(params.cursor);
+    if (!isNaN(cursorId)) conditions.push(lt(xrayRecordsTable.id, cursorId));
   }
 
   const rows = await db.select({
@@ -46,30 +47,33 @@ export async function listXrays(
     .leftJoin(patientsTable, eq(xrayRecordsTable.patientId, patientsTable.id))
     .leftJoin(usersTable, eq(xrayRecordsTable.requestedById, usersTable.id))
     .where(and(...conditions))
-    .orderBy(desc(xrayRecordsTable.createdAt))
-    .limit(lim).offset(off);
+    .orderBy(desc(xrayRecordsTable.id))
+    .limit(lim);
 
+  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "xray", undefined, { count: rows.length });
-  return rows;
+  return { data: rows, nextCursor };
 }
 
 export async function createXray(
   req: AuthRequest,
-  data: { patientId: number; requestedById: number; bodyPart: string; notes?: string; appointmentId?: number },
+  data: { patientId: number | string; requestedById: number | string; bodyPart: string; notes?: string; appointmentId?: number | string },
 ) {
   if (!data.patientId || !data.requestedById || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
   }
   const [xray] = await db.insert(xrayRecordsTable).values({
-    patientId: data.patientId, requestedById: data.requestedById, bodyPart: data.bodyPart,
-    notes: data.notes, appointmentId: data.appointmentId ?? null,
+    clinicId: req.user!.clinicId,
+    patientId: Number(data.patientId), requestedById: Number(data.requestedById), bodyPart: data.bodyPart,
+    notes: data.notes, appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
   }).returning();
   await logAudit(req, "CREATE", "xray", xray.id);
   return xray;
 }
 
 export async function getXray(req: AuthRequest, xrayId: number) {
-  const [xray] = await db.select().from(xrayRecordsTable).where(eq(xrayRecordsTable.id, xrayId));
+  const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
+  const [xray] = await db.select().from(xrayRecordsTable).where(and(...conditions));
   if (!xray) throw new NotFoundError("xray record", xrayId);
 
   if (isDoctorScoped(req.user?.role)) {
@@ -86,9 +90,10 @@ export async function updateXray(
   xrayId: number,
   data: { imageUrl?: string; imageFileName?: string; report?: string; status?: string; performedById?: number },
 ) {
+  const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
   const [xray] = await db.update(xrayRecordsTable)
     .set({ ...data, status: data.status as any, updatedAt: new Date() })
-    .where(eq(xrayRecordsTable.id, xrayId))
+    .where(and(...conditions))
     .returning();
   if (!xray) throw new NotFoundError("xray record", xrayId);
 

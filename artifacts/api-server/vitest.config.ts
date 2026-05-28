@@ -11,6 +11,7 @@ export default defineConfig({
     environment: "node",
     pool: "forks", // ESM-safe pool
     globals: true,
+    setupFiles: ["./src/tests/setup.env.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, CalendarDays, FileText, Pill, Scan, FlaskConical,
   Receipt, Scissors, Package, BarChart3, Bell, Shield, Settings,
-  Activity, UserCog, Waves, CalendarRange
+  Activity, UserCog, Waves, CalendarRange, Stethoscope, ClipboardList, UserCheck, Inbox
 } from "lucide-react";
 import type { UserRole } from "@/hooks/auth";
 
@@ -19,6 +19,48 @@ export const navItems: NavItem[] = [
     href: "/dashboard",
     icon: LayoutDashboard,
     labelKey: "dashboard",
+  },
+  {
+    key: "today",
+    href: "/today",
+    icon: LayoutDashboard,
+    labelKey: "today",
+    roles: ["doctor"],
+  },
+  {
+    key: "consult",
+    href: "/consult",
+    icon: Stethoscope,
+    labelKey: "consult",
+    roles: ["doctor"],
+  },
+  {
+    key: "orders",
+    href: "/orders",
+    icon: ClipboardList,
+    labelKey: "orders",
+    roles: ["doctor"],
+  },
+  {
+    key: "inbox",
+    href: "/inbox",
+    icon: Inbox,
+    labelKey: "inbox",
+    roles: ["doctor"],
+  },
+  {
+    key: "checkin",
+    href: "/checkin",
+    icon: UserCheck,
+    labelKey: "checkin",
+    roles: ["super_admin", "admin", "front_desk"],
+  },
+  {
+    key: "vitals",
+    href: "/vitals",
+    icon: Activity,
+    labelKey: "vitalsTab",
+    roles: ["super_admin", "admin", "nurse"],
   },
   {
     key: "patients",
@@ -142,8 +184,9 @@ export const navItems: NavItem[] = [
 
 export function getLandingRoute(role: UserRole): string {
   switch (role) {
+    case "doctor":             return "/today";
     case "nurse":              return "/triage";
-    case "front_desk":         return "/appointments";
+    case "front_desk":         return "/checkin";
     case "xray_staff":         return "/xray";
     case "lab_staff":          return "/lab";
     case "compliance_officer": return "/audit";
@@ -154,14 +197,14 @@ export function getLandingRoute(role: UserRole): string {
 }
 
 export const navPinnedByRole: Partial<Record<UserRole, string[]>> = {
-  nurse:              ["triage", "patients", "appointments"],
-  front_desk:         ["appointments", "patients", "billing"],
+  nurse:              ["triage", "vitals", "patients", "appointments"],
+  front_desk:         ["checkin", "appointments", "patients", "billing"],
   xray_staff:         ["xray", "patients", "appointments"],
   lab_staff:          ["lab", "patients", "appointments"],
   compliance_officer: ["audit"],
   billing_manager:    ["billing"],
   pharmacist:         ["prescriptions"],
-  doctor:             ["patients", "appointments", "medical-records"],
+  doctor:             ["today", "schedule", "patients", "consult", "orders", "inbox"],
 };
 
 export function canAccessRoute(href: string, role: UserRole): boolean {

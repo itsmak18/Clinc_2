@@ -1,0 +1,70 @@
+name: SBOM (CycloneDX)
+
+# Generates a Software Bill of Materials in CycloneDX JSON format. Required
+# for HIPAA/SOC2 audits and useful for downstream supply-chain queries
+# ("which version of package X are we shipping?", "which CVE affects which
+# release?").
+#
+# Triggers:
+#   - push to main: archives SBOM as workflow artifact (90-day retention)
+#   - release published: attaches SBOM to the release assets for permanence
+#
+# Tool: Anchore Syft via the official GitHub Action. Works with pnpm
+# workspaces directly — no need to coax @cyclonedx/cyclonedx-npm into the
+# pnpm structure.
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Generate CycloneDX SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required to upload release assets
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install deps so Syft can resolve the full pnpm tree (catalog packages,
+      # workspace links, etc.). --ignore-scripts mirrors the rest of CI.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: cyclonedx-json
+          output-file: medicore-sbom.cdx.json
+          # Scan the whole workspace (catches all artifacts/* and lib/* deps).
+          path: .
+
+      - name: Archive SBOM as workflow artifact
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: medicore-sbom-${{ github.sha }}
+          path: medicore-sbom.cdx.json
+          retention-days: 90
+
+      - name: Attach SBOM to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: medicore-sbom.cdx.json

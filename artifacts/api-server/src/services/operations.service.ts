@@ -7,7 +7,7 @@ import { NotFoundError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
 export async function listOperations(req: AuthRequest, status?: string) {
-  const conditions: any[] = [isNull(operationsTable.deletedAt)];
+  const conditions: any[] = [isNull(operationsTable.deletedAt), eq(operationsTable.clinicId, req.user!.clinicId)];
   if (status) conditions.push(eq(operationsTable.status, status as any));
 
   return db
@@ -33,10 +33,11 @@ export async function listOperations(req: AuthRequest, status?: string) {
 }
 
 export async function getOperation(req: AuthRequest, id: number) {
+  const conditions: any[] = [eq(operationsTable.id, id), isNull(operationsTable.deletedAt), eq(operationsTable.clinicId, req.user!.clinicId)];
   const [operation] = await db
     .select()
     .from(operationsTable)
-    .where(and(eq(operationsTable.id, id), isNull(operationsTable.deletedAt)));
+    .where(and(...conditions));
   if (!operation) throw new NotFoundError("Operation not found");
   return operation;
 }
@@ -44,8 +45,8 @@ export async function getOperation(req: AuthRequest, id: number) {
 export async function createOperation(
   req: AuthRequest,
   body: {
-    patientId?: number;
-    surgeonId?: number;
+    patientId?: string;
+    surgeonId?: string;
     procedureName?: string;
     scheduledAt?: string;
     operatingRoom?: string;
@@ -66,8 +67,9 @@ export async function createOperation(
   const [operation] = await db
     .insert(operationsTable)
     .values({
-      patientId,
-      surgeonId,
+      clinicId: req.user!.clinicId,
+      patientId: Number(patientId),
+      surgeonId: Number(surgeonId),
       procedureName,
       scheduledAt: new Date(scheduledAt),
       operatingRoom,
@@ -99,10 +101,12 @@ export async function updateOperation(
     updateData.staffAssigned = parsedStaff.data;
   }
 
+  const conditions: any[] = [eq(operationsTable.id, id), isNull(operationsTable.deletedAt), eq(operationsTable.clinicId, req.user!.clinicId)];
+
   const [operation] = await db
     .update(operationsTable)
     .set(updateData)
-    .where(and(eq(operationsTable.id, id), isNull(operationsTable.deletedAt)))
+    .where(and(...conditions))
     .returning();
 
   if (!operation) throw new NotFoundError("Operation not found");

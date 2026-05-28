@@ -1,0 +1,320 @@
+# ── Production Docker Compose ─────────────────────────────────────────────────
+# DO NOT use `docker-compose.yml` for production deployment. That file is
+# dev-friendly (exposed DB ports, default-able secrets). This file enforces
+# the hardening required for a real deployment.
+#
+# Required before `docker compose -f docker-compose.prod.yml up`:
+#   1. .env populated from .env.prod.example with strong values
+#   2. ./secrets/ files exist (chmod 0600, owned by deploy user):
+#        ./secrets/postgres_password
+#        ./secrets/session_secret            — 64 hex chars (HMAC key for device fingerprinting)
+#                                              node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#        ./secrets/field_encryption_key      — 64 hex chars (AES-256-GCM; LOSING THIS = TOTAL PHI LOSS)
+#                                              node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#                                              Escrow before first prod boot.
+#        ./secrets/metrics_token             — opaque token for /metrics bearer auth
+#                                              openssl rand -hex 32
+#        ./secrets/jwt_private_key           — Ed25519 PKCS8 PEM (signs JWTs; rotate quarterly)
+#                                              node -e "const c=require('crypto');const {privateKey}=c.generateKeyPairSync('ed25519',{privateKeyEncoding:{type:'pkcs8',format:'pem'}});process.stdout.write(privateKey)" > ./secrets/jwt_private_key
+#        ./secrets/jwt_public_key            — Ed25519 SPKI PEM (advertised via /.well-known/jwks.json)
+#                                              node -e "const c=require('crypto');const {publicKey}=c.generateKeyPairSync('ed25519',{publicKeyEncoding:{type:'spki',format:'pem'}});process.stdout.write(publicKey)" > ./secrets/jwt_public_key
+#                                              IMPORTANT: jwt_private_key and jwt_public_key must be a matched pair.
+#                                              Use the rotation script to generate both atomically: see SECURITY.md §JWT key rotation.
+#   3. TLS termination in front of this stack (see Caddy block below or D1 plan item)
+#
+# Pre-flight validation:
+#   docker compose -f docker-compose.prod.yml config            # rejects on missing :? secrets
+#   docker compose -f docker-compose.prod.yml --env-file .env config
+
+services:
+
+  # ── PostgreSQL 16 ───────────────────────────────────────────────────────────
+  postgres:
+    # Pin by digest for reproducibility (C4). Populate digest from:
+    #   docker pull postgres:16-alpine && docker inspect --format='{{index .RepoDigests 0}}' postgres:16-alpine
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB:            ${POSTGRES_DB:?POSTGRES_DB required}
+      POSTGRES_USER:          ${POSTGRES_USER:?POSTGRES_USER required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # NO ports: published — postgres reachable only on internal docker network (A4)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 2g
+    cpus: 1.5
+    pids_limit: 200
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── Redis 7 ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+      --save 60 1
+      --loglevel warning
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    # NO ports: published (A4)
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 768m
+    cpus: 0.5
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── Database migration (run-once init container) ────────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    entrypoint: ["sh", "-c"]
+    # DATABASE_URL composed at run time so the password file stays out of
+    # `docker inspect` output. ${VARS} interpolated by compose at parse time.
+    command:
+      - |
+        export DATABASE_URL="postgresql://${POSTGRES_USER:?POSTGRES_USER required}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB:?POSTGRES_DB required}"
+        exec pnpm --filter @workspace/db run db:migrate
+    secrets:
+      - postgres_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 512m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── API Server ───────────────────────────────────────────────────────────────
+  # Secret-handling note: SESSION_SECRET, FIELD_ENCRYPTION_KEY, METRICS_TOKEN,
+  # JWT_PRIVATE_KEY, and JWT_PUBLIC_KEY are NOT in the `environment:` block —
+  # they would be visible to anyone who can run `docker inspect medicore-api`.
+  # Instead they live in `./secrets/*` (mode 0600), are mounted at /run/secrets/*
+  # by compose, and are read by the entrypoint script below. This way the container
+  # sees them but the host's `docker inspect` does not.
+  # The legacy JWT_SECRET env var was removed — signing now uses EdDSA via
+  # JWT_PRIVATE_KEY/JWT_PUBLIC_KEY. SESSION_SECRET is the HMAC key for
+  # device fingerprinting only (lib/device-fingerprint.ts).
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      NODE_ENV:        production
+      PORT:            "5000"
+      # DATABASE_URL, SESSION_SECRET, FIELD_ENCRYPTION_KEY, METRICS_TOKEN are
+      # all composed/loaded at runtime in the entrypoint script below — that
+      # keeps the values out of `docker inspect` output.
+      REDIS_URL:       redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379
+      SESSION_STORE:   redis
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
+      DB_POOL_MAX:     ${DB_POOL_MAX:-20}
+    entrypoint: ["sh", "-c"]
+    # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
+    # $$( ) escapes so command-substitution happens inside the container at run time.
+    # `set -eu` makes a missing/empty secret file a hard fail before exec node — the
+    # alternative is the process starting with an empty JWT/encryption key.
+    command:
+      - |
+        set -eu
+        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key; do
+          test -s "/run/secrets/$$s" || { echo "FATAL: /run/secrets/$$s missing or empty" >&2; exit 1; }
+        done
+        export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
+        export SESSION_SECRET="$$(cat /run/secrets/session_secret)"
+        export FIELD_ENCRYPTION_KEY="$$(cat /run/secrets/field_encryption_key)"
+        export METRICS_TOKEN="$$(cat /run/secrets/metrics_token)"
+        export JWT_PRIVATE_KEY="$$(cat /run/secrets/jwt_private_key)"
+        export JWT_PUBLIC_KEY="$$(cat /run/secrets/jwt_public_key)"
+        exec node --enable-source-maps dist/index.mjs
+    secrets:
+      - postgres_password
+      - session_secret
+      - field_encryption_key
+      - metrics_token
+      - jwt_private_key
+      - jwt_public_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # NO ports: published — api reachable only via clinic (nginx) on internal network
+    # Docker's default stop timeout is 10s — far too short for the graceful
+    # shutdown sequence (DRAIN_GRACE_MS=3s + SSE_DRAIN_MS=10s + pool drain).
+    # stop_grace_period must exceed SHUTDOWN_TIMEOUT_MS (30s) so Docker never
+    # SIGKILL mid-drain. Set to 35s for a 5s margin.
+    stop_grace_period: 35s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 200
+    # C3: read-only rootfs + tmpfs for /tmp; drop all caps
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+      - frontend
+
+  # ── Clinic Frontend (nginx) ──────────────────────────────────────────────────
+  clinic:
+    build:
+      context: .
+      dockerfile: Dockerfile.clinic
+    restart: always
+    depends_on:
+      api:
+        condition: service_healthy
+    # In prod, clinic is reachable from Caddy/Traefik only (D1).
+    # If running without an edge proxy, change to "80:80" — but you then lose TLS.
+    expose:
+      - "80"
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 100
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - frontend
+
+  # ── Caddy reverse proxy (D1: automatic TLS via Let's Encrypt) ────────────────
+  # Supersedes the C5 nginx TLS work. Caddy obtains + renews certs automatically.
+  # Requires DNS A/AAAA records pointing CADDY_DOMAIN to this host's public IP.
+  # Inbound :80 + :443 must be reachable for HTTP-01 challenge (or use DNS-01
+  # by adding a Caddyfile snippet with your DNS provider's plugin).
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:?CADDY_DOMAIN required (e.g., clinic.example.com)}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      clinic:
+        condition: service_started
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 100
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - frontend
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+# Two-tier network: backend (postgres+redis+api+migrate) is invisible to caddy.
+# frontend (caddy+clinic+api) is the only path inbound traffic can take.
+networks:
+  backend:
+    driver: bridge
+    internal: false   # api needs egress for Resend/HIBP/etc.; flip true for stricter isolation
+  frontend:
+    driver: bridge
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:       # ACME account + issued certs (PRESERVE THIS)
+  caddy_config:
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# All files: mode 0600 owned by the deploy user. Never check into git.
+# Generators (run once per secret, then escrow safely):
+#   openssl rand -base64 48 > ./secrets/postgres_password
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/session_secret
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/field_encryption_key
+#   openssl rand -hex 32 > ./secrets/metrics_token
+#   # JWT key pair — generate both atomically:
+#   node -e "const c=require('crypto');const kp=c.generateKeyPairSync('ed25519',{privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});require('fs').writeFileSync('./secrets/jwt_private_key',kp.privateKey);require('fs').writeFileSync('./secrets/jwt_public_key',kp.publicKey)"
+# Then: chmod 600 ./secrets/*
+# Rotation: see SECURITY.md §"JWT key rotation" and §"Secret rotation".
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  session_secret:
+    file: ./secrets/session_secret
+  field_encryption_key:
+    file: ./secrets/field_encryption_key
+  metrics_token:
+    file: ./secrets/metrics_token
+  jwt_private_key:
+    file: ./secrets/jwt_private_key
+  jwt_public_key:
+    file: ./secrets/jwt_public_key

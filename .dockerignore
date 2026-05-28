@@ -1,0 +1,46 @@
+# Version control
+.git
+.gitignore
+
+# Secrets — never bake into images
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Local dev output
+node_modules
+**/node_modules
+**/.pnpm-store
+
+# Build outputs (rebuilt inside Docker)
+**/dist
+artifacts/clinic/dist
+artifacts/api-server/dist
+lib/db/dist
+
+# Test / coverage artifacts
+**/coverage
+**/.vitest
+
+# Editor + OS noise
+.vscode
+.idea
+*.DS_Store
+Thumbs.db
+
+# Docs (not needed in the image)
+docs/
+attached_assets/
+
+# Mockup sandbox (dev-only artifact)
+artifacts/mockup-sandbox/
+
+# Scripts workspace (seed / backup — not needed at runtime)
+scripts/
+
+# Backup storage
+backups/
+
+# Log files
+*.log
