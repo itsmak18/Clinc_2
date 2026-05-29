@@ -62,7 +62,8 @@ async function buildAll() {
       "@swc/*",
       "@aws-sdk/*",
       "@azure/*",
-      "@opentelemetry/*",
+      // @opentelemetry/* intentionally NOT externalized — bundled into dist/index.mjs
+      // so the minimal runtime image does not need node_modules/@opentelemetry present.
       "@google-cloud/*",
       "@google/*",
       "googleapis",

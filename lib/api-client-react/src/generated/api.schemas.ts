@@ -41,6 +41,92 @@ export interface User {
 
 export interface LoginResponse {
   user: User;
+  /** True when Phase 2 is active and the device is newly trusted but the email link has not yet been clicked (allow_unverified path for non-privileged roles). */
+  deviceUnverified?: boolean;
+}
+
+export type PendingVerificationResponseStatus =
+  (typeof PendingVerificationResponseStatus)[keyof typeof PendingVerificationResponseStatus];
+
+export const PendingVerificationResponseStatus = {
+  pending_verification: "pending_verification",
+} as const;
+
+/**
+ * Returned HTTP 202 when Phase 2 is active and a privileged-role user logs in from an unrecognised device. No session is issued. The user should check their email.
+ */
+export interface PendingVerificationResponse {
+  status: PendingVerificationResponseStatus;
+  message: string;
+}
+
+export interface DeviceTokenBody {
+  /**
+   * @minLength 16
+   * @maxLength 256
+   */
+  token: string;
+}
+
+export interface VerifyDeviceResponse {
+  user: User;
+}
+
+export interface Device {
+  deviceId: string;
+  firstSeen: string;
+  lastSeen: string;
+  ipLast?: string | null;
+  countryLast?: string | null;
+  trusted: boolean;
+  trustSource?: string | null;
+  trustExpiresAt?: string | null;
+}
+
+export interface DeviceListResponse {
+  devices: Device[];
+}
+
+export interface ForgotPasswordBody {
+  /**
+   * @minLength 1
+   * @maxLength 64
+   */
+  username: string;
+}
+
+export type ForgotPasswordResponseStatus =
+  (typeof ForgotPasswordResponseStatus)[keyof typeof ForgotPasswordResponseStatus];
+
+export const ForgotPasswordResponseStatus = {
+  pending_verification: "pending_verification",
+} as const;
+
+/**
+ * Always returned regardless of whether the account exists (enumeration prevention).
+ */
+export interface ForgotPasswordResponse {
+  status: ForgotPasswordResponseStatus;
+  message: string;
+}
+
+export interface ResetPasswordBody {
+  /**
+   * @minLength 16
+   * @maxLength 256
+   */
+  token: string;
+  /**
+   * @minLength 8
+   * @maxLength 256
+   */
+  newPassword: string;
+}
+
+export interface AdminResetResponse {
+  rawToken: string;
+  expiresAt: string;
+  note: string;
 }
 
 export type CreateUserBodyRole =
@@ -88,7 +174,7 @@ export interface UpdateUserBody {
   phone?: string;
 }
 
-export interface ResetPasswordBody {
+export interface UserPasswordResetBody {
   newPassword: string;
 }
 
@@ -1105,6 +1191,35 @@ export interface WeekResponse {
   days: WeekDay[];
 }
 
+export interface ClinicNotice {
+  id: number;
+  clinicId: number;
+  title: string;
+  content: string;
+  createdBy: number;
+  reason: string;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedClinicNotices {
+  data: ClinicNotice[];
+  nextCursor: number | null;
+}
+
+export interface CreateClinicNoticeBody {
+  /**
+   * @minLength 5
+   * @maxLength 200
+   */
+  title: string;
+  /** @minLength 10 */
+  content: string;
+  /** @minLength 20 */
+  reason: string;
+}
+
 export type ListUsersParams = {
   role?: ListUsersRole;
   isActive?: boolean;
@@ -1165,6 +1280,11 @@ export const ListAppointmentsStatus = {
 export type ListMedicalRecordsParams = {
   patientId?: number;
   doctorId?: number;
+};
+
+export type ListClinicNoticesParams = {
+  limit?: number;
+  cursor?: string;
 };
 
 export type ListPrescriptionsParams = {
@@ -1309,3 +1429,42 @@ export type GetScheduleWeekParams = {
   doctorId: number;
   weekStart: string;
 };
+
+export type ReportWasntMe200Status =
+  (typeof ReportWasntMe200Status)[keyof typeof ReportWasntMe200Status];
+
+export const ReportWasntMe200Status = {
+  revoked: "revoked",
+} as const;
+
+export type ReportWasntMe200 = {
+  status: ReportWasntMe200Status;
+};
+
+export type ResetPassword200Status =
+  (typeof ResetPassword200Status)[keyof typeof ResetPassword200Status];
+
+export const ResetPassword200Status = {
+  reset_complete: "reset_complete",
+} as const;
+
+export type ResetPassword200 = {
+  status: ResetPassword200Status;
+};
+
+export type RevokeDevice200Status =
+  (typeof RevokeDevice200Status)[keyof typeof RevokeDevice200Status];
+
+export const RevokeDevice200Status = {
+  revoked: "revoked",
+} as const;
+
+export type RevokeDevice200 = {
+  status: RevokeDevice200Status;
+};
+
+export type SubmitCspReportBodyOne = { [key: string]: unknown };
+
+export type SubmitCspReportBodyTwoItem = { [key: string]: unknown };
+
+export type SubmitCspReportBodyThree = { [key: string]: unknown };

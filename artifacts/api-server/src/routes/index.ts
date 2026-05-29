@@ -5,6 +5,7 @@ import usersRouter from "./users";
 import patientsRouter from "./patients";
 import appointmentsRouter from "./appointments";
 import medicalRecordsRouter from "./medical_records";
+import clinicNoticesRouter from "./clinic_notices";
 import prescriptionsRouter from "./prescriptions";
 import xrayRouter from "./xray";
 import ultrasoundRouter from "./ultrasound";
@@ -31,10 +32,17 @@ const router: IRouter = Router();
 router.use(jwksRouter);
 router.use(healthRouter);
 router.use(authRouter);
+// Phase 2 anonymous routes must be registered BEFORE any router that mounts a
+// global `router.use(requireAuth)`, otherwise the catch-all auth middleware
+// intercepts unauthenticated requests intended for these public endpoints.
+router.use(devicesRouter);
+router.use(passwordResetRouter);
+router.use(cspReportRouter);
 router.use(usersRouter);
 router.use(patientsRouter);
 router.use(appointmentsRouter);
 router.use(medicalRecordsRouter);
+router.use(clinicNoticesRouter);
 router.use(prescriptionsRouter);
 router.use(xrayRouter);
 router.use(ultrasoundRouter);
@@ -51,8 +59,5 @@ router.use(scheduleRouter);
 router.use(consentRouter);
 router.use(breakGlassRouter);
 router.use(erasureRouter);
-router.use(devicesRouter);
-router.use(passwordResetRouter);
-router.use(cspReportRouter);
 
 export default router;

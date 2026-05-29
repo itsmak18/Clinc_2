@@ -63,18 +63,22 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
-      --save 60 1
-      --loglevel warning
-      --maxmemory 512mb
-      --maxmemory-policy allkeys-lru
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        exec redis-server \
+          --requirepass "$$(cat /run/secrets/redis_password)" \
+          --save 60 1 \
+          --loglevel warning \
+          --maxmemory 512mb \
+          --maxmemory-policy allkeys-lru
+    secrets:
+      - redis_password
     volumes:
       - redis_data:/data
     # NO ports: published (A4)
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -120,11 +124,12 @@ services:
 
   # ── API Server ───────────────────────────────────────────────────────────────
   # Secret-handling note: SESSION_SECRET, FIELD_ENCRYPTION_KEY, METRICS_TOKEN,
-  # JWT_PRIVATE_KEY, and JWT_PUBLIC_KEY are NOT in the `environment:` block —
-  # they would be visible to anyone who can run `docker inspect medicore-api`.
-  # Instead they live in `./secrets/*` (mode 0600), are mounted at /run/secrets/*
-  # by compose, and are read by the entrypoint script below. This way the container
-  # sees them but the host's `docker inspect` does not.
+  # JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, and REDIS_PASSWORD are NOT in the
+  # `environment:` block — they would be visible to anyone who can run
+  # `docker inspect medicore-api`. Instead they live in `./secrets/*` (mode
+  # 0600), are mounted at /run/secrets/* by compose, and are read by the
+  # entrypoint script below. This way the container sees them but the host's
+  # `docker inspect` does not.
   # The legacy JWT_SECRET env var was removed — signing now uses EdDSA via
   # JWT_PRIVATE_KEY/JWT_PUBLIC_KEY. SESSION_SECRET is the HMAC key for
   # device fingerprinting only (lib/device-fingerprint.ts).
@@ -136,10 +141,10 @@ services:
     environment:
       NODE_ENV:        production
       PORT:            "5000"
-      # DATABASE_URL, SESSION_SECRET, FIELD_ENCRYPTION_KEY, METRICS_TOKEN are
-      # all composed/loaded at runtime in the entrypoint script below — that
-      # keeps the values out of `docker inspect` output.
-      REDIS_URL:       redis://:${REDIS_PASSWORD:?REDIS_PASSWORD required}@redis:6379
+      # DATABASE_URL, SESSION_SECRET, FIELD_ENCRYPTION_KEY, METRICS_TOKEN,
+      # JWT_PRIVATE_KEY, JWT_PUBLIC_KEY, and REDIS_URL are all composed/loaded
+      # at runtime in the entrypoint script below — keeps values out of
+      # `docker inspect` output.
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
       DB_POOL_MAX:     ${DB_POOL_MAX:-20}
@@ -151,7 +156,7 @@ services:
     command:
       - |
         set -eu
-        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key; do
+        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
           test -s "/run/secrets/$$s" || { echo "FATAL: /run/secrets/$$s missing or empty" >&2; exit 1; }
         done
         export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
@@ -160,6 +165,7 @@ services:
         export METRICS_TOKEN="$$(cat /run/secrets/metrics_token)"
         export JWT_PRIVATE_KEY="$$(cat /run/secrets/jwt_private_key)"
         export JWT_PUBLIC_KEY="$$(cat /run/secrets/jwt_public_key)"
+        export REDIS_URL="redis://:$$(cat /run/secrets/redis_password)@redis:6379"
         exec node --enable-source-maps dist/index.mjs
     secrets:
       - postgres_password
@@ -168,6 +174,7 @@ services:
       - metrics_token
       - jwt_private_key
       - jwt_public_key
+      - redis_password
     depends_on:
       postgres:
         condition: service_healthy
@@ -298,6 +305,7 @@ volumes:
 # All files: mode 0600 owned by the deploy user. Never check into git.
 # Generators (run once per secret, then escrow safely):
 #   openssl rand -base64 48 > ./secrets/postgres_password
+#   openssl rand -base64 48 > ./secrets/redis_password
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/session_secret
 #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/field_encryption_key
 #   openssl rand -hex 32 > ./secrets/metrics_token
@@ -308,6 +316,8 @@ volumes:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  redis_password:
+    file: ./secrets/redis_password
   session_secret:
     file: ./secrets/session_secret
   field_encryption_key:

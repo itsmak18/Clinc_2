@@ -43,6 +43,12 @@ export const LoginResponse = zod.object({
     phone: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
+  deviceUnverified: zod
+    .boolean()
+    .optional()
+    .describe(
+      "True when Phase 2 is active and the device is newly trusted but the email link has not yet been clicked (allow_unverified path for non-privileged roles).",
+    ),
 });
 
 /**
@@ -2196,6 +2202,57 @@ export const UpdateMedicalRecordResponse = zod.object({
 });
 
 /**
+ * @summary List clinic-wide advisory notices
+ */
+export const ListClinicNoticesQueryParams = zod.object({
+  limit: zod.coerce.number().optional(),
+  cursor: zod.coerce.string().optional(),
+});
+
+export const ListClinicNoticesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      clinicId: zod.number(),
+      title: zod.string(),
+      content: zod.string(),
+      createdBy: zod.number(),
+      reason: zod.string(),
+      deletedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
+});
+
+/**
+ * @summary Create a clinic-wide advisory notice (super_admin only)
+ */
+export const createClinicNoticeBodyTitleMin = 5;
+export const createClinicNoticeBodyTitleMax = 200;
+
+export const createClinicNoticeBodyContentMin = 10;
+
+export const createClinicNoticeBodyReasonMin = 20;
+
+export const CreateClinicNoticeBody = zod.object({
+  title: zod
+    .string()
+    .min(createClinicNoticeBodyTitleMin)
+    .max(createClinicNoticeBodyTitleMax),
+  content: zod.string().min(createClinicNoticeBodyContentMin),
+  reason: zod.string().min(createClinicNoticeBodyReasonMin),
+});
+
+/**
+ * @summary Soft-delete a clinic notice (super_admin only)
+ */
+export const DeleteClinicNoticeParams = zod.object({
+  noticeId: zod.coerce.number(),
+});
+
+/**
  * @summary List prescriptions
  */
 export const ListPrescriptionsQueryParams = zod.object({
@@ -4169,3 +4226,145 @@ export const GetScheduleWeekResponse = zod.object({
     }),
   ),
 });
+
+/**
+ * @summary Consume a device verification token and issue a session
+ */
+export const verifyDeviceBodyTokenMin = 16;
+export const verifyDeviceBodyTokenMax = 256;
+
+export const VerifyDeviceBody = zod.object({
+  token: zod
+    .string()
+    .min(verifyDeviceBodyTokenMin)
+    .max(verifyDeviceBodyTokenMax),
+});
+
+export const VerifyDeviceResponse = zod.object({
+  user: zod.object({
+    id: zod.number(),
+    username: zod.string(),
+    fullName: zod.string(),
+    fullNameAr: zod.string().optional(),
+    email: zod.string().optional(),
+    role: zod.enum([
+      "super_admin",
+      "admin",
+      "doctor",
+      "nurse",
+      "front_desk",
+      "xray_staff",
+      "lab_staff",
+    ]),
+    isActive: zod.boolean(),
+    isOnShift: zod.boolean(),
+    phone: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+  }),
+});
+
+/**
+ * @summary Kill-switch — revoke all sessions and flag the device as rejected
+ */
+export const reportWasntMeBodyTokenMin = 16;
+export const reportWasntMeBodyTokenMax = 256;
+
+export const ReportWasntMeBody = zod.object({
+  token: zod
+    .string()
+    .min(reportWasntMeBodyTokenMin)
+    .max(reportWasntMeBodyTokenMax),
+});
+
+export const ReportWasntMeResponse = zod.object({
+  status: zod.enum(["revoked"]),
+});
+
+/**
+ * @summary Request a self-service password reset link (byte-identical response — no enumeration)
+ */
+export const forgotPasswordBodyUsernameMax = 64;
+
+export const ForgotPasswordBody = zod.object({
+  username: zod.string().min(1).max(forgotPasswordBodyUsernameMax),
+});
+
+export const ForgotPasswordResponse = zod
+  .object({
+    status: zod.enum(["pending_verification"]),
+    message: zod.string(),
+  })
+  .describe(
+    "Always returned regardless of whether the account exists (enumeration prevention).",
+  );
+
+/**
+ * @summary Consume a reset token and set a new password
+ */
+export const resetPasswordBodyTokenMin = 16;
+export const resetPasswordBodyTokenMax = 256;
+
+export const resetPasswordBodyNewPasswordMin = 8;
+export const resetPasswordBodyNewPasswordMax = 256;
+
+export const ResetPasswordBody = zod.object({
+  token: zod
+    .string()
+    .min(resetPasswordBodyTokenMin)
+    .max(resetPasswordBodyTokenMax),
+  newPassword: zod
+    .string()
+    .min(resetPasswordBodyNewPasswordMin)
+    .max(resetPasswordBodyNewPasswordMax),
+});
+
+export const ResetPasswordResponse = zod.object({
+  status: zod.enum(["reset_complete"]),
+});
+
+/**
+ * @summary Issue a one-time password reset token for a user (admin / compliance_officer only)
+ */
+export const AdminResetPasswordParams = zod.object({
+  userId: zod.coerce.number(),
+});
+
+export const AdminResetPasswordResponse = zod.object({
+  rawToken: zod.string(),
+  expiresAt: zod.coerce.date(),
+  note: zod.string(),
+});
+
+/**
+ * @summary List trusted devices for the currently authenticated user
+ */
+export const ListDevicesResponse = zod.object({
+  devices: zod.array(
+    zod.object({
+      deviceId: zod.string().uuid(),
+      firstSeen: zod.coerce.date(),
+      lastSeen: zod.coerce.date(),
+      ipLast: zod.string().nullish(),
+      countryLast: zod.string().nullish(),
+      trusted: zod.boolean(),
+      trustSource: zod.string().nullish(),
+      trustExpiresAt: zod.coerce.date().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary Revoke a trusted device
+ */
+export const RevokeDeviceParams = zod.object({
+  deviceId: zod.coerce.string().uuid(),
+});
+
+export const RevokeDeviceResponse = zod.object({
+  status: zod.enum(["revoked"]),
+});
+
+/**
+ * @summary Receive a CSP violation report from the browser
+ */
+export const SubmitCspReportBody = zod.object({}).passthrough();

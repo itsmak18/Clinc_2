@@ -40,22 +40,38 @@ const ChartContainer = React.forwardRef<
       typeof RechartsPrimitive.ResponsiveContainer
     >["children"]
   }
->(({ id, className, children, config, ...props }, ref) => {
+>(({ id, className, children, config, style: propStyle, ...props }, ref) => {
   const uniqueId = React.useId()
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
+
+  // CSS custom properties for chart colors — set as inline styles so no
+  // <style> block injection is required. The `color` value is used directly;
+  // the `theme.light` value is used as the fallback for theme-based configs.
+  // Note: the `.dark` theme variant is not supported via this approach — if
+  // dark-mode chart colours are needed, supply CSS vars in index.css instead.
+  const colorVars = React.useMemo<React.CSSProperties>(() => {
+    return Object.fromEntries(
+      Object.entries(config)
+        .filter(([, c]) => c.color || c.theme)
+        .flatMap(([key, c]) => {
+          const value = c.color ?? c.theme?.[("light" as keyof typeof THEMES)]
+          return value ? [[`--color-${key}`, value]] : []
+        })
+    ) as React.CSSProperties
+  }, [config])
 
   return (
     <ChartContext.Provider value={{ config }}>
       <div
         data-chart={chartId}
         ref={ref}
+        style={{ ...colorVars, ...propStyle }}
         className={cn(
           "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-none [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-sector]:outline-none [&_.recharts-surface]:outline-none",
           className
         )}
         {...props}
       >
-        <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer>
           {children}
         </RechartsPrimitive.ResponsiveContainer>
@@ -65,38 +81,9 @@ const ChartContainer = React.forwardRef<
 })
 ChartContainer.displayName = "Chart"
 
-const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color
-  )
-
-  if (!colorConfig.length) {
-    return null
-  }
-
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
-  )
-}
+// ChartStyle is kept as a no-op export for backward compatibility.
+// Color variables are now set as inline styles on ChartContainer.
+const ChartStyle = (_props: { id: string; config: ChartConfig }) => null
 
 const ChartTooltip = RechartsPrimitive.Tooltip
 

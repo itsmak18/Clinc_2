@@ -37,6 +37,12 @@ export const auditOutboxDepthGauge = new client.Gauge({
 });
 register.registerMetric(auditOutboxDepthGauge);
 
+export const auditIntegrityMismatchTotal = new client.Counter({
+  name: "audit_integrity_check_failures_total",
+  help: "Count of daily audit-log integrity checks that detected a SHA-256 hash mismatch (possible tampering)",
+});
+register.registerMetric(auditIntegrityMismatchTotal);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",

@@ -18,13 +18,16 @@ import type {
 
 import type {
   ActivityItem,
+  AdminResetResponse,
   Appointment,
   AppointmentReport,
   AuditLog,
   AvailabilityResponse,
   BillingDashboard,
+  ClinicNotice,
   ComplianceDashboard,
   CreateAppointmentBody,
+  CreateClinicNoticeBody,
   CreateInventoryItemBody,
   CreateInvoiceBody,
   CreateLabTestBody,
@@ -40,10 +43,14 @@ import type {
   DeleteScheduleOverride200,
   DeleteWeeklyBlock200,
   DepartmentLoadItem,
+  DeviceListResponse,
+  DeviceTokenBody,
   DischargeSheet,
   DoctorScheduleDay,
   DoctorScheduleDetail,
   DoctorScheduleSummary,
+  ForgotPasswordBody,
+  ForgotPasswordResponse,
   FrontDeskDashboard,
   GetAppointmentReportParams,
   GetDailyBillingSummaryParams,
@@ -57,6 +64,7 @@ import type {
   LabTest,
   ListAppointmentsParams,
   ListAuditLogsParams,
+  ListClinicNoticesParams,
   ListInventoryItemsParams,
   ListInvoicesParams,
   ListLabTestsParams,
@@ -75,16 +83,23 @@ import type {
   NurseDashboard,
   Operation,
   PaginatedAppointments,
+  PaginatedClinicNotices,
   PaginatedPatients,
   Patient,
   PatientFlow,
   PatientSummary,
   PayInvoiceBody,
+  PendingVerificationResponse,
   PharmacistDashboard,
   Prescription,
+  ReportWasntMe200,
+  ResetPassword200,
   ResetPasswordBody,
   RevenueReport,
+  RevokeDevice200,
   ScheduleOverride,
+  SubmitCspReportBodyThree,
+  SubmitCspReportBodyTwoItem,
   TodayAppointments,
   UltrasoundRecord,
   UpdateAppointmentBody,
@@ -101,6 +116,8 @@ import type {
   UpsertOverrideBody,
   UpsertWeeklyBlockBody,
   User,
+  UserPasswordResetBody,
+  VerifyDeviceResponse,
   WeekResponse,
   XrayRecord,
 } from "./api.schemas";
@@ -199,13 +216,16 @@ export const getLoginUrl = () => {
 export const login = async (
   loginBody: LoginBody,
   options?: RequestInit,
-): Promise<LoginResponse> => {
-  return customFetch<LoginResponse>(getLoginUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(loginBody),
-  });
+): Promise<LoginResponse | PendingVerificationResponse> => {
+  return customFetch<LoginResponse | PendingVerificationResponse>(
+    getLoginUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(loginBody),
+    },
+  );
 };
 
 export const getLoginMutationOptions = <
@@ -864,14 +884,14 @@ export const getResetUserPasswordUrl = (userId: number) => {
 
 export const resetUserPassword = async (
   userId: number,
-  resetPasswordBody: ResetPasswordBody,
+  userPasswordResetBody: UserPasswordResetBody,
   options?: RequestInit,
 ): Promise<void> => {
   return customFetch<void>(getResetUserPasswordUrl(userId), {
     ...options,
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(resetPasswordBody),
+    body: JSON.stringify(userPasswordResetBody),
   });
 };
 
@@ -882,14 +902,14 @@ export const getResetUserPasswordMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resetUserPassword>>,
     TError,
-    { userId: number; data: BodyType<ResetPasswordBody> },
+    { userId: number; data: BodyType<UserPasswordResetBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof resetUserPassword>>,
   TError,
-  { userId: number; data: BodyType<ResetPasswordBody> },
+  { userId: number; data: BodyType<UserPasswordResetBody> },
   TContext
 > => {
   const mutationKey = ["resetUserPassword"];
@@ -903,7 +923,7 @@ export const getResetUserPasswordMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof resetUserPassword>>,
-    { userId: number; data: BodyType<ResetPasswordBody> }
+    { userId: number; data: BodyType<UserPasswordResetBody> }
   > = (props) => {
     const { userId, data } = props ?? {};
 
@@ -916,7 +936,7 @@ export const getResetUserPasswordMutationOptions = <
 export type ResetUserPasswordMutationResult = NonNullable<
   Awaited<ReturnType<typeof resetUserPassword>>
 >;
-export type ResetUserPasswordMutationBody = BodyType<ResetPasswordBody>;
+export type ResetUserPasswordMutationBody = BodyType<UserPasswordResetBody>;
 export type ResetUserPasswordMutationError = ErrorType<unknown>;
 
 /**
@@ -929,14 +949,14 @@ export const useResetUserPassword = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof resetUserPassword>>,
     TError,
-    { userId: number; data: BodyType<ResetPasswordBody> },
+    { userId: number; data: BodyType<UserPasswordResetBody> },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof resetUserPassword>>,
   TError,
-  { userId: number; data: BodyType<ResetPasswordBody> },
+  { userId: number; data: BodyType<UserPasswordResetBody> },
   TContext
 > => {
   return useMutation(getResetUserPasswordMutationOptions(options));
@@ -3259,6 +3279,273 @@ export const useUpdateMedicalRecord = <
   TContext
 > => {
   return useMutation(getUpdateMedicalRecordMutationOptions(options));
+};
+
+/**
+ * @summary List clinic-wide advisory notices
+ */
+export const getListClinicNoticesUrl = (params?: ListClinicNoticesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/clinic-notices?${stringifiedParams}`
+    : `/api/clinic-notices`;
+};
+
+export const listClinicNotices = async (
+  params?: ListClinicNoticesParams,
+  options?: RequestInit,
+): Promise<PaginatedClinicNotices> => {
+  return customFetch<PaginatedClinicNotices>(getListClinicNoticesUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListClinicNoticesQueryKey = (
+  params?: ListClinicNoticesParams,
+) => {
+  return [`/api/clinic-notices`, ...(params ? [params] : [])] as const;
+};
+
+export const getListClinicNoticesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listClinicNotices>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListClinicNoticesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClinicNotices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListClinicNoticesQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listClinicNotices>>
+  > = ({ signal }) => listClinicNotices(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listClinicNotices>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListClinicNoticesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listClinicNotices>>
+>;
+export type ListClinicNoticesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List clinic-wide advisory notices
+ */
+
+export function useListClinicNotices<
+  TData = Awaited<ReturnType<typeof listClinicNotices>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListClinicNoticesParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listClinicNotices>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListClinicNoticesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a clinic-wide advisory notice (super_admin only)
+ */
+export const getCreateClinicNoticeUrl = () => {
+  return `/api/clinic-notices`;
+};
+
+export const createClinicNotice = async (
+  createClinicNoticeBody: CreateClinicNoticeBody,
+  options?: RequestInit,
+): Promise<ClinicNotice> => {
+  return customFetch<ClinicNotice>(getCreateClinicNoticeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createClinicNoticeBody),
+  });
+};
+
+export const getCreateClinicNoticeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createClinicNotice>>,
+    TError,
+    { data: BodyType<CreateClinicNoticeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createClinicNotice>>,
+  TError,
+  { data: BodyType<CreateClinicNoticeBody> },
+  TContext
+> => {
+  const mutationKey = ["createClinicNotice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createClinicNotice>>,
+    { data: BodyType<CreateClinicNoticeBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createClinicNotice(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateClinicNoticeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createClinicNotice>>
+>;
+export type CreateClinicNoticeMutationBody = BodyType<CreateClinicNoticeBody>;
+export type CreateClinicNoticeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a clinic-wide advisory notice (super_admin only)
+ */
+export const useCreateClinicNotice = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createClinicNotice>>,
+    TError,
+    { data: BodyType<CreateClinicNoticeBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createClinicNotice>>,
+  TError,
+  { data: BodyType<CreateClinicNoticeBody> },
+  TContext
+> => {
+  return useMutation(getCreateClinicNoticeMutationOptions(options));
+};
+
+/**
+ * @summary Soft-delete a clinic notice (super_admin only)
+ */
+export const getDeleteClinicNoticeUrl = (noticeId: number) => {
+  return `/api/clinic-notices/${noticeId}`;
+};
+
+export const deleteClinicNotice = async (
+  noticeId: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteClinicNoticeUrl(noticeId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteClinicNoticeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClinicNotice>>,
+    TError,
+    { noticeId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteClinicNotice>>,
+  TError,
+  { noticeId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteClinicNotice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteClinicNotice>>,
+    { noticeId: number }
+  > = (props) => {
+    const { noticeId } = props ?? {};
+
+    return deleteClinicNotice(noticeId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteClinicNoticeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteClinicNotice>>
+>;
+
+export type DeleteClinicNoticeMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Soft-delete a clinic notice (super_admin only)
+ */
+export const useDeleteClinicNotice = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteClinicNotice>>,
+    TError,
+    { noticeId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteClinicNotice>>,
+  TError,
+  { noticeId: number },
+  TContext
+> => {
+  return useMutation(getDeleteClinicNoticeMutationOptions(options));
 };
 
 /**
@@ -8135,3 +8422,700 @@ export function useGetScheduleWeek<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Consume a device verification token and issue a session
+ */
+export const getVerifyDeviceUrl = () => {
+  return `/api/auth/verify-device`;
+};
+
+export const verifyDevice = async (
+  deviceTokenBody: DeviceTokenBody,
+  options?: RequestInit,
+): Promise<VerifyDeviceResponse> => {
+  return customFetch<VerifyDeviceResponse>(getVerifyDeviceUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(deviceTokenBody),
+  });
+};
+
+export const getVerifyDeviceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDevice>>,
+    TError,
+    { data: BodyType<DeviceTokenBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof verifyDevice>>,
+  TError,
+  { data: BodyType<DeviceTokenBody> },
+  TContext
+> => {
+  const mutationKey = ["verifyDevice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof verifyDevice>>,
+    { data: BodyType<DeviceTokenBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return verifyDevice(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type VerifyDeviceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof verifyDevice>>
+>;
+export type VerifyDeviceMutationBody = BodyType<DeviceTokenBody>;
+export type VerifyDeviceMutationError = ErrorType<void>;
+
+/**
+ * @summary Consume a device verification token and issue a session
+ */
+export const useVerifyDevice = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof verifyDevice>>,
+    TError,
+    { data: BodyType<DeviceTokenBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof verifyDevice>>,
+  TError,
+  { data: BodyType<DeviceTokenBody> },
+  TContext
+> => {
+  return useMutation(getVerifyDeviceMutationOptions(options));
+};
+
+/**
+ * @summary Kill-switch — revoke all sessions and flag the device as rejected
+ */
+export const getReportWasntMeUrl = () => {
+  return `/api/auth/wasnt-me`;
+};
+
+export const reportWasntMe = async (
+  deviceTokenBody: DeviceTokenBody,
+  options?: RequestInit,
+): Promise<ReportWasntMe200> => {
+  return customFetch<ReportWasntMe200>(getReportWasntMeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(deviceTokenBody),
+  });
+};
+
+export const getReportWasntMeMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reportWasntMe>>,
+    TError,
+    { data: BodyType<DeviceTokenBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reportWasntMe>>,
+  TError,
+  { data: BodyType<DeviceTokenBody> },
+  TContext
+> => {
+  const mutationKey = ["reportWasntMe"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reportWasntMe>>,
+    { data: BodyType<DeviceTokenBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reportWasntMe(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReportWasntMeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reportWasntMe>>
+>;
+export type ReportWasntMeMutationBody = BodyType<DeviceTokenBody>;
+export type ReportWasntMeMutationError = ErrorType<void>;
+
+/**
+ * @summary Kill-switch — revoke all sessions and flag the device as rejected
+ */
+export const useReportWasntMe = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reportWasntMe>>,
+    TError,
+    { data: BodyType<DeviceTokenBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reportWasntMe>>,
+  TError,
+  { data: BodyType<DeviceTokenBody> },
+  TContext
+> => {
+  return useMutation(getReportWasntMeMutationOptions(options));
+};
+
+/**
+ * @summary Request a self-service password reset link (byte-identical response — no enumeration)
+ */
+export const getForgotPasswordUrl = () => {
+  return `/api/auth/forgot-password`;
+};
+
+export const forgotPassword = async (
+  forgotPasswordBody: ForgotPasswordBody,
+  options?: RequestInit,
+): Promise<ForgotPasswordResponse> => {
+  return customFetch<ForgotPasswordResponse>(getForgotPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(forgotPasswordBody),
+  });
+};
+
+export const getForgotPasswordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof forgotPassword>>,
+    TError,
+    { data: BodyType<ForgotPasswordBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof forgotPassword>>,
+  TError,
+  { data: BodyType<ForgotPasswordBody> },
+  TContext
+> => {
+  const mutationKey = ["forgotPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof forgotPassword>>,
+    { data: BodyType<ForgotPasswordBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return forgotPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ForgotPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof forgotPassword>>
+>;
+export type ForgotPasswordMutationBody = BodyType<ForgotPasswordBody>;
+export type ForgotPasswordMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Request a self-service password reset link (byte-identical response — no enumeration)
+ */
+export const useForgotPassword = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof forgotPassword>>,
+    TError,
+    { data: BodyType<ForgotPasswordBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof forgotPassword>>,
+  TError,
+  { data: BodyType<ForgotPasswordBody> },
+  TContext
+> => {
+  return useMutation(getForgotPasswordMutationOptions(options));
+};
+
+/**
+ * @summary Consume a reset token and set a new password
+ */
+export const getResetPasswordUrl = () => {
+  return `/api/auth/reset-password`;
+};
+
+export const resetPassword = async (
+  resetPasswordBody: ResetPasswordBody,
+  options?: RequestInit,
+): Promise<ResetPassword200> => {
+  return customFetch<ResetPassword200>(getResetPasswordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(resetPasswordBody),
+  });
+};
+
+export const getResetPasswordMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<ResetPasswordBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<ResetPasswordBody> },
+  TContext
+> => {
+  const mutationKey = ["resetPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resetPassword>>,
+    { data: BodyType<ResetPasswordBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return resetPassword(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resetPassword>>
+>;
+export type ResetPasswordMutationBody = BodyType<ResetPasswordBody>;
+export type ResetPasswordMutationError = ErrorType<void>;
+
+/**
+ * @summary Consume a reset token and set a new password
+ */
+export const useResetPassword = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resetPassword>>,
+    TError,
+    { data: BodyType<ResetPasswordBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resetPassword>>,
+  TError,
+  { data: BodyType<ResetPasswordBody> },
+  TContext
+> => {
+  return useMutation(getResetPasswordMutationOptions(options));
+};
+
+/**
+ * @summary Issue a one-time password reset token for a user (admin / compliance_officer only)
+ */
+export const getAdminResetPasswordUrl = (userId: number) => {
+  return `/api/auth/admin-reset/${userId}`;
+};
+
+export const adminResetPassword = async (
+  userId: number,
+  options?: RequestInit,
+): Promise<AdminResetResponse> => {
+  return customFetch<AdminResetResponse>(getAdminResetPasswordUrl(userId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getAdminResetPasswordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminResetPassword>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof adminResetPassword>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  const mutationKey = ["adminResetPassword"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof adminResetPassword>>,
+    { userId: number }
+  > = (props) => {
+    const { userId } = props ?? {};
+
+    return adminResetPassword(userId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AdminResetPasswordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof adminResetPassword>>
+>;
+
+export type AdminResetPasswordMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Issue a one-time password reset token for a user (admin / compliance_officer only)
+ */
+export const useAdminResetPassword = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof adminResetPassword>>,
+    TError,
+    { userId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof adminResetPassword>>,
+  TError,
+  { userId: number },
+  TContext
+> => {
+  return useMutation(getAdminResetPasswordMutationOptions(options));
+};
+
+/**
+ * @summary List trusted devices for the currently authenticated user
+ */
+export const getListDevicesUrl = () => {
+  return `/api/account/devices`;
+};
+
+export const listDevices = async (
+  options?: RequestInit,
+): Promise<DeviceListResponse> => {
+  return customFetch<DeviceListResponse>(getListDevicesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListDevicesQueryKey = () => {
+  return [`/api/account/devices`] as const;
+};
+
+export const getListDevicesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDevices>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDevices>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListDevicesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listDevices>>> = ({
+    signal,
+  }) => listDevices({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDevices>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDevicesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDevices>>
+>;
+export type ListDevicesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List trusted devices for the currently authenticated user
+ */
+
+export function useListDevices<
+  TData = Awaited<ReturnType<typeof listDevices>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listDevices>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDevicesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Revoke a trusted device
+ */
+export const getRevokeDeviceUrl = (deviceId: string) => {
+  return `/api/account/devices/${deviceId}`;
+};
+
+export const revokeDevice = async (
+  deviceId: string,
+  options?: RequestInit,
+): Promise<RevokeDevice200> => {
+  return customFetch<RevokeDevice200>(getRevokeDeviceUrl(deviceId), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getRevokeDeviceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeDevice>>,
+    TError,
+    { deviceId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeDevice>>,
+  TError,
+  { deviceId: string },
+  TContext
+> => {
+  const mutationKey = ["revokeDevice"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeDevice>>,
+    { deviceId: string }
+  > = (props) => {
+    const { deviceId } = props ?? {};
+
+    return revokeDevice(deviceId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeDeviceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeDevice>>
+>;
+
+export type RevokeDeviceMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke a trusted device
+ */
+export const useRevokeDevice = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeDevice>>,
+    TError,
+    { deviceId: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeDevice>>,
+  TError,
+  { deviceId: string },
+  TContext
+> => {
+  return useMutation(getRevokeDeviceMutationOptions(options));
+};
+
+/**
+ * @summary Receive a CSP violation report from the browser
+ */
+export const getSubmitCspReportUrl = () => {
+  return `/api/csp-report`;
+};
+
+export const submitCspReport = async (
+  submitCspReportBody?:
+    | Blob
+    | SubmitCspReportBodyTwoItem[]
+    | SubmitCspReportBodyThree,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getSubmitCspReportUrl(), {
+    ...options,
+    method: "POST",
+    body: JSON.stringify(submitCspReportBody),
+  });
+};
+
+export const getSubmitCspReportMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitCspReport>>,
+    TError,
+    {
+      data: BodyType<
+        Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+      >;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitCspReport>>,
+  TError,
+  {
+    data: BodyType<
+      Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+    >;
+  },
+  TContext
+> => {
+  const mutationKey = ["submitCspReport"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitCspReport>>,
+    {
+      data: BodyType<
+        Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+      >;
+    }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return submitCspReport(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitCspReportMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitCspReport>>
+>;
+export type SubmitCspReportMutationBody = BodyType<
+  Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+>;
+export type SubmitCspReportMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Receive a CSP violation report from the browser
+ */
+export const useSubmitCspReport = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitCspReport>>,
+    TError,
+    {
+      data: BodyType<
+        Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+      >;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitCspReport>>,
+  TError,
+  {
+    data: BodyType<
+      Blob | SubmitCspReportBodyTwoItem[] | SubmitCspReportBodyThree
+    >;
+  },
+  TContext
+> => {
+  return useMutation(getSubmitCspReportMutationOptions(options));
+};

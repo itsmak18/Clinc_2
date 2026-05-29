@@ -1,7 +1,6 @@
 import { db } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
-import { z } from "zod/v4";
 import { logAudit, logRead } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertMedicalRecordInScope } from "../lib/scope";
 import { vitalsSchema } from "../lib/jsonb-schemas";
@@ -58,7 +57,6 @@ export async function listMedicalRecords(
     treatment: medicalRecordsTable.treatment,
     notes: medicalRecordsTable.notes,
     vitals: medicalRecordsTable.vitals,
-    isGlobal: medicalRecordsTable.isGlobal,
     createdAt: medicalRecordsTable.createdAt,
     patient: { id: patientsTable.id, fullName: patientsTable.fullName },
     doctor: { id: usersTable.id, fullName: usersTable.fullName },
@@ -193,28 +191,3 @@ export async function updateMedicalRecord(
   return decryptRecord(record);
 }
 
-const globalFlagSchema = z.object({
-  isGlobal: z.boolean(),
-  reason: z.string().min(20),
-});
-
-export async function setGlobalFlag(req: AuthRequest, recordId: number, body: unknown) {
-  const parsed = globalFlagSchema.safeParse(body);
-  if (!parsed.success) throw new ValidationError("reason must be at least 20 characters");
-
-  const conditions: any[] = [eq(medicalRecordsTable.id, recordId), isNull(medicalRecordsTable.deletedAt), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
-
-  const [existing] = await db.select({ id: medicalRecordsTable.id }).from(medicalRecordsTable)
-    .where(and(...conditions));
-  if (!existing) throw new NotFoundError("medical record", recordId);
-
-  const [record] = await db.update(medicalRecordsTable)
-    .set({ isGlobal: parsed.data.isGlobal, globalReason: parsed.data.reason, updatedAt: new Date() })
-    .where(and(...conditions))
-    .returning();
-
-  await logAudit(req, "UPDATE", "medical_record", record.id, {
-    isGlobal: parsed.data.isGlobal, reason: parsed.data.reason,
-  });
-  return record;
-}

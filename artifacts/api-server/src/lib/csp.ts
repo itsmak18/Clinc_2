@@ -14,8 +14,11 @@ export function cspReportUri(): string | null {
 export const cspDirectives: Record<string, string[]> = {
   defaultSrc:     ["'self'"],
   scriptSrc:      ["'self'"],
-  // unsafe-inline retained: React style={} props + chart.tsx dangerouslySetInnerHTML
-  styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  // React style={} props use the DOM API (element.style.*) — browsers do not apply
+  // style-src to DOM-set styles from trusted scripts, so no unsafe-inline needed.
+  // chart.tsx ChartStyle was the only <style> injector; it was replaced with inline
+  // CSS custom properties on the container div (2026-05-29).
+  styleSrc:       ["'self'", "https://fonts.googleapis.com"],
   fontSrc:        ["'self'", "https://fonts.gstatic.com", "data:"],
   imgSrc:         ["'self'", "data:", "https:"],
   connectSrc:     ["'self'"],

@@ -4,7 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 // Strict CSP for production (mirrors csp.ts cspMetaString).
-const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'";
+// style-src 'unsafe-inline' removed 2026-05-29 — chart.tsx <style> injector replaced
+// with inline CSS vars on the container; React style={} uses DOM API (not blocked by CSP).
+const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'";
 
 // Relaxed CSP for development (Vite needs unsafe-inline for HMR + ws: for websocket)
 const DEV_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' ws:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";

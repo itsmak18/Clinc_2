@@ -6,7 +6,7 @@ import {
 import { eq, and, gte, lte, sql, desc, lt, inArray } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
-import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope, recordDoctorPatientLink } from "../lib/scope";
 import { todayBoundary } from "../lib/dateUtils";
 import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
 import { checkDoctorAvailability } from "../lib/schedule-validator";
@@ -104,6 +104,7 @@ export async function createAppointment(
     bookingSource: (data.bookingSource as any) ?? "walk_in",
   }).returning();
   await logAudit(req, "CREATE", "appointment", appt.id);
+  await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt);
   await invalidateDoctorScope(data.doctorId);
   return appt;
 }
@@ -228,6 +229,7 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
 
   const [appt] = await db.update(appointmentsTable).set(update).where(and(...conditions)).returning();
   await logAudit(req, "UPDATE", "appointment", appt.id, null, before, appt);
+  await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt ?? new Date());
   await invalidateDoctorScope(appt.doctorId);
   return appt;
 }

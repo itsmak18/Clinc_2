@@ -5,7 +5,7 @@ import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listMedicalRecords, createMedicalRecord, getMedicalRecord,
-  updateMedicalRecord, setGlobalFlag,
+  updateMedicalRecord,
 } from "../services/medical-records.service";
 
 const router = Router();
@@ -43,15 +43,6 @@ router.patch("/medical-records/:recordId",
     if (!recordId) throw new ValidationError("Invalid record ID");
     const record = await updateMedicalRecord(req, recordId, req.body);
     res.json(record);
-  }),
-);
-
-router.patch("/medical-records/:recordId/global-flag",
-  requireRole("super_admin"),
-  asyncHandler(async (req: AuthRequest, res) => {
-    const recordId = safeParseInt(req.params.recordId);
-    if (!recordId) throw new ValidationError("Invalid record ID");
-    res.json(await setGlobalFlag(req, recordId, req.body));
   }),
 );
 

@@ -11,6 +11,7 @@ import { ipRateLimit } from "./middlewares/rateLimiter";
 import { cspDirectives, cspReportUri } from "./lib/csp";
 import { loginShield, loginIpRateLimit } from "./middlewares/login-shield";
 import { notFoundHandler, globalErrorHandler } from "./middlewares/envelope";
+import { httpSpanMiddleware } from "./lib/tracer";
 
 const app: Express = express();
 
@@ -24,6 +25,12 @@ app.set("trust proxy", "loopback, linklocal, uniquelocal");
 
 // ── Security headers ────────────────────────────────────────────────────────
 app.use(correlationId); // Must be first: attaches req.id for all subsequent middleware
+
+// OTel HTTP span — established after correlationId so req.id is available for
+// the span attribute. Context propagates through the full middleware chain via
+// AsyncLocalStorage so any child spans started downstream nest correctly.
+// Noop when initTracer() was not called (no OTEL_EXPORTER_OTLP_ENDPOINT set).
+app.use(httpSpanMiddleware as any);
 
 // Strip inbound auth-state headers — these are SERVER-asserted only. A client
 // must never be able to inject X-Session-State / X-Security-Flags and have
