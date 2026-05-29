@@ -10,6 +10,7 @@ Docker Compose mounts files from this directory into containers as
 | File | Permissions | How to generate |
 |---|---|---|
 | `postgres_password` | `chmod 600`, owned by deploy user | `openssl rand -base64 48 \| tr -d '\n' > ./secrets/postgres_password` |
+| `redis_password` | `chmod 600`, owned by deploy user | `openssl rand -base64 48 \| tr -d '\n' > ./secrets/redis_password` |
 | `session_secret` | `chmod 600`, owned by deploy user | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/session_secret` |
 | `field_encryption_key` | `chmod 600`, owned by deploy user | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/field_encryption_key` |
 | `metrics_token` | `chmod 600`, owned by deploy user | `openssl rand -hex 32 > ./secrets/metrics_token` |
@@ -41,10 +42,8 @@ at `/run/secrets/*` are only readable by the container's user and never appear
 in `docker inspect`.
 
 The A10 follow-up (file-mount `SESSION_SECRET` / `FIELD_ENCRYPTION_KEY` / `METRICS_TOKEN`)
-landed 2026-05-27. The api entrypoint (`docker-compose.prod.yml` → api service `command:`)
-now reads `/run/secrets/*` into env vars at container start, after a pre-flight
-check that fails fast if any required file is missing or empty.
-
-`REDIS_PASSWORD` is still env-passed because compose interpolates it into
-`REDIS_URL` at parse time. File-mounting requires composing the URL inside the
-entrypoint script — tracked as a lower-priority follow-up.
+landed 2026-05-27. `REDIS_PASSWORD` file-mounted 2026-05-29. The api entrypoint
+(`docker-compose.prod.yml` → api service `command:`) now reads `/run/secrets/*`
+into env vars at container start, after a pre-flight check that fails fast if any
+required file is missing or empty. `REDIS_URL` is assembled from the secret file
+inside the entrypoint — it no longer appears in `docker inspect` output.

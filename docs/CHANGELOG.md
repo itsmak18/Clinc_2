@@ -1,5 +1,256 @@
 # Changelog
 
+## Codegen post-step fix — `write-zod-index.mjs` (2026-05-29)
+
+The `lib/api-spec` codegen script used an inline `node -e "..."` one-liner to write `lib/api-zod/src/index.ts` after every Orval run. Due to JSON + shell escaping layering, the shell command produced the literal characters `\n` (backslash + n) in the file instead of a real newline. TypeScript then reported `TS1127: Invalid character` and `TS2304: Cannot find name 'n'` on the first line, requiring a manual correction after every codegen run.
+
+**Fix:** Replaced the inline command with a tiny standalone script [`lib/api-spec/write-zod-index.mjs`](../lib/api-spec/write-zod-index.mjs). The `codegen` entry in `lib/api-spec/package.json` now reads:
+```
+orval --config ./orval.config.ts && node write-zod-index.mjs && pnpm -w run typecheck:libs
+```
+
+No shell escaping required; the newline is a literal character in the `.mjs` source. Works identically on sh, cmd.exe, and PowerShell.
+
+**449/449 tests passing.**
+
+---
+
+## P3-2 — Service worker for SPA shell (2026-05-29)
+
+Adds an offline-resilient service worker to the SPA. No new npm dependency — hand-written SW in `public/sw.js` so build output and bundle size are unaffected.
+
+**Caching strategies:**
+| Request type | Strategy | Rationale |
+|---|---|---|
+| `/api/*` | Network-only | PHI must never enter CacheStorage |
+| Navigation | Network-first + stale fallback | Users get latest HTML when online; SW serves shell offline |
+| `script/style/font/image/manifest` | Cache-first | Vite output is content-hashed — cached entry is always correct for its URL |
+| Mutations (POST/PATCH/DELETE/…) | Passthrough (not intercepted) | SW only intercepts GET |
+
+**Files changed:**
+- **`artifacts/clinic/public/sw.js`** — New service worker. Cache version `medicore-v1` (bump on strategy changes). Activate handler prunes stale caches. `self.skipWaiting()` on install for immediate activation.
+- **`artifacts/clinic/src/main.tsx`** — Registers `/sw.js` on `window.load`. Registration is gated on `import.meta.env.PROD` — Vite dev server (HMR) is unaffected.
+- **`nginx.conf`** — Exact-match `location = /sw.js` block with `Cache-Control: no-store` inserted before the generic `.js` regex rule. Without this, nginx would serve `sw.js` with `expires 1y, immutable` — preventing SW updates from ever deploying.
+
+**449/449 tests passing** (no new tests — SW is a browser runtime artifact; unit testing requires a full browser environment).
+
+---
+
+## P3-1 — Deduplicate `cookie-signature` (2026-05-29)
+
+`cookie-parser@1.4.7` declared an exact dep on `cookie-signature@1.0.6` while Express 5, `express-rate-limit`, and `supertest` all use `1.2.2`. Added `pnpm.overrides` to root `package.json`:
+
+```json
+"pnpm": {
+  "overrides": { "cookie-signature": "^1.2.2" }
+}
+```
+
+After `pnpm install`, `pnpm-lock.yaml` shows `cookie-parser@1.4.7` resolved to `cookie-signature: 1.2.2`. The `@1.0.6` resolution entry is gone from the lockfile. **449/449 tests passing.**
+
+---
+
+## P2-6 — Extract `medical_records.isGlobal` into `clinic_notices` (2026-05-29)
+
+`isGlobal: boolean` and `globalReason: text` columns removed from `medical_records`. A dedicated `clinic_notices` table replaces the overloaded boolean flag. Closes the domain-model smell where a "clinic-wide advisory" was represented as a flag on a patient-specific PHI row.
+
+| Item | Change |
+|---|---|
+| **`lib/db/src/schema/clinic_notices.ts`** | New table `clinic_notices`: `id`, `clinicId`, `title`, `content`, `createdBy`, `reason`, `deletedAt`, `createdAt`, `updatedAt`. Two indexes: `cn_clinic_idx`, `cn_created_idx`. |
+| **`lib/db/src/schema/medical_records.ts`** | Removed `isGlobal` (boolean) and `globalReason` (text) columns. |
+| **`lib/db/migrations/0011_clinic_notices.sql`** | Creates `clinic_notices` table; migrates any existing `is_global = true` records to notices (via `INSERT … SELECT`); drops `is_global` and `global_reason` columns from `medical_records`. |
+| **`artifacts/api-server/src/lib/scope.ts`** | `assertMedicalRecordInScope`: removed Rule 1 (isGlobal bypass). Only rule remaining: `record.doctorId === req.user.userId`. Deny reason changed from `"record_not_owned_or_global"` to `"record_not_owned"`. `isGlobal` dropped from the SELECT projection. |
+| **`artifacts/api-server/src/services/medical-records.service.ts`** | Removed `setGlobalFlag()` and its Zod schema. Removed `isGlobal` from `listMedicalRecords` SELECT. Removed unused `z` import. |
+| **`artifacts/api-server/src/services/clinic-notices.service.ts`** | New — `listClinicNotices()` (cursor-paginated), `createClinicNotice()` (Zod validation: title 5–200, content 10+, reason 20+), `deleteClinicNotice()` (soft-delete + 404 guard). All functions log audit entries. |
+| **`artifacts/api-server/src/routes/medical_records.ts`** | Removed `setGlobalFlag` import and `PATCH /medical-records/:id/global-flag` route. |
+| **`artifacts/api-server/src/routes/clinic_notices.ts`** | New — `GET /clinic-notices` (all roles), `POST /clinic-notices` (super_admin), `DELETE /clinic-notices/:noticeId` (super_admin). |
+| **`artifacts/api-server/src/routes/index.ts`** | Registered `clinicNoticesRouter`. |
+| **`artifacts/api-server/src/tests/scope.test.ts`** | Updated: removed two `isGlobal` tests (Rule 1 tests), updated mock to exclude `isGlobal`, updated deny-reason expectation. |
+| **`artifacts/api-server/src/tests/clinic-notices.service.test.ts`** | New — 9 tests: `listClinicNotices` (paginated/nextCursor/audit), `createClinicNotice` (creates+audit, 3 validation paths), `deleteClinicNotice` (soft-delete, 404). |
+
+**Net test count: 449/449 passing** (was 442; +9 clinic-notices, −2 removed isGlobal scope tests).
+
+---
+
+## P2-2 — Remove `style-src 'unsafe-inline'` from CSP (2026-05-29)
+
+`'unsafe-inline'` dropped from `style-src` in both the Helmet CSP header and the Vite production meta-tag string.
+
+**Root cause analysis**: The comment `unsafe-inline retained: React style={} props + chart.tsx dangerouslySetInnerHTML` was misleading on both counts:
+1. React `style={}` props use `element.style.*` (DOM API) — browsers do not apply `style-src` to JavaScript-set inline styles from already-trusted scripts; only static HTML `style` attributes and `<style>` elements are governed by `style-src`.
+2. `ChartStyle` in `chart.tsx` was the one real `<style>` block injector — but `ChartContainer` is never imported or used in any production page (all pages import Recharts directly).
+
+| Item | Change |
+|---|---|
+| **`artifacts/api-server/src/lib/csp.ts`** | `styleSrc` array: removed `'unsafe-inline'`; updated comment. |
+| **`artifacts/clinic/vite.config.ts`** | `STRICT_CSP` string: removed `'unsafe-inline'` from `style-src`. |
+| **`artifacts/clinic/src/components/ui/chart.tsx`** | `ChartStyle` (which returned a `<style dangerouslySetInnerHTML>` block) replaced with a no-op. `ChartContainer` now computes chart CSS custom properties as inline styles on the container `<div>` via a `useMemo`; `propStyle` merged correctly. Dark-mode `theme.dark` values are documented as unsupported via this approach (use `index.css` CSS vars instead). |
+| **`artifacts/api-server/src/tests/csp.test.ts`** | New regression guard: `style-src does not allow 'unsafe-inline'` — prevents re-introduction. |
+
+**Test count: 442/442 passing** (was 441; +1 new in `csp.test.ts`).
+
+---
+
+## Audit-log hash chain (2026-05-29)
+
+Nightly SHA-256 hash chain over `audit_logs` rows. Detects silent row-level tampering. HIPAA §164.312(b) integrity verification.
+
+| Item | Change |
+|---|---|
+| **`lib/db/src/schema/audit_integrity.ts`** | New — `auditIntegrityChecksTable`: `checkedDate` (DATE UNIQUE), `rowCount`, `rootHash`, `prevHash`, `status` (`ok`/`empty`/`mismatch`), `verifiedAt`, `createdAt`. |
+| **`lib/db/migrations/0010_audit_integrity_chain.sql`** | New — `CREATE TABLE audit_integrity_checks` + unique index on `checked_date`. |
+| **`artifacts/api-server/src/lib/audit-integrity.ts`** | New — `computeHashFromRows()` (pure SHA-256 over prevHash + rows ordered by id ASC), `recordDailyIntegrity(date?)` (idempotent upsert; defaults yesterday UTC), `verifyIntegrity(date)` (re-derives from stored prevHash; updates `status=mismatch` + fires counter on divergence). |
+| **`artifacts/api-server/src/lib/metrics.ts`** | `auditIntegrityMismatchTotal` counter (`audit_integrity_check_failures_total`) added. |
+| **`artifacts/api-server/src/cron.ts`** | New `"0 2 * * *"` (02:00 UTC daily) cron task — calls `recordDailyIntegrity(yesterday)`. |
+| **`prometheus-alerts.yml`** | `AuditIntegrityMismatch` alert — `increase(audit_integrity_check_failures_total[1h]) > 0`, severity critical, no grace period. |
+| **`artifacts/api-server/src/tests/audit-integrity.test.ts`** | New — 13 tests: `computeHashFromRows` (determinism, order-sensitivity, null fields, 64-char hex), `recordDailyIntegrity` (status ok/empty, genesis prevHash, omitted date, stable rootHash), `verifyIntegrity` (ok=true, mismatch + counter, missing record throws). |
+
+**How the chain works:** at 02:00 each day, the cron hashes the previous day's rows as `SHA-256(prevHash || rows...)` where each row contributes `id:userId:clinicId:action:entityType:entityId:createdAt`. The `prevHash` is the stored `rootHash` from the prior record, or `"genesis"` for the first. Tampering with any row changes the hash; `verifyIntegrity()` will detect and record the mismatch.
+
+**Querying for anomalies:**
+```sql
+SELECT checked_date, row_count, status, verified_at
+FROM audit_integrity_checks
+WHERE status = 'mismatch'
+ORDER BY checked_date DESC;
+```
+
+**Test count: 441/441 passing** (was 428; +13 new in `audit-integrity.test.ts`).
+
+---
+
+## P2-4 — OpenTelemetry distributed tracing (2026-05-29)
+
+OTel tracer wired into the API. HTTP server spans on every request; `withSpan()` helper for manual service-layer instrumentation. Zero overhead when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset (noop API provider default).
+
+| Item | Change |
+|---|---|
+| **`artifacts/api-server/src/lib/tracer.ts`** | New — `initTracer()` (SDK setup, OTLP exporter, `BatchSpanProcessor`), `getTracer()`, `withSpan<T>()` helper (OK/ERROR status, exception recording, context propagation), `httpSpanMiddleware` (HTTP server spans, path-only — no PHI in attributes). |
+| **`artifacts/api-server/src/app.ts`** | `httpSpanMiddleware` mounted after `correlationId` so `req.id` is available as `app.request_id` span attribute; context propagates through all downstream middleware. |
+| **`artifacts/api-server/src/index.ts`** | `initTracer()` called before `app` import (no-op without endpoint, zero impact on existing boot). |
+| **`artifacts/api-server/build.mjs`** | `"@opentelemetry/*"` removed from `external` list — packages bundle into `dist/index.mjs` so the minimal runtime Docker image needs no extra `node_modules`. |
+| **`artifacts/api-server/src/tests/tracer.test.ts`** | New — 9 tests: `initTracer` (noop + idempotent), `getTracer` (returns Tracer), `withSpan` (return value, error propagation, span passed to callback), `httpSpanMiddleware` (next() called, finish listener registered). |
+| **`artifacts/api-server/src/tests/phase2.flagON.integration.test.ts`** | `mockActiveUser` extended with `isOnShift`, `phone`, `specialty`, `department` fields + `role: "doctor" as const` — TypeScript schema drift fix unrelated to OTel but surfaced by typecheck. |
+| **`lib/db`** | Declarations rebuilt (`pnpm exec tsc -p lib/db/tsconfig.json`) to include `doctor_patients.d.ts` — necessary for typecheck after Flow 2 schema addition. |
+
+**Configuration (production):**
+```
+OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io   # or Tempo / Jaeger / Grafana Cloud
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=<api-key>  # backend-specific auth header
+```
+
+**PHI rule**: span names and attributes MUST NOT contain patient data. Paths are safe (numeric IDs only); query params and request bodies are excluded from all span attributes.
+
+**`withSpan()` usage pattern** (for service-layer instrumentation):
+```typescript
+const rows = await withSpan("patients.list", { "db.operation": "select" }, async (span) => {
+  const result = await db.select()...;
+  span.setAttribute("result.count", result.length);
+  return result;
+});
+```
+
+**Test count: 428/428 passing** (was 419; +9 new in `tracer.test.ts`).
+
+---
+
+## Flow 2 — Materialized `doctor_patients` scope table (2026-05-29)
+
+O(N) `SELECT DISTINCT patientId FROM appointments WHERE doctorId = ?` replaced with O(1) indexed lookup on a dedicated 2-column scope table.
+
+| Item | Change |
+|---|---|
+| **`lib/db/src/schema/doctor_patients.ts`** | New — `doctorPatientsTable` with composite PK `(doctorId, patientId)`, `clinicId`, `lastSeenAt`, and two indexes (`dp_doctor_idx`, `dp_clinic_idx`). |
+| **`lib/db/src/schema/index.ts`** | Added `export * from "./doctor_patients"`. |
+| **`lib/db/migrations/0009_smooth_hellfire_club.sql`** | New — `CREATE TABLE doctor_patients` + FK constraints + indexes + backfill `INSERT ... SELECT DISTINCT ON` from `appointments` with idempotent `ON CONFLICT DO UPDATE`. |
+| **`artifacts/api-server/src/lib/scope.ts`** | `getDoctorPatientScope` now queries `doctorPatientsTable` (was `db.selectDistinct` on `appointmentsTable`). New export `recordDoctorPatientLink(clinicId, doctorId, patientId, lastSeenAt?)` — idempotent upsert using `onConflictDoUpdate`. |
+| **`artifacts/api-server/src/services/appointments.service.ts`** | `createAppointment` + `patchAppointment` both call `recordDoctorPatientLink` after commit, before `invalidateDoctorScope`. `cancelAppointment` unchanged — historical relationships are preserved. |
+| **`artifacts/api-server/src/tests/scope.test.ts`** | Mock updated: `appointmentsTable` → `doctorPatientsTable`, `selectDistinct` → `select`, `insert` added. 2 new `recordDoctorPatientLink` tests (correct args + default lastSeenAt). |
+
+**Design decisions:**
+- The table is append-only — `cancelAppointment` does NOT remove entries. A cancelled appointment is still a historical clinical relationship and should keep the doctor's PHI access scope intact.
+- Redis cache (60s TTL, `doctor_scope:<doctorId>`) is now optional rather than required — the underlying DB lookup is O(1) indexed.
+- `recordDoctorPatientLink` is idempotent: `ON CONFLICT (doctorId, patientId) DO UPDATE SET lastSeenAt = excluded.last_seen_at`.
+- Backfill migration picks the most recent `scheduled_at` per `(doctor_id, patient_id)` pair as `lastSeenAt`, with `ON CONFLICT DO UPDATE` for idempotency on re-run.
+
+**Test count: 419/419 passing** (was 417; +2 new in `scope.test.ts` for `recordDoctorPatientLink`).
+
+---
+
+## P2-3 — Additional Prometheus alerts + metrics endpoint test suite (2026-05-29)
+
+7 new alert rules added to `prometheus-alerts.yml`; 9-test `metrics.test.ts` suite added.
+
+| Item | Change |
+|---|---|
+| **`prometheus-alerts.yml`** | 7 new rules across 2 groups (see below). Total: 11 alert rules. |
+| **`artifacts/api-server/src/tests/metrics.test.ts`** | New — 9 tests: 4 bearer-token protection tests + 5 custom-metric-name presence tests. |
+
+**New alert rules:**
+
+*Group `medicore-api-alerts` (4 new — no extra exporter required):*
+- `AuditLogPermanentLoss` — CRITICAL, `for: 0m`: fires immediately when `increase(audit_log_write_failures_total[5m]) > 0`. PHI accessed without durable audit entry; HIPAA incident-class event.
+- `AuditOutboxBacklog` — WARNING, `for: 10m`: `audit_outbox_depth > 100` sustained. Drain worker stuck or Postgres under pressure.
+- `HighNodeMemory` — WARNING, `for: 5m`: `process_resident_memory_bytes > 805306368` (768 MB). Possible memory leak.
+- `HighEventLoopLag` — WARNING, `for: 2m`: `nodejs_eventloop_lag_p99_seconds > 0.5`. CPU starvation or blocking sync I/O.
+
+*Group `medicore-infrastructure-alerts` (3 new — require external exporters, documented inline):*
+- `RedisHighMemory` — WARNING (`redis_memory_used_bytes / redis_maxmemory_bytes > 0.85`). Needs `redis_exporter`.
+- `DiskSpaceCritical` — CRITICAL (`node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.10`). Needs `node_exporter`.
+- `SSLCertificateExpiringSoon` — WARNING (`(probe_ssl_earliest_cert_expiry - time()) / 86400 < 14`). Needs `blackbox_exporter`.
+
+**Infrastructure-alert rules are safe to commit** — Prometheus silently skips rules with no active series. They will have no matching metric until the relevant exporter is scraped; they won't generate false alerts. Alert routing and notification channels can be configured before the exporters are live.
+
+**Test count: 417/417 passing** (was 408; +9 new in `metrics.test.ts`).
+
+---
+
+## Phase 2 flag-ON integration test suite (2026-05-28)
+
+11-test `phase2.flagON.integration.test.ts` covering the 4 flag-ON behaviors listed in the roadmap. `debug-phase2.test.ts` (temp debugging file) deleted.
+
+| Item | Change |
+|---|---|
+| **`artifacts/api-server/src/tests/phase2.flagON.integration.test.ts`** | New — 11 tests across 4 describe blocks (see below). |
+| **`artifacts/api-server/src/tests/debug-phase2.test.ts`** | Deleted (temp debugging file from integration work). |
+
+**Test groups:**
+- `POST /auth/verify-device` (flag ON): token not found → 400 `{error:"invalid"}`; fingerprint mismatch → 400 `{error:"fingerprint_mismatch"}`; already-consumed token → 400 `{error:"expired_or_consumed"}` (atomicity); valid token + matching fingerprint → 200 with user + session cookie.
+- `POST /auth/wasnt-me` (flag ON): expired/consumed token → 400; valid kill-switch click → 200 `{status:"revoked"}`.
+- `POST /auth/login` role-branched (flag ON): privileged role on new device → 202 `{status:"pending_verification"}`, no `clinic_token` cookie; non-privileged role on new device → 200, `clinic_token` cookie set.
+- `POST /auth/reset-password` strict policy (`PHASE2_DEVICE_TRUST_ENABLED=true` + `PHASE2_STRICT_PASSWORD_POLICY=true`): < 12 chars → 400 WEAK_PASSWORD; missing special char → 400 WEAK_PASSWORD; HIBP-known password (global `fetch` mocked) → 400 WEAK_PASSWORD.
+
+**Key gotchas captured:**
+- `isStrictPasswordPolicyEnabled()` is **gated by the master flag** (`isPhase2Enabled() && ...`). Setting only `PHASE2_STRICT_PASSWORD_POLICY=true` does nothing unless `PHASE2_DEVICE_TRUST_ENABLED=true` is also set.
+- Zod's `resetSchema` enforces `newPassword: z.string().min(8)` — use 8+ char passwords in tests to avoid VALIDATION_ERROR instead of WEAK_PASSWORD.
+- HIBP test stubs `globalThis.fetch` with `vi.stubGlobal` and computes the correct SHA-1 suffix from the test password to trigger the match.
+
+**Test count: 408/408 passing** (was 397 before flag-OFF suite; +11 flag-ON; -1 debug deletion = net 408).
+
+---
+
+## Phase 2 OpenAPI sync + integration test suite (2026-05-28)
+
+All 8 Phase 2 routes that were code-landed flag-OFF are now declared in the OpenAPI spec, codegen re-run, and covered by a new integration test suite (24 tests).
+
+| Item | Change |
+|---|---|
+| **`lib/api-spec/openapi.yaml`** | Added 8 paths (`POST /auth/verify-device`, `POST /auth/wasnt-me`, `POST /auth/forgot-password`, `POST /auth/reset-password`, `POST /auth/admin-reset/{userId}`, `GET /account/devices`, `DELETE /account/devices/{deviceId}`, `POST /csp-report`). Added `PendingVerificationResponse`, `DeviceTokenBody`, `VerifyDeviceResponse`, `Device`, `DeviceListResponse`, `ForgotPasswordBody`, `ForgotPasswordResponse`, `ResetPasswordBody`, `AdminResetResponse` schemas. Renamed existing `ResetPasswordBody` (password-only, admin use) to `UserPasswordResetBody` to resolve duplicate key collision. |
+| **`lib/api-zod/src/generated/api.ts`** | Regenerated by Orval. |
+| **`lib/api-client-react/src/generated/api.ts`** | Regenerated by Orval. |
+| **`artifacts/api-server/src/routes/csp-report.ts`** | Fixed path bug: route was registered at `/api/csp-report` but apiRouter is already mounted at `/api`, making effective URL `/api/api/csp-report`. Fixed to `/csp-report`. |
+| **`artifacts/api-server/src/routes/index.ts`** | Phase 2 routers (`devicesRouter`, `passwordResetRouter`, `cspReportRouter`) moved to register BEFORE `usersRouter`. All other domain routers mount a global `router.use(requireAuth)` catch-all; Phase 2 anonymous routes (forgot-password, reset-password, verify-device, wasnt-me, csp-report) must appear before that catch-all to avoid being blocked with 403. |
+| **`artifacts/api-server/src/tests/phase2.integration.test.ts`** | New — 24 tests across 8 describe blocks covering enumeration prevention, token validation, privilege gating, Phase 2 flag-off behavior, device management auth, UUID validation, and CSP report path. |
+
+**Key test design notes:**
+- `evaluate()` checks CSRF **before** token presence for `write`/`privileged` scopes on mutation methods. Tests that assert 401 (no token) must supply a CSRF double-submit pair first.
+- Mock upgraded from non-thenable chainable proxy to thenable-resolves-to-`[]`, so `listDevicesForUser` returns an empty array and `rows.map(...)` returns `[]`.
+- `POST /auth/verify-device` and `POST /auth/wasnt-me` return 503 immediately (`phase2_disabled`) before any DB interaction — no CSRF token needed.
+
+**Test count:** 398/398 passing. Typecheck clean.
+
+---
+
 ## P0-4 — clinic_id enforcement: service-layer multi-tenant isolation (2026-05-28)
 
 Closes the "clinic_id is decorative" critical risk. The column existed on PHI tables since Phase 4 (default=1) but was never read by service queries or embedded in JWTs — cross-tenant reads were possible the moment a second clinic onboarded.

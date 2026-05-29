@@ -8,6 +8,7 @@ import { emitToUser } from "./lib/sse";
 import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import { drainAuditOutbox } from "./lib/audit";
+import { recordDailyIntegrity } from "./lib/audit-integrity";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
 // the DB pool is drained (H7). Without this, an in-flight cron callback could
@@ -89,6 +90,21 @@ export function startCronJobs() {
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Data Retention Report failed");
+    }
+  }));
+
+  // Audit Integrity Check (runs daily at 02:00 UTC)
+  // Computes a SHA-256 hash chain over the previous day's audit_log rows and
+  // records it in audit_integrity_checks. If Prometheus fires AuditIntegrityMismatch
+  // it means rows were modified or deleted after the original hash was stored.
+  scheduledTasks.push(cron.schedule("0 2 * * *", async () => {
+    logger.info("[Cron] Running Audit Integrity Hash");
+    try {
+      const yesterday = new Date();
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      await recordDailyIntegrity(yesterday);
+    } catch (err) {
+      logger.error({ err }, "[Cron] Audit Integrity Hash failed");
     }
   }));
 

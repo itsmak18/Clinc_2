@@ -44,6 +44,10 @@ tags:
     description: Dashboard summaries
   - name: schedule
     description: Doctor schedule management
+  - name: security
+    description: CSP violation reporting
+  - name: clinic-notices
+    description: Clinic-wide advisory notices
 
 paths:
   /healthz:
@@ -73,11 +77,17 @@ paths:
               $ref: "#/components/schemas/LoginBody"
       responses:
         "200":
-          description: Login successful
+          description: Login successful; session cookie set
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/LoginResponse"
+        "202":
+          description: New device detected — email verification required (Phase 2). No session issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PendingVerificationResponse"
         "401":
           description: Invalid credentials
 
@@ -221,7 +231,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ResetPasswordBody"
+              $ref: "#/components/schemas/UserPasswordResetBody"
       responses:
         "200":
           description: Password reset
@@ -760,6 +770,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MedicalRecord"
+
+  # CLINIC NOTICES
+  /clinic-notices:
+    get:
+      operationId: listClinicNotices
+      tags: [clinic-notices]
+      summary: List clinic-wide advisory notices
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated list of clinic notices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedClinicNotices"
+    post:
+      operationId: createClinicNotice
+      tags: [clinic-notices]
+      summary: Create a clinic-wide advisory notice (super_admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClinicNoticeBody"
+      responses:
+        "201":
+          description: Clinic notice created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClinicNotice"
+
+  /clinic-notices/{noticeId}:
+    delete:
+      operationId: deleteClinicNotice
+      tags: [clinic-notices]
+      summary: Soft-delete a clinic notice (super_admin only)
+      parameters:
+        - name: noticeId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Notice deleted
 
   # PRESCRIPTIONS
   /prescriptions:
@@ -1899,6 +1964,183 @@ paths:
               schema:
                 $ref: "#/components/schemas/WeekResponse"
 
+  # Phase 2 — Device trust, password reset, CSP reporting
+  /auth/verify-device:
+    post:
+      operationId: verifyDevice
+      tags: [auth]
+      summary: Consume a device verification token and issue a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTokenBody"
+      responses:
+        "200":
+          description: Device verified; session cookie set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyDeviceResponse"
+        "400":
+          description: Invalid, expired, or already-consumed token
+        "503":
+          description: Phase 2 not enabled
+
+  /auth/wasnt-me:
+    post:
+      operationId: reportWasntMe
+      tags: [auth]
+      summary: Kill-switch — revoke all sessions and flag the device as rejected
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceTokenBody"
+      responses:
+        "200":
+          description: Sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [revoked]
+                required: [status]
+        "400":
+          description: Token expired or already consumed
+        "503":
+          description: Phase 2 not enabled
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Request a self-service password reset link (byte-identical response — no enumeration)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordBody"
+      responses:
+        "200":
+          description: Generic response regardless of whether the account exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForgotPasswordResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Consume a reset token and set a new password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordBody"
+      responses:
+        "200":
+          description: Password reset successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [reset_complete]
+                required: [status]
+        "400":
+          description: Invalid or expired token, or password does not meet requirements
+
+  /auth/admin-reset/{userId}:
+    post:
+      operationId: adminResetPassword
+      tags: [auth]
+      summary: Issue a one-time password reset token for a user (admin / compliance_officer only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Single-use reset token issued; deliver out-of-band to the user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResetResponse"
+
+  /account/devices:
+    get:
+      operationId: listDevices
+      tags: [auth]
+      summary: List trusted devices for the currently authenticated user
+      responses:
+        "200":
+          description: Device list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceListResponse"
+
+  /account/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      tags: [auth]
+      summary: Revoke a trusted device
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Device revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [revoked]
+                required: [status]
+
+  /csp-report:
+    post:
+      operationId: submitCspReport
+      tags: [security]
+      summary: Receive a CSP violation report from the browser
+      requestBody:
+        required: false
+        content:
+          application/csp-report:
+            schema:
+              type: object
+          application/reports+json:
+            schema:
+              type: array
+              items:
+                type: object
+          application/json:
+            schema:
+              type: object
+      responses:
+        "204":
+          description: Report accepted (or feature disabled — always 204)
+
 components:
   schemas:
     HealthStatus:
@@ -1922,7 +2164,120 @@ components:
       properties:
         user:
           $ref: "#/components/schemas/User"
+        deviceUnverified:
+          type: boolean
+          description: "True when Phase 2 is active and the device is newly trusted but the email link has not yet been clicked (allow_unverified path for non-privileged roles)."
       required: [user]
+
+    PendingVerificationResponse:
+      type: object
+      description: "Returned HTTP 202 when Phase 2 is active and a privileged-role user logs in from an unrecognised device. No session is issued. The user should check their email."
+      properties:
+        status:
+          type: string
+          enum: [pending_verification]
+        message:
+          type: string
+      required: [status, message]
+
+    DeviceTokenBody:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 16
+          maxLength: 256
+      required: [token]
+
+    VerifyDeviceResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+      required: [user]
+
+    Device:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        firstSeen:
+          type: string
+          format: date-time
+        lastSeen:
+          type: string
+          format: date-time
+        ipLast:
+          type: string
+          nullable: true
+        countryLast:
+          type: string
+          nullable: true
+        trusted:
+          type: boolean
+        trustSource:
+          type: string
+          nullable: true
+        trustExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [deviceId, firstSeen, lastSeen, trusted]
+
+    DeviceListResponse:
+      type: object
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/Device"
+      required: [devices]
+
+    ForgotPasswordBody:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+      required: [username]
+
+    ForgotPasswordResponse:
+      type: object
+      description: "Always returned regardless of whether the account exists (enumeration prevention)."
+      properties:
+        status:
+          type: string
+          enum: [pending_verification]
+        message:
+          type: string
+      required: [status, message]
+
+    ResetPasswordBody:
+      type: object
+      properties:
+        token:
+          type: string
+          minLength: 16
+          maxLength: 256
+        newPassword:
+          type: string
+          minLength: 8
+          maxLength: 256
+      required: [token, newPassword]
+
+    AdminResetResponse:
+      type: object
+      properties:
+        rawToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+      required: [rawToken, expiresAt, note]
 
     User:
       type: object
@@ -1989,7 +2344,7 @@ components:
         phone:
           type: string
 
-    ResetPasswordBody:
+    UserPasswordResetBody:
       type: object
       properties:
         newPassword:
@@ -3563,3 +3918,57 @@ components:
           items:
             $ref: "#/components/schemas/WeekDay"
       required: [doctorId, weekStart, days]
+
+    ClinicNotice:
+      type: object
+      properties:
+        id:
+          type: integer
+        clinicId:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+        createdBy:
+          type: integer
+        reason:
+          type: string
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, clinicId, title, content, createdBy, reason, createdAt, updatedAt]
+
+    PaginatedClinicNotices:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClinicNotice"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    CreateClinicNoticeBody:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 200
+        content:
+          type: string
+          minLength: 10
+        reason:
+          type: string
+          minLength: 20
+      required: [title, content, reason]

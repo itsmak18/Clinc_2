@@ -1,4 +1,7 @@
 groups:
+  # ── Application-level alerts ─────────────────────────────────────────────────
+  # All metrics in this group are emitted by the MediCore API process itself.
+  # No additional exporters required.
   - name: medicore-api-alerts
     rules:
       - alert: HighErrorRate
@@ -36,3 +39,112 @@ groups:
         annotations:
           summary: "Database Pool > 80% Utilized"
           description: "The DB connection pool has been >80% utilized for 5 minutes. Consider scaling DB_POOL_MAX."
+
+      # HIPAA-critical: any permanent audit loss fires immediately (no grace period).
+      # Metric emitted by the drain worker in lib/audit.ts when a row exhausts all
+      # retry attempts. Even a single occurrence requires manual review and incident
+      # assessment under HIPAA §164.312(b).
+      - alert: AuditLogPermanentLoss
+        expr: increase(audit_log_write_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Permanent audit log loss — PHI access without durable trail"
+          description: "{{ $value }} audit outbox row(s) exhausted all retry attempts in the last 5 minutes. PHI was accessed without a durable audit entry. Requires immediate review and HIPAA incident assessment. Check audit_outbox_row_exhausted log entries for affected entity IDs."
+
+      # The drain worker samples outbox depth on every 5-second tick. A sustained
+      # backlog means the drain loop is stuck or Postgres is under heavy pressure.
+      - alert: AuditOutboxBacklog
+        expr: audit_outbox_depth > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Audit outbox backlog > 100 rows for 10 min"
+          description: "{{ $value }} audit events are pending drain. The outbox drain worker may be stuck or Postgres is under sustained write pressure. Events are delayed, not lost, as long as the outbox table is healthy."
+
+      # HIPAA-critical: a mismatch means audit_log rows were modified or deleted
+      # after the daily hash was recorded. Even a single occurrence requires immediate
+      # investigation and a HIPAA breach assessment under §164.312(b).
+      - alert: AuditIntegrityMismatch
+        expr: increase(audit_integrity_check_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit log hash-chain mismatch — possible tampering"
+          description: "{{ $value }} daily audit integrity check(s) detected a SHA-256 hash mismatch in the last hour. Audit log rows may have been modified or deleted after the hash was recorded. Requires immediate investigation and HIPAA incident assessment under §164.312(b). Query audit_integrity_checks WHERE status = 'mismatch' to identify affected dates."
+
+      # RSS above 768 MB on a 1 GB container limit leaves < 25% headroom.
+      # prom-client collectDefaultMetrics() provides this gauge.
+      - alert: HighNodeMemory
+        expr: process_resident_memory_bytes > 805306368
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js API process RSS > 768 MB"
+          description: "Node.js API resident memory is {{ $value | humanize1024 }}B — has exceeded 768 MB for 5 minutes. Possible memory leak or insufficient container memory limit (currently 1 GB in compose). Investigate heap snapshots."
+
+      # prom-client 15.x exposes nodejs_eventloop_lag_p99_seconds from
+      # collectDefaultMetrics(). > 500ms indicates CPU starvation or blocking sync I/O.
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_p99_seconds > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node.js event loop P99 lag > 500ms"
+          description: "Event loop P99 lag is {{ $value }}s — sustained above 500ms for 2 minutes. Look for blocking synchronous operations (bcrypt, crypto, JSON.parse on large payloads) or CPU starvation under load."
+
+  # ── Infrastructure-level alerts ───────────────────────────────────────────────
+  # These alerts require additional Prometheus exporters that are NOT yet deployed.
+  # Add the relevant exporter to docker-compose when provisioning the cloud host.
+  # Rules are included now so that alert routing and notification channels can be
+  # configured before the exporters are live; they will simply have no active series
+  # until the exporter is scraped.
+  - name: medicore-infrastructure-alerts
+    rules:
+      # Requires: redis_exporter (https://github.com/oliver006/redis_exporter)
+      # Add to docker-compose: image: oliver006/redis_exporter, target: redis:6379
+      # Redis is configured with --maxmemory 512mb --maxmemory-policy allkeys-lru.
+      # Above 85% eviction of clinical session data begins, degrading availability.
+      - alert: RedisHighMemory
+        expr: redis_memory_used_bytes / (redis_maxmemory_bytes > 0) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory > 85% of maxmemory"
+          description: "Redis is using {{ $value | humanizePercentage }} of its configured maxmemory limit. Key eviction is imminent — rate-limit state and session data may be discarded. Consider increasing maxmemory or flushing unused keys."
+
+      # Requires: node_exporter (https://github.com/prometheus/node_exporter)
+      # Add to docker-compose: image: prom/node-exporter, host PID/network namespace.
+      # Below 10% free disk, Postgres WAL writes and audit log drain will start
+      # failing, which is both a reliability and HIPAA audit-trail risk.
+      - alert: DiskSpaceCritical
+        expr: >
+          node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}
+          < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space below 10% on {{ $labels.mountpoint }}"
+          description: "Only {{ $value | humanizePercentage }} free disk on {{ $labels.instance }}:{{ $labels.mountpoint }}. Postgres WAL and audit outbox drain will begin failing. Immediate action required: clear old WAL archives or expand volume."
+
+      # Requires: blackbox_exporter (https://github.com/prometheus/blackbox_exporter)
+      # Configure a probe module `https_2xx` targeting the public API domain.
+      # A 14-day window gives enough runway for certificate renewal without an
+      # emergency. Caddy auto-renews from Let's Encrypt — this alert catches failures
+      # in the renewal flow (DNS issues, rate limits, ACME challenges blocked).
+      - alert: SSLCertificateExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate expires in < 14 days for {{ $labels.instance }}"
+          description: "Certificate on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}. Check Caddy auto-renewal logs. If renewal is blocked, re-issue manually to prevent clinic disruption."

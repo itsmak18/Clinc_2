@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { appointmentsTable, medicalRecordsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { doctorPatientsTable, medicalRecordsTable } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import type { AuthRequest } from "../middlewares/auth";
 import { logAudit, logDenied } from "./audit";
 import { runtime } from "./runtime";
@@ -14,8 +14,12 @@ export function isDoctorScoped(role: string | undefined): boolean {
 }
 
 /**
- * Returns the patient IDs a doctor is authorized to see — i.e. patients with
- * at least one appointment where doctor_id = the given doctor's user ID.
+ * Returns the patient IDs a doctor is authorized to see — i.e. patients who
+ * appear in the doctor_patients materialized scope table for this doctor.
+ *
+ * The table is maintained by recordDoctorPatientLink() on every appointment
+ * create/update. O(1) indexed lookup instead of O(N) SELECT DISTINCT on the
+ * full appointments table.
  *
  * Cached in Redis for 60 s (key: doctor_scope:<doctorId>).
  * Call invalidateDoctorScope() from appointment create/update/cancel.
@@ -31,9 +35,9 @@ export async function getDoctorPatientScope(doctorId: number): Promise<number[]>
     // Cache miss or unavailable — fall through to DB
   }
 
-  const rows = await db.selectDistinct({ patientId: appointmentsTable.patientId })
-    .from(appointmentsTable)
-    .where(eq(appointmentsTable.doctorId, doctorId));
+  const rows = await db.select({ patientId: doctorPatientsTable.patientId })
+    .from(doctorPatientsTable)
+    .where(eq(doctorPatientsTable.doctorId, doctorId));
 
   const ids = rows.map(r => r.patientId);
 
@@ -44,6 +48,27 @@ export async function getDoctorPatientScope(doctorId: number): Promise<number[]>
   }
 
   return ids;
+}
+
+/**
+ * Upsert a doctor ↔ patient link into the materialized scope table.
+ * Called from createAppointment() and updateAppointment() whenever a
+ * (doctor, patient) pair is established or modified.
+ *
+ * Idempotent: ON CONFLICT updates last_seen_at to the newer value.
+ */
+export async function recordDoctorPatientLink(
+  clinicId: number,
+  doctorId: number,
+  patientId: number,
+  lastSeenAt: Date = new Date(),
+): Promise<void> {
+  await db.insert(doctorPatientsTable)
+    .values({ clinicId, doctorId, patientId, lastSeenAt })
+    .onConflictDoUpdate({
+      target: [doctorPatientsTable.doctorId, doctorPatientsTable.patientId],
+      set: { lastSeenAt: sql`excluded.last_seen_at` },
+    });
 }
 
 /**
@@ -83,9 +108,8 @@ export async function assertPatientInScope(
 
 /**
  * For routes that fetch a single medical record. Rules:
- *   1. isGlobal = true → allow regardless of doctor_id
- *   2. record.doctorId = current user.id → allow
- *   3. deny + DENIED audit entry
+ *   1. record.doctorId = current user.id → allow
+ *   2. deny + DENIED audit entry
  * Non-doctor roles always pass.
  */
 export async function assertMedicalRecordInScope(
@@ -95,15 +119,14 @@ export async function assertMedicalRecordInScope(
   if (!isDoctorScoped(req.user?.role)) return true;
 
   const [record] = await db
-    .select({ doctorId: medicalRecordsTable.doctorId, isGlobal: medicalRecordsTable.isGlobal })
+    .select({ doctorId: medicalRecordsTable.doctorId })
     .from(medicalRecordsTable)
     .where(eq(medicalRecordsTable.id, recordId));
 
   if (!record) return true; // let the caller handle 404
 
-  if (record.isGlobal) return true;
   if (record.doctorId === req.user!.userId) return true;
 
-  await logDenied(req, "medical_record", recordId as number, "record_not_owned_or_global");
+  await logDenied(req, "medical_record", recordId as number, "record_not_owned");
   return false;
 }

@@ -1,3 +1,5 @@
+import { initTracer } from "./lib/tracer";
+initTracer(); // Must run before any request handling; noop when OTEL_EXPORTER_OTLP_ENDPOINT unset
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startCronJobs, stopCronJobs, startAuditDrain, stopAuditDrain } from "./cron";

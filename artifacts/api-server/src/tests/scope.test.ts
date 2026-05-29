@@ -12,11 +12,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ── Mock @workspace/db before importing scope ─────────────────────────────────
 vi.mock("@workspace/db", () => ({
   db: {
-    selectDistinct: vi.fn(),
     select: vi.fn(),
+    insert: vi.fn(),
   },
-  appointmentsTable: { patientId: "patientId", doctorId: "doctorId" },
-  medicalRecordsTable: { id: "id", doctorId: "doctorId", isGlobal: "isGlobal" },
+  doctorPatientsTable: { doctorId: "doctorId", patientId: "patientId" },
+  medicalRecordsTable: { id: "id", doctorId: "doctorId" },
 }));
 
 vi.mock("../lib/audit", () => ({
@@ -24,7 +24,7 @@ vi.mock("../lib/audit", () => ({
   logDenied: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope, assertMedicalRecordInScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope, assertMedicalRecordInScope, recordDoctorPatientLink } from "../lib/scope";
 import { db } from "@workspace/db";
 import { logAudit, logDenied } from "../lib/audit";
 import type { AuthRequest } from "../middlewares/auth";
@@ -43,15 +43,15 @@ function superAdminReq(): AuthRequest {
   return { user: { userId: 2, username: "sa", role: "super_admin" } } as unknown as AuthRequest;
 }
 
-// Chain mock helper: db.selectDistinct().from().where() → resolves rows
+// Chain mock helper: db.select().from().where() → resolves rows (doctor_patients lookup)
 function mockScopeQuery(patientIds: number[]) {
   const where = vi.fn().mockResolvedValue(patientIds.map(id => ({ patientId: id })));
   const from = vi.fn().mockReturnValue({ where });
-  (db.selectDistinct as ReturnType<typeof vi.fn>).mockReturnValue({ from });
+  (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
 // Chain mock helper: db.select().from().where() → resolves rows
-function mockRecordQuery(record: { doctorId: number; isGlobal: boolean } | null) {
+function mockRecordQuery(record: { doctorId: number } | null) {
   const where = vi.fn().mockResolvedValue(record ? [record] : []);
   const from = vi.fn().mockReturnValue({ where });
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
@@ -96,13 +96,13 @@ describe("assertPatientInScope", () => {
   it("returns true immediately for non-doctor roles (admin)", async () => {
     const result = await assertPatientInScope(adminReq(), 99);
     expect(result).toBe(true);
-    expect(db.selectDistinct).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
   });
 
   it("returns true immediately for super_admin", async () => {
     const result = await assertPatientInScope(superAdminReq(), 99);
     expect(result).toBe(true);
-    expect(db.selectDistinct).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
   });
 
   it("returns true when patient IS in doctor scope", async () => {
@@ -161,29 +161,22 @@ describe("assertMedicalRecordInScope", () => {
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("[Rule 1] returns true when record isGlobal=true regardless of doctorId", async () => {
-    mockRecordQuery({ doctorId: 999, isGlobal: true }); // different doctor
+  it("[Rule 1] returns true when record.doctorId matches current user", async () => {
+    mockRecordQuery({ doctorId: 5 });
     const result = await assertMedicalRecordInScope(doctorReq(5), 42);
     expect(result).toBe(true);
     expect(logDenied).not.toHaveBeenCalled();
   });
 
-  it("[Rule 2] returns true when record.doctorId matches current user", async () => {
-    mockRecordQuery({ doctorId: 5, isGlobal: false });
-    const result = await assertMedicalRecordInScope(doctorReq(5), 42);
-    expect(result).toBe(true);
-    expect(logDenied).not.toHaveBeenCalled();
-  });
-
-  it("[Rule 3] returns false and logs denied when not global and different doctor", async () => {
-    mockRecordQuery({ doctorId: 999, isGlobal: false });
+  it("[Rule 2] returns false and logs denied when different doctor owns the record", async () => {
+    mockRecordQuery({ doctorId: 999 });
     const result = await assertMedicalRecordInScope(doctorReq(5), 42);
     expect(result).toBe(false);
     expect(logDenied).toHaveBeenCalledWith(
       expect.anything(),
       "medical_record",
       42,
-      "record_not_owned_or_global",
+      "record_not_owned",
     );
   });
 
@@ -193,10 +186,43 @@ describe("assertMedicalRecordInScope", () => {
     expect(result).toBe(true);
     expect(logDenied).not.toHaveBeenCalled();
   });
+});
 
-  it("[Rule 1+2 combined] isGlobal=true AND own record → still true", async () => {
-    mockRecordQuery({ doctorId: 5, isGlobal: true });
-    const result = await assertMedicalRecordInScope(doctorReq(5), 42);
-    expect(result).toBe(true);
+// ── recordDoctorPatientLink ───────────────────────────────────────────────────
+
+describe("recordDoctorPatientLink", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("inserts with correct args and onConflictDoUpdate", async () => {
+    const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+    const values = vi.fn().mockReturnValue({ onConflictDoUpdate });
+    (db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values });
+
+    const lastSeenAt = new Date("2026-01-15T10:00:00Z");
+    await recordDoctorPatientLink(1, 5, 10, lastSeenAt);
+
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledWith({ clinicId: 1, doctorId: 5, patientId: 10, lastSeenAt });
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: expect.anything(),
+        set: expect.objectContaining({ lastSeenAt: expect.anything() }),
+      }),
+    );
+  });
+
+  it("uses current date as lastSeenAt when omitted", async () => {
+    const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+    const values = vi.fn().mockReturnValue({ onConflictDoUpdate });
+    (db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values });
+
+    const before = Date.now();
+    await recordDoctorPatientLink(1, 5, 10);
+    const after = Date.now();
+
+    const callArg = (values as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(callArg.lastSeenAt).toBeInstanceOf(Date);
+    expect(callArg.lastSeenAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(callArg.lastSeenAt.getTime()).toBeLessThanOrEqual(after);
   });
 });

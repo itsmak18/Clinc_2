@@ -24,3 +24,6 @@ export * from "./device_verification_tokens";
 export * from "./csp_reports";
 export * from "./password_reset_tokens";
 export * from "./audit_outbox";
+export * from "./doctor_patients";
+export * from "./audit_integrity";
+export * from "./clinic_notices";

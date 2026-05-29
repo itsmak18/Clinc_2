@@ -18,7 +18,7 @@ interface LegacyCspBody {
 }
 
 router.post(
-  "/api/csp-report",
+  "/csp-report",
   asyncHandler(async (req, res) => {
     if (!isCspReportEnabled()) {
       res.status(204).end();

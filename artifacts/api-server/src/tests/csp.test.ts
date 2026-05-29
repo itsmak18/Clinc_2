@@ -29,6 +29,12 @@ describe("CSP directives — regression guard", () => {
   it("style-src allows Google Fonts stylesheet", () => {
     expect(cspDirectives.styleSrc).toContain("https://fonts.googleapis.com");
   });
+
+  it("style-src does not allow 'unsafe-inline'", () => {
+    // React style={} props use the DOM API — not blocked by style-src.
+    // chart.tsx ChartStyle was the only <style> injector; replaced 2026-05-29.
+    expect(cspDirectives.styleSrc).not.toContain("'unsafe-inline'");
+  });
 });
 
 describe("buildCspString", () => {
