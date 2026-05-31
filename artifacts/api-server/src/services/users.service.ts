@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { usersTable, appointmentsTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte } from "drizzle-orm";
 import { todayBoundary } from "../lib/dateUtils";
@@ -33,36 +33,44 @@ export async function listUsers(
   req: AuthRequest,
   params: { role?: string; isActive?: string },
 ) {
-  const conditions: any[] = [isNull(usersTable.deletedAt)];
-  if (params.role) conditions.push(eq(usersTable.role, params.role as any));
-  if (params.isActive !== undefined) conditions.push(eq(usersTable.isActive, params.isActive === "true"));
-  return db.select(userSelect).from(usersTable).where(and(...conditions));
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [isNull(usersTable.deletedAt), eq(usersTable.clinicId, req.user!.clinicId)];
+    if (params.role) conditions.push(eq(usersTable.role, params.role as any));
+    if (params.isActive !== undefined) conditions.push(eq(usersTable.isActive, params.isActive === "true"));
+    return tx.select(userSelect).from(usersTable).where(and(...conditions));
+  });
 }
 
 export async function listOnShiftUsers(req: AuthRequest) {
-  return db
-    .select(userSelect)
-    .from(usersTable)
-    .where(and(isNull(usersTable.deletedAt), eq(usersTable.isOnShift, true)));
+  return runInTenantContext(req.user!, async (tx) => {
+    return tx
+      .select(userSelect)
+      .from(usersTable)
+      .where(and(isNull(usersTable.deletedAt), eq(usersTable.clinicId, req.user!.clinicId), eq(usersTable.isOnShift, true)));
+  });
 }
 
 export async function listDoctors(req: AuthRequest) {
-  return db
-    .select({
-      id:         usersTable.id,
-      fullName:   usersTable.fullName,
-      fullNameAr: usersTable.fullNameAr,
-      specialty:  usersTable.specialty,
-    })
-    .from(usersTable)
-    .where(and(eq(usersTable.role, "doctor"), eq(usersTable.isActive, true), isNull(usersTable.deletedAt)));
+  return runInTenantContext(req.user!, async (tx) => {
+    return tx
+      .select({
+        id:         usersTable.id,
+        fullName:   usersTable.fullName,
+        fullNameAr: usersTable.fullNameAr,
+        specialty:  usersTable.specialty,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.role, "doctor"), eq(usersTable.clinicId, req.user!.clinicId), eq(usersTable.isActive, true), isNull(usersTable.deletedAt)));
+  });
 }
 
 export async function getUser(req: AuthRequest, userId: number) {
-  const [user] = await db.select(userSelect).from(usersTable).where(eq(usersTable.id, userId));
-  if (!user) throw new NotFoundError("User not found");
-  void logRead(req, "user", userId);
-  return user;
+  return runInTenantContext(req.user!, async (tx) => {
+    const [user] = await tx.select(userSelect).from(usersTable).where(and(eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId)));
+    if (!user) throw new NotFoundError("User not found");
+    void logRead(req, "user", userId);
+    return user;
+  });
 }
 
 export async function createUser(
@@ -97,13 +105,26 @@ export async function createUser(
   if (!strength.valid) throw new ValidationError(strength.reason!);
 
   const hash = await hashPassword(password);
-  const [user] = await db
-    .insert(usersTable)
-    .values({ username, passwordHash: hash, fullName, fullNameAr, email, role: role as any, phone, specialty, department })
-    .returning();
+  return runInTenantContext(req.user!, async (tx) => {
+    const [user] = await tx
+      .insert(usersTable)
+      .values({
+        username,
+        passwordHash: hash,
+        fullName,
+        fullNameAr,
+        email,
+        clinicId: req.user!.clinicId,
+        role: role as any,
+        phone,
+        specialty,
+        department
+      })
+      .returning();
 
-  void logAudit(req, "CREATE", "user", user.id);
-  return { ...user, passwordHash: undefined };
+    void logAudit(req, "CREATE", "user", user.id);
+    return { ...user, passwordHash: undefined };
+  });
 }
 
 export async function updateUser(
@@ -136,56 +157,71 @@ export async function updateUser(
     throw new ValidationError(`Invalid specialty. Valid values: ${VALID_SPECIALTIES.join(", ")}`);
   }
 
-  const [before] = await db.select(userSelect).from(usersTable).where(eq(usersTable.id, userId));
-  const [user] = await db
-    .update(usersTable)
-    .set({ fullName, fullNameAr, email, role: role as any, phone, isActive, isOnShift, specialty, department, updatedAt: new Date() })
-    .where(eq(usersTable.id, userId))
-    .returning();
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+    const [before] = await tx.select(userSelect).from(usersTable).where(and(...conditions));
+    if (!before) throw new NotFoundError("User not found");
 
-  if (!user) throw new NotFoundError("User not found");
+    const [user] = await tx
+      .update(usersTable)
+      .set({ fullName, fullNameAr, email, role: role as any, phone, isActive, isOnShift, specialty, department, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
 
-  if (before && before.role !== role) {
-    await revokeAllTokensForUser(userId);
-  }
+    if (!user) throw new NotFoundError("User not found");
 
-  void logAudit(req, "UPDATE", "user", user.id, { before, after: user });
-  return user;
+    if (before && before.role !== role) {
+      await revokeAllTokensForUser(userId);
+    }
+
+    void logAudit(req, "UPDATE", "user", user.id, { before, after: user });
+    return user;
+  });
 }
 
 export async function toggleShift(req: AuthRequest, userId: number) {
-  const [current] = await db
-    .select({ isOnShift: usersTable.isOnShift, role: usersTable.role })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId));
-  if (!current) throw new NotFoundError("User not found");
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+    const [current] = await tx
+      .select({ isOnShift: usersTable.isOnShift, role: usersTable.role })
+      .from(usersTable)
+      .where(and(...conditions));
+    if (!current) throw new NotFoundError("User not found");
 
-  const newShiftState = !current.isOnShift;
-  const [user] = await db
-    .update(usersTable)
-    .set({ isOnShift: newShiftState, updatedAt: new Date() })
-    .where(eq(usersTable.id, userId))
-    .returning();
+    const newShiftState = !current.isOnShift;
+    const [user] = await tx
+      .update(usersTable)
+      .set({ isOnShift: newShiftState, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
 
-  void logAudit(req, "TOGGLE_SHIFT", "user", userId, { isOnShift: user.isOnShift });
+    void logAudit(req, "TOGGLE_SHIFT", "user", userId, { isOnShift: user.isOnShift });
 
-  let shiftSummary: Record<string, number> | undefined;
-  if (!newShiftState && current.role === "doctor") {
-    const { start, end } = todayBoundary();
-    const appointments = await db
-      .select({ status: appointmentsTable.status })
-      .from(appointmentsTable)
-      .where(and(eq(appointmentsTable.doctorId, userId), gte(appointmentsTable.scheduledAt, start), lte(appointmentsTable.scheduledAt, end)));
+    let shiftSummary: Record<string, number> | undefined;
+    if (!newShiftState && current.role === "doctor") {
+      const { start, end } = todayBoundary();
+      const appointments = await tx
+        .select({ status: appointmentsTable.status })
+        .from(appointmentsTable)
+        .where(
+          and(
+            eq(appointmentsTable.doctorId, userId),
+            eq(appointmentsTable.clinicId, req.user!.clinicId),
+            gte(appointmentsTable.scheduledAt, start),
+            lte(appointmentsTable.scheduledAt, end)
+          )
+        );
 
-    shiftSummary = {
-      total: appointments.length,
-      completed: appointments.filter((a) => a.status === "completed").length,
-      cancelled: appointments.filter((a) => a.status === "cancelled").length,
-      remaining: appointments.filter((a) => !["completed", "cancelled", "no_show"].includes(a.status)).length,
-    };
-  }
+      shiftSummary = {
+        total: appointments.length,
+        completed: appointments.filter((a) => a.status === "completed").length,
+        cancelled: appointments.filter((a) => a.status === "cancelled").length,
+        remaining: appointments.filter((a) => !["completed", "cancelled", "no_show"].includes(a.status)).length,
+      };
+    }
 
-  return shiftSummary ? { ...user, shiftSummary } : user;
+    return shiftSummary ? { ...user, shiftSummary } : user;
+  });
 }
 
 export async function deleteUser(req: AuthRequest, userId: number) {
@@ -193,14 +229,17 @@ export async function deleteUser(req: AuthRequest, userId: number) {
     throw new ForbiddenError("You cannot delete your own account");
   }
 
-  const [user] = await db
-    .update(usersTable)
-    .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
-    .where(eq(usersTable.id, userId))
-    .returning();
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+    const [user] = await tx
+      .update(usersTable)
+      .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
 
-  if (!user) throw new NotFoundError("User not found");
-  void logAudit(req, "DELETE", "user", user.id);
+    if (!user) throw new NotFoundError("User not found");
+    void logAudit(req, "DELETE", "user", user.id);
+  });
 }
 
 export async function resetPassword(req: AuthRequest, userId: number, newPassword: string) {
@@ -210,10 +249,15 @@ export async function resetPassword(req: AuthRequest, userId: number, newPasswor
   if (!strength.valid) throw new ValidationError(strength.reason!);
 
   const hash = await hashPassword(newPassword);
-  await db
-    .update(usersTable)
-    .set({ passwordHash: hash, updatedAt: new Date() })
-    .where(eq(usersTable.id, userId));
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+    const [updated] = await tx
+      .update(usersTable)
+      .set({ passwordHash: hash, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
+    if (!updated) throw new NotFoundError("User not found");
 
-  void logAudit(req, "RESET_PASSWORD", "user", userId);
+    void logAudit(req, "RESET_PASSWORD", "user", userId);
+  });
 }

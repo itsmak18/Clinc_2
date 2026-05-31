@@ -233,8 +233,18 @@ export async function evaluate(
   }
   step("role", true);
 
+  // 8. Tenancy: clinicId must be present and a positive integer.
+  // Tokens minted before this check existed could carry a missing/zero clinicId
+  // and silently land in clinic 1; that is the bug. Fail-closed and re-mint.
+  const clinicId = payload.clinicId;
+  if (typeof clinicId !== "number" || !Number.isInteger(clinicId) || clinicId <= 0) {
+    step("tenancy", false, `clinicId:${String(clinicId)}`);
+    return fail(E.AUTH_INVALID, "invalid");
+  }
+  step("tenancy", true);
+
   return pass(
-    { userId: payload.userId, username: payload.username, role, clinicId: payload.clinicId ?? 1 },
+    { userId: payload.userId, username: payload.username, role, clinicId },
     { sessionTtl: extractTokenTtl(rawToken) },
   );
 }

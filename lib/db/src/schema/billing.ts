@@ -27,6 +27,8 @@ export const invoicesTable = pgTable("invoices", {
   index("invoice_status_idx").on(t.status),
   index("invoice_created_idx").on(t.createdAt),
   index("invoice_clinic_idx").on(t.clinicId),
+  index("invoice_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
+  index("invoice_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
 ]);
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({

@@ -10,7 +10,7 @@ type AuditRow = {
   clinicId: number | null;
   action: string;
   entityType: string | null;
-  entityId: number | null;
+  entityId: string | null;
   createdAt: Date;
 };
 

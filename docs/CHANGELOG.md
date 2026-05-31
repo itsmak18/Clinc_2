@@ -1,5 +1,371 @@
 # Changelog
 
+## Phase 4 — Operational Hardening (2026-05-31)
+
+Closes the four operational gaps that left the platform blind in production. All 461/461 tests passing post-landing, monorepo typecheck clean.
+
+### Monitoring stack ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [monitoring/](Clinic-Hub/monitoring/))
+- New containers: `prometheus` (v2.53.0, 30d/5GB TSDB), `alertmanager` (v0.27.0, email receiver), `grafana` (11.1.0).
+- `prometheus.yml` scrapes `api:5000` + `worker:5001` `/metrics` with Bearer auth via the existing `metrics_token` secret. Loads alert rules from the existing `prometheus-alerts.yml`.
+- `alertmanager.yml` emits email via SMTP — env-interpolated (`SMTP_SMARTHOST`, `SMTP_FROM`, `SMTP_AUTH_USER`, `SMTP_AUTH_PASS`, `ALERT_EMAIL_TO`). Separate `critical` route with `repeat_interval: 1h`; `inhibit_rules` suppress matching warnings while a critical fires.
+- Grafana **SSH-tunnel-only** (decision 2026-05-31). Binds `127.0.0.1:3000` on the host — no Caddy route, no `frontend` network attachment. Access via `ssh -L 3000:localhost:3000 deploy@host`. Provisioned datasource + dashboard provider; pre-built `MediCore Overview` dashboard with 13 panels (RPS, error %, p95, DB pool utilization + waiting, audit outbox depth, audit integrity failures, audit write losses, SSE active, cache hit rate, RSS, event-loop lag p99, last-backup age).
+- New secret: `grafana_password` (file-mounted via `GF_SECURITY_ADMIN_PASSWORD__FILE`).
+- Resource footprint: prometheus 512m + alertmanager 256m + grafana 512m ≈ +1.3 GB RAM.
+
+### Automated DB backups ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml))
+- New `backup` service: shares the api image (build target `build`), runs `scripts/backup-verify.mjs` at 02:00 UTC daily inside an idempotent in-container loop (last-run-day guard prevents double execution if the loop wakes inside the same minute). Retention 30 days.
+- Offsite: **rsync over SSH** to `BACKUP_RSYNC_TARGET` (chosen 2026-05-31 over Backblaze B2 — owner-controlled external server). SSH key file-mounted as the new `backup_ssh_key` secret; `StrictHostKeyChecking=accept-new` pins on first run.
+- GPG public key for `BACKUP_GPG_RECIPIENT` mounted read-only from `${GNUPG_HOME:-/root/.gnupg}`. The private key remains on the restore host only.
+- After each successful run, `monitoring/backup-metrics.sh` writes `backup_last_success_timestamp_seconds` to a shared `backup_metrics` volume for the future node_exporter textfile collector.
+- New alerts in `prometheus-alerts.yml`: `BackupStale` (>26 h since success, critical) and `BackupMissingTextfile` (>6 h absent series, warning).
+
+### Rollback procedure ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [.github/workflows/ci.yml](Clinic-Hub/.github/workflows/ci.yml), [RUNBOOK.md](Clinic-Hub/RUNBOOK.md))
+- `api` and `worker` services now resolve `image: ${API_IMAGE:-medicore-api:latest}` / `${WORKER_IMAGE:-${API_IMAGE:-medicore-api:latest}}`, keeping `build:` as a fallback. Deploys flip the tag in `.env` and `docker compose up -d --no-build`.
+- CI gained an `Emit deploy tag` step on main that writes `API_IMAGE=registry/medicore-api:<short-sha>` to the GitHub Actions step summary — copy-paste into `.env` to deploy. PRs skip this step.
+- RUNBOOK §10 (Deployment & Rollback) documents the env-snapshot workflow, migration-direction check (Drizzle has no down migrations — rolling back a destructive migration is roll-forward-hotfix or restore-from-backup), and explicitly notes blue-green is deferred to D2.
+- RUNBOOK §11 (Monitoring & Alerting) documents Grafana SSH-tunnel access, Prometheus `wget`-via-`docker exec` for ad-hoc queries, `amtool` silence recipes, a per-alert playbook table, and the emergency manual-backup recipe to clear `BackupStale`.
+
+### Redis health check ([artifacts/api-server/src/services/health.service.ts](Clinic-Hub/artifacts/api-server/src/services/health.service.ts))
+- `checkReadiness()` now performs a Redis SET+GET roundtrip via `runtime.scopeCache` and reports `checks.redis = { status, latencyMs, store }`. Failure flips `ok` to `false` so Docker's healthcheck on the api container fires a restart.
+- Memory-mode dev (no Redis): `scopeCache` is undefined → reports `{ status: "ok", store: "memory" }` without an I/O call.
+
+### Deferred
+- **node_exporter** (host-level filesystem + backup textfile collector). Required for `BackupStale` and `DiskSpaceCritical` to actually fire. Trigger to land: when the first node-level outage happens.
+- **PagerDuty/Slack channels**. Email confirmed sufficient for the current ops rotation (2026-05-31).
+- **Caddy-fronted Grafana**. Decision was explicit — admin-only tool, internet-exposed app surface kept minimal.
+
+### Verification
+- Monorepo typecheck clean.
+- 461/461 tests passing.
+- All new YAML/JSON files parse cleanly.
+- `docker compose -f docker-compose.prod.yml config` not run on this Windows host — must run on the prod host before cutover.
+
+### Required-before-boot
+- `.env`: `API_IMAGE`, `SMTP_SMARTHOST`, `SMTP_FROM`, `SMTP_AUTH_USER`, `SMTP_AUTH_PASS`, `ALERT_EMAIL_TO`, `BACKUP_GPG_RECIPIENT`, `BACKUP_RSYNC_TARGET`. Compose will reject on missing `:?` vars.
+- Secrets: `./secrets/grafana_password` (mode 0600), `./secrets/backup_ssh_key` + `.pub` added to offsite host's `authorized_keys`.
+- GPG public key for `BACKUP_GPG_RECIPIENT` imported on the host.
+
+---
+
+## Phase 3 — Scalability Improvements (2026-05-31)
+
+Removes scalability bottlenecks identified for moderate growth without over-engineering for hypothetical load. Pgbouncer and full SSE Redis Streams migration intentionally deferred (revisit if a patient portal lands).
+
+### DB Pool Tuning ([lib/db/src/index.ts](Clinic-Hub/lib/db/src/index.ts))
+- `DB_POOL_MAX` default raised 10 → 40 (env-overridable).
+- `DB_POOL_MIN=2` warm connections to eliminate cold-start latency.
+- `allowExitOnIdle: true` so graceful shutdown isn't blocked by idle clients.
+- `statement_timeout=30000` (env: `DB_STATEMENT_TIMEOUT`) — runaway queries can no longer hold pool slots indefinitely.
+- Synced defaults across `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`, `.env.prod.example`.
+- Note: with 40-per-process API + worker, Postgres `max_connections=100` leaves no headroom for a second API replica — that's the trigger to raise `max_connections` or introduce PgBouncer.
+
+### Read-Path Cache ([lib/runtime/cache-service.ts](Clinic-Hub/artifacts/api-server/src/lib/runtime/cache-service.ts))
+- New `CacheService` on `Runtime` with two implementations: Redis (`SETEX` + `SCAN`/`UNLINK`) and in-memory (lazy TTL eviction). Redis path is best-effort — cache failures never block the request.
+- Wrapped non-PHI dashboard aggregations only: `getDashboardSummary` (30 s), `getDepartmentLoad` (30 s), `getRecentActivity` (15 s). TTLs hardcoded with a `TODO: move to env vars if patient portal is added` comment.
+- **Intentionally NOT cached**: `getPatientSummary` and `billing.getDailySummary`. Both call `logRead` — caching would skip audit on cache hits (HIPAA gap). `getPatientSummary` would also place decrypted PHI in Redis.
+- **No proactive invalidation**: 15–30 s TTL gives an acceptable staleness window; mutation-site `invalidatePattern()` calls were skipped to avoid touching every write path. Add them only if freshness becomes a real complaint.
+- New Prom metrics: `cache_hit_total{key_prefix}`, `cache_miss_total{key_prefix}`.
+
+### SSE Safety Net ([lib/sse.ts](Clinic-Hub/artifacts/api-server/src/lib/sse.ts))
+- Per-process cap `SSE_MAX_CONNECTIONS=500` — over-cap connections rejected with `503 + Retry-After: 30`. Capacity check moved BEFORE `flushHeaders()` so the 503 actually delivers.
+- Per-user cap `SSE_MAX_PER_USER=10` — at the limit the oldest connection for that user is evicted (handles tab-leaks without exiling the latest tab).
+- New Prom gauge: `sse_active_connections`.
+- `addSSEClient()` signature changed from `void` to `boolean` (false = at cap). Existing tests ignore the return value — no test breakage.
+
+### Deferred
+- **PgBouncer**: not needed at 1 replica + 20 internal users. Trigger to land it: when scaling API to ≥2 replicas (combined connection count would exceed Postgres `max_connections`).
+- **SSE → Redis Streams**: current Redis Pub/Sub fan-out is already correct for multi-replica; the gap was observability + memory protection, which the caps + gauge close. Revisit only if a patient portal pushes connection counts to thousands.
+
+### Verification
+- Monorepo typecheck clean across all workspaces.
+- 461/461 tests passing.
+
+---
+
+## Phase 2.3 — Architecture Corrections (2026-05-31)
+
+Closes four major architectural gaps identified in the system audit to ensure correct isolation, database performance, outbox efficiency, and process decoupling:
+
+### Gaps Closed
+
+1. **Postgres RLS Full Rollout**: Completed service-by-service migration to Postgres Row-Level Security via `runInTenantContext()`, enforcing database-level multi-tenant boundaries across all clinical and operational backend systems. All read and write queries now run inside a transaction with `app.rls_enforce='on'`.
+2. **Composite DB Performance Indexes**: Added compound index definitions on high-traffic clinical columns (`patients`, `appointments`, `medical_records`, `prescriptions`, `billing`, `lab_tests`, `xray`, `ultrasound`) in migration `0018_performance_indexes.sql` to eliminate full-table scans. Programmatically reconciled migrations journal drift.
+3. **Batch Audit Outbox Drain**: Refactored `drainAuditOutbox()` in `lib/audit.ts` to perform a single batch `insert` into `auditLogsTable` and a single batch `delete` from `auditOutboxTable` using `inArray`, reducing DB round-trips from 200 per cycle to exactly 2.
+4. **Decoupled Background Worker Extraction**: Extracted background cron schedules and audit outbox draining from the Express HTTP process into a dedicated `worker.ts` process. Configured esbuild entrypoints for both `index.mjs` and `worker.mjs`. Updated dev/production `docker-compose` topologies with identical hardened security profiles (`read_only: true`, `cap_drop: [ALL]`, `no-new-privileges: true`). Removed `stopCronJobs()` and `stopAuditDrain()` from API `index.ts` to prevent ReferenceErrors at runtime.
+
+### Verification
+- Monorepo typechecks and builds clean.
+- All 461/461 tests passing successfully.
+
+---
+
+## Phase 2.2 — PHI read paths converted to runInTenantContext (2026-05-31)
+
+Service-by-service rollout of the Phase 2.1 RLS helper. Converts the **read methods** (`list*`, `get*`) across the seven major PHI services, so each tenant-scoped read now runs inside a transaction with `app.rls_enforce='on'`. RLS becomes load-bearing for these endpoints — even if a future bug removes the app-layer `eq(table.clinicId, …)` filter, the DB refuses cross-tenant rows.
+
+### Services converted
+
+| Service | Methods | Notes |
+|---|---|---|
+| [patients.service.ts](Clinic-Hub/artifacts/api-server/src/services/patients.service.ts) | `listPatients`, `getPatient` (Phase 2.2 demo), `getPatientSummary` | Also fixed a pre-existing leak in `listPatients`'s `count(*)` query — missing clinic filter; now scoped at both app + DB layers. `getPatientSummary`'s five-table fan-out runs entirely inside one tenant transaction. |
+| [medical-records.service.ts](Clinic-Hub/artifacts/api-server/src/services/medical-records.service.ts) | `listMedicalRecords`, `getMedicalRecord` | RLS doctor_scope policy (0017) intersects with tenant_isolation on this table. |
+| [prescriptions.service.ts](Clinic-Hub/artifacts/api-server/src/services/prescriptions.service.ts) | `listPrescriptions`, `getPrescription` | doctor_scope-bound. |
+| [lab.service.ts](Clinic-Hub/artifacts/api-server/src/services/lab.service.ts) | `listLabTests`, `getLabTest` | doctor_scope-bound. |
+| [xray.service.ts](Clinic-Hub/artifacts/api-server/src/services/xray.service.ts) | `listXrays`, `getXray` | doctor_scope-bound. |
+| [ultrasound.service.ts](Clinic-Hub/artifacts/api-server/src/services/ultrasound.service.ts) | `listUltrasounds`, `getUltrasound` | doctor_scope-bound. |
+| [appointments.service.ts](Clinic-Hub/artifacts/api-server/src/services/appointments.service.ts) | `listAppointments`, `getAppointment` (signature changed) | **Bug fix surfaced by the conversion**: `getAppointment(id)` previously took no `req` and ran `db.select().from(appointmentsTable).where(eq(id))` with NO clinic filter — anyone with an appointment ID could fetch any tenant's row. Now `getAppointment(req, id)`, clinic-scoped, runs inside `runInTenantContext`. Caller in [routes/appointments.ts:37](Clinic-Hub/artifacts/api-server/src/routes/appointments.ts#L37) updated. |
+| [billing.service.ts](Clinic-Hub/artifacts/api-server/src/services/billing.service.ts) | `listInvoices`, `getInvoice` | Tenant-scoped. |
+
+### What this changes operationally
+
+- Every read on the seven tables above now opens a transaction, runs `SELECT set_config('app.rls_enforce','on', true)` + per-tenant GUCs, executes the query, COMMITs. Per-request overhead: ~one extra round-trip for the GUC setup; the read itself is unchanged.
+- A future regression that drops the `eq(table.clinicId, req.user!.clinicId)` filter would still pass mocked tests but **fail the cross-tenant integration test** in CI's `integration-db` job (zero rows returned, not the leak that mocked tests would silently allow).
+- The existing app-layer `eq(t.clinicId, …)` filters remain in place as belt-and-braces. They become removable in a follow-up cleanup PR once **every** read+write path is converted and the `tenant_isolation` policy is flipped from permissive-with-GUC-gate to a hard `clinic_id = current_setting('app.clinic_id')::int`.
+
+### What's NOT in this PR
+
+- **Write methods** (`create*`, `update*`, `delete*`, state-machine transitions). RLS's WITH CHECK clause is already in place on inserts/updates, so the DB refuses cross-tenant writes today — the conversion is mechanical and tracked for a follow-up.
+- **Service files not in the table above**: `dashboard.service.ts`, `notifications.service.ts`, `clinic-notices.service.ts`, `patient_consents.service.ts`, `operations.service.ts`, `inventory.service.ts`, `audit.service.ts`, `erasure.service.ts`, `break-glass.service.ts`, `schedule.service.ts`, `users.service.ts`. Each is a separate, small follow-up PR.
+- **The redundant-filter cleanup** described above. Wait until the rollout completes.
+
+### Verification
+
+- Typecheck clean.
+- Fast suite: **461/461** (no behavioural change for any existing test — the helper preserves the same query semantics).
+- The cross-tenant + doctor-scope + RLS tenant-context integration-db tests already in CI continue to cover the new paths; the patients/medical-records/lab/xray/ultrasound endpoints participate in `cross-tenant.integration-db.test.ts`'s endpoint matrix.
+
+---
+
+## Phase 2/3/4 bundle — RLS rollout, audit + break-glass hardening, edge WAF + DAST, KMS scaffold (2026-05-31)
+
+Continuing the 2026-05-30 board-review remediation roadmap. Lands six related changes in a single PR so they can be reviewed and verified together.
+
+### Phase 2.3 — doctor-scope RLS
+
+**Migration `0017_doctor_scope_rls.sql`** adds a RESTRICTIVE `doctor_scope` policy to the five doctor-bounded PHI tables: `medical_records`, `prescriptions`, `lab_tests`, `xray_records`, `ultrasound_records`. Restrictive intersects (AND) with the permissive `tenant_isolation` from 0015, so a row must satisfy BOTH clinic and doctor scope. Doctors only see rows for patients in their `doctor_patients` materialized table; non-doctor roles bypass via `current_setting('app.role') IS DISTINCT FROM 'doctor'`. WITH CHECK rejects cross-scope INSERT/UPDATE.
+
+Test: `tests/doctor-scope-rls.integration-db.test.ts` proves doctor-A only sees patient-A's records, doctor-B only sees patient-B's, nurse sees all (in-clinic), and a doctor-A INSERT for patient-B is refused by the DB.
+
+### Phase 2.2 — patients.service.ts demo conversion
+
+`getPatient()` now wraps its read in `runInTenantContext(req.user!, async (tx) => …)`. The DB enforces clinic isolation via RLS; the existing `eq(patientsTable.clinicId, req.user!.clinicId)` remains belt-and-braces until the full service rollout. This is the first real-service consumer of the Phase 2.1 helper — a template for the remaining ~25 service methods that will convert incrementally.
+
+### Phase 3.1 — typed `req.user` everywhere
+
+**`src/types/express-augment.ts`** declares `Express.Request.user` and `Express.Request.id` on the global namespace. Removes all `(req as any).user` / `(req as any).id` casts:
+- `lib/audit.ts:25` — `req.user?.userId` directly typed
+- `middlewares/correlationId.ts:18` — `req.id = id` directly typed
+- `services/billing.service.ts:172` — `req.user?.userId` directly typed
+
+Closes the foot-gun the board flagged: `(req as any).user?.userId` silently returned `undefined` for any future bug that strips the auth gate; the typed access surfaces such bugs at compile time.
+
+### Phase 3.2 — audit no longer silently skips on missing user
+
+`logAudit()` used to early-return when `req.user` was absent — events emitted from system-initiated paths (cron, internal jobs, error handlers) were silently dropped. Phase 3.2 routes those events to a `SYSTEM_USER_ID = -1` actor with `SYSTEM_CLINIC_ID = 1` and increments `audit_system_actor_total{action,entity_type}`. A sustained non-zero rate of this counter is now actionable — find the unauthenticated call path. Added two new tests to `audit.failure.test.ts` covering the system-actor path and the counter increment.
+
+### Phase 3.4 — break-glass compliance approval gate
+
+**Migration `0016_break_glass_approval.sql`** adds `approved_at` + `approved_by_user_id` columns. The service-layer change at `break-glass.service.ts`:
+
+- Activation immediately grants access for a **5-minute grace window** (`BREAK_GLASS_GRACE_MS`) — emergencies aren't blocked on synchronous approval.
+- A `compliance_officer` / `admin` / `super_admin` must call **`POST /break-glass/sessions/:id/approve`** within the grace window to extend access to the full 15-minute TTL.
+- Self-approval is forbidden (activator can't approve their own session).
+- An unapproved session that hits the grace deadline silently auto-expires.
+- Compliance-officer revoke of an unapproved session now logs `BREAK_GLASS_DENIED` (distinct from end-of-session `BREAK_GLASS_REVOKED`).
+- SSE alert payload now includes `requiresApproval: true` + `graceExpiresAt` so the compliance UI can render a one-click approve/deny action.
+
+This converts break-glass from purely-detective (alert fires, but access proceeds) to preventive-with-grace (alert fires, access proceeds for 5 min max unless explicitly approved).
+
+### Phase 4.3 — edge WAF + DAST CI
+
+**`.github/workflows/security-dast.yml`** runs OWASP ZAP baseline scan nightly (04:00 UTC) and on-demand against `STAGING_URL` (repo variable). Findings are uploaded as SARIF to the Security tab + opened as GitHub issues. Skips gracefully if `STAGING_URL` is unset. Per-rule false-positive overrides live in `.zap/rules.tsv`. Closes the "no DAST" board finding.
+
+**Caddyfile** edge hardening:
+- New `@scan_paths` matcher blocks common probe paths (`.env*`, `wp-admin*`, `phpmyadmin*`, `xmlrpc.php`, `actuator*`, `backup.*`, etc.) with 403 — keeps probe noise out of api logs.
+- `@bad_method` rejects non-allowlisted HTTP methods (TRACE / CONNECT etc.) with 405.
+- Added `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Cross-Origin-Embedder-Policy` security headers.
+
+### Phase 4.4 scaffolding — pluggable key-provider abstraction
+
+**`src/lib/key-provider.ts`** defines a `KeyProvider` interface and ships `LocalEnvKeyProvider` (current behavior — keys from `FIELD_ENCRYPTION_KEY` / `_NEXT` env vars) and a `KmsKeyProvider` stub. The stub throws on construction with a documented rollout playbook for swapping to AWS KMS / GCP Cloud KMS / Azure Key Vault when the cloud deployment lands.
+
+Scaffolding only — `field-encryption.ts` is untouched in this PR so the 19-test field-encryption suite stays green. The KMS migration becomes a single-line provider swap when the cloud account is provisioned and the team has chosen a vendor.
+
+### Verification
+
+- Typecheck clean across all workspaces.
+- Fast suite: **461/461** (was 460/460; +2 audit-system-actor tests, -1 obsolete silent-skip test).
+- New integration-db tests will run in CI's `integration-db` job: `doctor-scope-rls.integration-db.test.ts` joins the existing cross-tenant + clinic-id-check + rls-tenant-context suite.
+
+### Still deferred
+
+- **Phase 2.2 full rollout** — converting ~25 more service methods to `runInTenantContext`. Each conversion is small; landing them as one PR per service keeps blast radius bounded.
+- **Phase 3.3 (audit hash-chain WORM)** — depends on KMS for the chain-head signing key.
+- **Phase 4.1 / 4.2** — managed Postgres + Redis provisioning requires a HIPAA-eligible cloud account with signed BAA.
+- **Phase 4.4 cloud impl** — wiring `KmsKeyProvider` to a real KMS requires the cloud account from 4.1.
+- **Phase 5** — HIPAA gap analysis, BAA, pentest, DAST findings remediation. Procurement, not code.
+- **Phase 6** — SSO/SCIM, per-tenant DEK, governance separation.
+
+---
+
+## Phase 2.1 — Row Level Security foundation (dormant-by-default) (2026-05-31)
+
+Adds Postgres RLS as a DB-enforced tenant boundary, designed to roll out incrementally without changing existing service-layer behaviour.
+
+**Migration `lib/db/migrations/0015_enable_rls.sql`** runs `ALTER TABLE … ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` on all 20 clinic-bearing tables and creates a `tenant_isolation` policy on each. The policy USING + WITH CHECK expression:
+
+```sql
+coalesce(current_setting('app.rls_enforce', true), 'off') <> 'on'
+OR clinic_id = nullif(current_setting('app.clinic_id', true), '')::int
+```
+
+When the session GUC `app.rls_enforce` is unset (default state for the whole app today), the first branch is TRUE and the policy is permissive — every row is visible, identical to behaviour before this migration. When the GUC is set to `'on'`, the second branch enforces `clinic_id = <tenant>`.
+
+`FORCE` makes the policy apply to the table owner too, so dev/test (where the connecting user is often the owner) matches prod (where a non-superuser `medicore_app` role connects). Without FORCE, owners bypass RLS and dev would silently diverge from prod.
+
+**`lib/db/src/tenant-context.ts`** exports `runInTenantContext(user, fn)`:
+
+```ts
+import { runInTenantContext } from "@workspace/db";
+
+await runInTenantContext({ userId, clinicId, role }, async (tx) => {
+  // tx.select(), tx.insert(), tx.update(), tx.delete() — all tenant-scoped by Postgres
+  return tx.select().from(patientsTable);
+});
+```
+
+Opens a Drizzle transaction, runs `SELECT set_config('app.rls_enforce','on', true)` + per-tenant GUCs (`app.clinic_id`, `app.user_id`, `app.role`) — all session-local so they revert at COMMIT/ROLLBACK and never leak to another request when the connection returns to the pool. Validates `clinicId > 0` defensively before opening the tx.
+
+**Rollout strategy (service-by-service):**
+
+1. Service migrates from `db.select().from(t).where(eq(t.clinicId, req.user!.clinicId))` to `runInTenantContext(req.user!, (tx) => tx.select().from(t))`. The DB now enforces the filter.
+2. The existing app-layer `eq(t.clinicId, ...)` filter remains belt-and-braces — both layers coexist safely.
+3. Once every service file has been converted, a follow-up cleanup PR removes the redundant `eq(clinicId, ...)` filters and turns the policy from permissive-with-GUC-gate into a hard `clinic_id = current_setting('app.clinic_id')::int`.
+
+This iteration converts zero services — the foundation is in place, the integration test below proves it works, and individual services convert incrementally so each can be reviewed against its own routes.
+
+**Integration test `tests/rls-tenant-context.integration-db.test.ts`** proves all three halves of the design:
+- Outside `runInTenantContext`: rows from every clinic visible (RLS dormant, backward-compatible).
+- Inside `runInTenantContext({clinicId: A, …})`: SELECT returns only clinic-A rows even without any `eq(t.clinicId, …)` filter. A forgotten clinic filter inside a tenant context is now harmless.
+- Inside a clinic-A context, INSERT with `clinic_id = B` is rejected by the WITH CHECK clause — the DB refuses cross-tenant writes.
+
+**Production note (Phase 2.2 follow-up):** create a non-superuser `medicore_app` role and make the API connect as that role. Superusers and table owners bypass RLS even with `FORCE` set unless they aren't the policy target. The `FORCE` clause in 0015 plus the role-switch in 2.2 gives the full belt-and-braces.
+
+**Verification:** 460/460 fast suite still passes (RLS is dormant for existing code paths). Typecheck clean. The new integration-db test will run in the CI `integration-db` job.
+
+---
+
+## Phase 2.0 — clinic_id CHECK constraint at the DB layer (2026-05-31)
+
+First of two Phase 2 changes from the board-review remediation roadmap. Moves the "clinic_id must be a positive integer" invariant from the app layer (already enforced by the policy kernel since 2026-05-30) into Postgres itself.
+
+**Migration `lib/db/migrations/0014_clinic_id_check_constraint.sql`** adds `CHECK (clinic_id > 0)` to all 20 clinic-bearing tables. Pattern: `ADD CONSTRAINT … NOT VALID` followed by `VALIDATE CONSTRAINT` — short ACCESS EXCLUSIVE lock on the catalog, then a non-blocking scan under SHARE UPDATE EXCLUSIVE. Idempotent via `DO $$ … END $$` guards (reads `pg_constraint`). Pre-flight `UPDATE` normalizes any historical bad rows to clinic 1 before the constraint is added; on a sane DB these should touch zero rows.
+
+Tables covered: `appointments`, `audit_logs`, `audit_outbox`, `break_glass_sessions`, `clinic_notices`, `doctor_patients`, `erasure_requests`, `inventory`, `invoice_items`, `invoices`, `lab_tests`, `medical_records`, `notifications`, `operations`, `patient_consents`, `patients`, `prescriptions`, `ultrasound_records`, `users`, `xray_records`.
+
+**Why now**: the 16-agent board review (2026-05-30) called tenant isolation "a decoration" because nothing below the app layer enforced it. Phase 0.2 removed the `payload.clinicId ?? 1` kernel fallback (auth now fail-closes on missing clinicId). Phase 2.0 closes the remaining "0 means no clinic / 1 means everyone's clinic" foot-gun at the schema level — even if the app drifts, the DB refuses the row.
+
+**Integration test**: `tests/clinic-id-check.integration-db.test.ts` spins up postgres:16-alpine via testcontainers, applies every migration including 0014, and asserts that INSERT with `clinic_id = 0` or `-1` fails with the CHECK violation across all 20 tables.
+
+**Harness change**: `_helpers/realDb.ts` now applies ALL migrations in lexical order (not just journal-tracked ones) — fixes a latent gap where the Phase 1 cross-tenant + doctor-scope tests would have been missing migrations 0010-0013 against a fresh DB. The drizzle `_journal.json` tracks only 0000-0009; 0010+ are hand-authored (pre-existing project tech debt). Production must apply hand-authored tail via psql; the test harness now matches.
+
+**Note**: this migration is hand-authored (no schema-side `.default(1)` removal) and not in `_journal.json` — matches the project's existing pattern for 0010-0013. The 460/460 fast suite still passes; the integration-db suite includes the new test.
+
+**Deferred to a follow-up PR (Phase 2.1+):**
+- `withRequestContext` helper + per-request middleware (`SET LOCAL app.clinic_id = $1` inside a tx so RLS policies can read it).
+- Migration `0015_enable_rls.sql` — `ALTER TABLE … ENABLE ROW LEVEL SECURITY` + `tenant_isolation` policy.
+- Doctor-scope RLS via `doctor_patients` EXISTS subquery.
+
+Reason for split: 2.1+ touches ~30 service files (replaces direct `db` imports with `req.tx`); landing it without the per-request tx in place would either crash the app or be a no-op policy. Doing it as its own PR keeps each change reviewable and reversible.
+
+---
+
+## Per-role session timeout warning (2026-05-30)
+
+Fixes silent 401 for `super_admin` (15m JWT) — warning now fires 2 minutes before the actual JWT expiry for every role, not at a hardcoded 28-minute idle threshold.
+
+**Root cause**: `useSessionTimeout` had a `jwtExpUnix` param designed for per-role TTL, but `App.tsx` was not passing it. Fallback: hardcoded 28/30m defaults. super_admin (15m TTL) would get a 401 with zero warning on any active session beyond 15 minutes.
+
+**Changes:**
+- `src/middlewares/auth-gate.ts` — adds `jwtExpUnix` to `AuthRequest.user` (computed from `d.meta.sessionTtl` returned by the policy kernel's `extractTokenTtl`).
+- `src/routes/auth.ts` — `GET /auth/me` now spreads `jwtExpUnix` into the response alongside the user object.
+- `artifacts/clinic/src/hooks/auth.tsx` — `AuthUser.jwtExpUnix?: number` field added.
+- `artifacts/clinic/src/App.tsx` — `useSessionTimeout` now receives `jwtExpUnix: user?.jwtExpUnix`; idle/warning timers are derived from actual JWT TTL (2 min lead, with a 60s floor).
+
+**Behaviour per role after fix:**
+| Role | JWT TTL | Warning fires at | Auto-logout |
+|---|---|---|---|
+| super_admin | 15 min | 13 min | 15 min |
+| admin | 1 h | 58 min | 1 h |
+| clinical (doctor/nurse) | 2 h | 1h 58m | 2 h |
+| operational | 4 h | 3h 58m | 4 h |
+
+**454/454 tests passing. All 4 workspaces typecheck clean.**
+
+---
+
+## audit_logs.entity_id widened to text; Retry-After header (2026-05-30)
+
+Completes the UUIDv7 PK story: audit trails now carry UUID entity IDs natively.
+
+**`audit_logs.entity_id` / `audit_outbox.entity_id` → `text`**
+- Migration `lib/db/migrations/0013_audit_entity_id_text.sql` — `ALTER COLUMN entity_id TYPE text USING entity_id::text`. All existing integer IDs preserved as strings; no data loss.
+- Schema: `audit_logs.ts` and `audit_outbox.ts` changed from `integer("entity_id")` to `text("entity_id")`.
+- `audit.ts` (`logAudit`): `entityId: entityId != null ? String(entityId) : null` — call sites passing integers still work; UUID strings work natively.
+- `clinic-notices.service.ts`: `logAudit` calls now pass `notice.id` / `noticeId` directly as `entityId`; the `details: { id }` workaround removed.
+- `auth.service.ts` (3 sites): `entityId: userId → String(userId)` / `userId != null ? String(userId) : null`.
+- `audit.service.ts`: `getAuditLogsByEntity(entityType, entityId: number)` → `entityId: string`; `isNaN` check replaced with truthiness check.
+- `routes/audit.ts`: `parseInt(req.params.entityId)` → `String(req.params.entityId)`.
+- `audit-integrity.ts`: `AuditRow.entityId` type updated to `string | null`.
+- `tests/audit-integrity.test.ts`: `makeRow` fixture `entityId: 42` → `"42"`.
+- `tests/clinic-notices.service.test.ts`: `deleteClinicNotice` audit assertion updated to pass UUID directly.
+
+**`Retry-After` header on login 429**
+- `routes/auth.ts`: `res.set("Retry-After", String(err.retryAfterSecs))` added before the 429 JSON body. Standard RFC 7231 header — HTTP clients and API gateways can now back off automatically.
+
+**454/454 tests passing. All 4 workspaces typecheck clean.**
+
+---
+
+## UUIDv7 PK infrastructure (2026-05-29)
+
+Adds time-sortable UUID v7 primary key support as the standard for new tables going forward. All legacy serial-PK tables are unchanged.
+
+**Files changed:**
+- **`lib/db/src/uuid-v7.ts`** — Pure-function `uuidV7()` generator. No external dependency — uses Node's `crypto.randomBytes`. Embeds 48-bit millisecond timestamp (bits 0–47) + 12-bit rand_a + 62-bit rand_b. Lexicographic order equals chronological order; safe for Postgres `ORDER BY id` cursor pagination.
+- **`lib/db/src/index.ts`** — Exports `uuidV7`.
+- **`lib/db/package.json`** — Adds `"./uuid-v7": "./src/uuid-v7.ts"` export for direct sub-path imports (avoids triggering the DB connection in tests).
+- **`lib/db/src/schema/clinic_notices.ts`** — First UUID-PK table: `id: uuid("id").$defaultFn(uuidV7).primaryKey()`.
+- **`lib/db/migrations/0012_clinic_notices_uuid_pk.sql`** — Drops serial `id`, adds `uuid DEFAULT gen_random_uuid() PRIMARY KEY`. Safe: no FK references from other tables; no prod data at this stage.
+- **`artifacts/api-server/src/services/clinic-notices.service.ts`** — All ID fields updated to `string`; cursor pagination is lexicographic (correct for UUIDv7); audit `entityId` stays `undefined` (audit_logs.entity_id is integer); UUID passed in `details` instead.
+- **`artifacts/api-server/src/routes/clinic_notices.ts`** — Removed `safeParseInt`; `noticeId` validated against UUID regex.
+- **`lib/api-spec/openapi.yaml`** — `ClinicNotice.id`, `PaginatedClinicNotices.nextCursor`, and `DELETE /clinic-notices/{noticeId}` param all updated to `type: string, format: uuid`.
+- **`artifacts/api-server/src/tests/uuid-v7.test.ts`** — 5 new tests: format, version nibble, variant bits, monotonicity, uniqueness.
+- **`artifacts/api-server/src/tests/clinic-notices.service.test.ts`** — All ID literals updated to UUID strings.
+
+**Pattern for all future tables:** `id: uuid("id").$defaultFn(uuidV7).primaryKey()`. Audit entityId: pass `undefined` + `{ id }` in details until `audit_logs.entity_id` is widened to `text`.
+
+**454/454 tests passing.** Typecheck clean.
+
+---
+
+## REDIS_PASSWORD → Docker secrets (2026-05-29)
+
+Completes the P0-3 secrets story. `REDIS_URL` was the last secret visible via `docker inspect` on the api container.
+
+**Changes:**
+- **Redis container** (`docker-compose.prod.yml`): switched from `command: >` (compose-interpolated `${REDIS_PASSWORD}`) to `entrypoint: ["sh", "-c"]` + `command:` that reads `$$(cat /run/secrets/redis_password)`. Healthcheck updated to the same pattern. Added `secrets: [redis_password]`.
+- **Api container** (`docker-compose.prod.yml`): removed `REDIS_URL` from `environment:`. Added `redis_password` to the entrypoint `for s in ...` pre-flight check and `export REDIS_URL="redis://:$$(cat /run/secrets/redis_password)@redis:6379"`. Added `redis_password` to `secrets:` list.
+- **Top-level `secrets:`** (`docker-compose.prod.yml`): added `redis_password: { file: ./secrets/redis_password }` entry and generator comment (`openssl rand -base64 48`).
+- **`secrets/README.md`**: added `redis_password` to required-files table; updated "Why files instead of env vars" section.
+- **`.env.prod.example`**: replaced `REDIS_PASSWORD=...` inline var with a note that `REDIS_URL` is assembled from the secret file; added `redis_password` to the secrets list.
+
+**Deploy note:** requires `./secrets/redis_password` (mode 0600) before next `docker compose up -d`. Entrypoint fails fast with `FATAL: /run/secrets/redis_password missing or empty` if the file is absent.
+
+**454/454 tests passing** (infra-only change; no code paths affected).
+
+---
+
 ## Codegen post-step fix — `write-zod-index.mjs` (2026-05-29)
 
 The `lib/api-spec` codegen script used an inline `node -e "..."` one-liner to write `lib/api-zod/src/index.ts` after every Orval run. Due to JSON + shell escaping layering, the shell command produced the literal characters `\n` (backslash + n) in the file instead of a real newline. TypeScript then reported `TS1127: Invalid character` and `TS2304: Cannot find name 'n'` on the first line, requiring a manual correction after every codegen run.

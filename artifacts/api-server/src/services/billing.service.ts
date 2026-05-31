@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { invoicesTable, patientsTable, invoiceItemsTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
@@ -49,23 +49,25 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
     if (!isNaN(pid)) conditions.push(eq(invoicesTable.patientId, pid));
   }
 
-  const rows = await db.select({
-    id: invoicesTable.id,
-    invoiceNumber: invoicesTable.invoiceNumber,
-    patientId: invoicesTable.patientId,
-    createdById: invoicesTable.createdById,
-    subtotal: invoicesTable.subtotal,
-    discount: invoicesTable.discount,
-    total: invoicesTable.total,
-    status: invoicesTable.status,
-    paidAt: invoicesTable.paidAt,
-    notes: invoicesTable.notes,
-    createdAt: invoicesTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-  }).from(invoicesTable)
-    .leftJoin(patientsTable, eq(invoicesTable.patientId, patientsTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(invoicesTable.createdAt));
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: invoicesTable.id,
+      invoiceNumber: invoicesTable.invoiceNumber,
+      patientId: invoicesTable.patientId,
+      createdById: invoicesTable.createdById,
+      subtotal: invoicesTable.subtotal,
+      discount: invoicesTable.discount,
+      total: invoicesTable.total,
+      status: invoicesTable.status,
+      paidAt: invoicesTable.paidAt,
+      notes: invoicesTable.notes,
+      createdAt: invoicesTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+    }).from(invoicesTable)
+      .leftJoin(patientsTable, eq(invoicesTable.patientId, patientsTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(invoicesTable.createdAt)),
+  );
 
   const itemsMap = await fetchInvoiceItemsBatch(rows.map(r => r.id));
   void logRead(req, "invoice", undefined);
@@ -115,8 +117,11 @@ export async function createInvoice(
 }
 
 export async function getInvoice(req: AuthRequest, invoiceId: number) {
-  const conditions: any[] = [eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt), eq(invoicesTable.clinicId, req.user!.clinicId)];
-  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
+  const invoice = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(invoicesTable.id, invoiceId), isNull(invoicesTable.deletedAt), eq(invoicesTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(invoicesTable).where(and(...conditions));
+    return row;
+  });
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
   const items = await fetchInvoiceItems(invoiceId);
   void logRead(req, "invoice", invoiceId);
@@ -169,7 +174,7 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
   }
 
   // Anti-fraud: reject if the invoice was created by the same user within the last 30 seconds
-  const payerId = (req as any).user?.userId;
+  const payerId = req.user?.userId;
   const ageMs = Date.now() - new Date(invoice.createdAt).getTime();
   if (payerId && invoice.createdById === payerId && ageMs < 30_000) {
     await logAudit(req, "INVOICE_PAY_FRAUD_GATE", "invoice", invoiceId, { ageMs });

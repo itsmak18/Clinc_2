@@ -41,7 +41,7 @@ import { db } from "@workspace/db";
 
 function makeRow(overrides: Partial<{
   id: number; userId: number | null; clinicId: number | null;
-  action: string; entityType: string | null; entityId: number | null; createdAt: Date;
+  action: string; entityType: string | null; entityId: string | null; createdAt: Date;
 }> = {}) {
   return {
     id: 1,
@@ -49,7 +49,7 @@ function makeRow(overrides: Partial<{
     clinicId: 1,
     action: "READ",
     entityType: "patient",
-    entityId: 42,
+    entityId: "42",
     createdAt: new Date("2026-01-15T09:00:00.000Z"),
     ...overrides,
   };

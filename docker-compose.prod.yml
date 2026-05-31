@@ -30,9 +30,14 @@ services:
 
   # ── PostgreSQL 16 ───────────────────────────────────────────────────────────
   postgres:
-    # Pin by digest for reproducibility (C4). Populate digest from:
+    # Pinned by digest for reproducibility + supply-chain integrity (C4).
+    # Tag-only references silently update when a registry re-tags `:16-alpine` —
+    # which is the supply-chain bug we want to close before a real deployment.
+    # POSTGRES_IMAGE must be set in .env to `postgres:16-alpine@sha256:<digest>`;
+    # populate the digest from:
     #   docker pull postgres:16-alpine && docker inspect --format='{{index .RepoDigests 0}}' postgres:16-alpine
-    image: postgres:16-alpine
+    # Re-pin on every base-image upgrade and record in CHANGELOG.md.
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE required — must include @sha256:<digest> pin}
     restart: always
     environment:
       POSTGRES_DB:            ${POSTGRES_DB:?POSTGRES_DB required}
@@ -61,7 +66,9 @@ services:
 
   # ── Redis 7 ─────────────────────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    # Pinned by digest — same rationale as postgres above. Populate via:
+    #   docker pull redis:7-alpine && docker inspect --format='{{index .RepoDigests 0}}' redis:7-alpine
+    image: ${REDIS_IMAGE:?REDIS_IMAGE required — must include @sha256:<digest> pin}
     restart: always
     entrypoint: ["sh", "-c"]
     command:
@@ -134,6 +141,9 @@ services:
   # JWT_PRIVATE_KEY/JWT_PUBLIC_KEY. SESSION_SECRET is the HMAC key for
   # device fingerprinting only (lib/device-fingerprint.ts).
   api:
+    # Rollback support: pin a tagged image in .env (API_IMAGE=registry/medicore-api:<sha>)
+    # for production. Falls back to local build when API_IMAGE is unset. See RUNBOOK.md §1.2.
+    image: ${API_IMAGE:-medicore-api:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -147,7 +157,7 @@ services:
       # `docker inspect` output.
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
-      DB_POOL_MAX:     ${DB_POOL_MAX:-20}
+      DB_POOL_MAX:     ${DB_POOL_MAX:-40}
     entrypoint: ["sh", "-c"]
     # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
     # $$( ) escapes so command-substitution happens inside the container at run time.
@@ -214,6 +224,70 @@ services:
       - backend
       - frontend
 
+  # ── Background Worker ────────────────────────────────────────────────────────
+  worker:
+    # Same image as api — single artifact, different entrypoint (worker.mjs).
+    # Rollback semantics identical: pin via WORKER_IMAGE (or reuse API_IMAGE).
+    image: ${WORKER_IMAGE:-${API_IMAGE:-medicore-api:latest}}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      NODE_ENV:        production
+      SESSION_STORE:   redis
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
+      DB_POOL_MAX:     ${DB_POOL_MAX:-40}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
+          test -s "/run/secrets/$$s" || { echo "FATAL: /run/secrets/$$s missing or empty" >&2; exit 1; }
+        done
+        export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
+        export SESSION_SECRET="$$(cat /run/secrets/session_secret)"
+        export FIELD_ENCRYPTION_KEY="$$(cat /run/secrets/field_encryption_key)"
+        export METRICS_TOKEN="$$(cat /run/secrets/metrics_token)"
+        export JWT_PRIVATE_KEY="$$(cat /run/secrets/jwt_private_key)"
+        export JWT_PUBLIC_KEY="$$(cat /run/secrets/jwt_public_key)"
+        export REDIS_URL="redis://:$$(cat /run/secrets/redis_password)@redis:6379"
+        exec node --enable-source-maps dist/worker.mjs
+    secrets:
+      - postgres_password
+      - session_secret
+      - field_encryption_key
+      - metrics_token
+      - jwt_private_key
+      - jwt_public_key
+      - redis_password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 35s
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 200
+    # C3: read-only rootfs + tmpfs for /tmp; drop all caps
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
   # ── Clinic Frontend (nginx) ──────────────────────────────────────────────────
   clinic:
     build:
@@ -253,7 +327,9 @@ services:
   # Inbound :80 + :443 must be reachable for HTTP-01 challenge (or use DNS-01
   # by adding a Caddyfile snippet with your DNS provider's plugin).
   caddy:
-    image: caddy:2-alpine
+    # Pinned by digest — same rationale as postgres above. Populate via:
+    #   docker pull caddy:2-alpine && docker inspect --format='{{index .RepoDigests 0}}' caddy:2-alpine
+    image: ${CADDY_IMAGE:?CADDY_IMAGE required — must include @sha256:<digest> pin}
     restart: always
     environment:
       CADDY_DOMAIN: ${CADDY_DOMAIN:?CADDY_DOMAIN required (e.g., clinic.example.com)}
@@ -284,6 +360,211 @@ services:
     networks:
       - frontend
 
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  # Scrapes api + worker /metrics (Bearer-auth via mounted metrics_token secret).
+  # No published ports — access via SSH tunnel for ad-hoc queries:
+  #   ssh -L 9090:localhost:9090 deploy@host  (then `docker compose exec prometheus ...`)
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: always
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=5GB"
+      - "--web.enable-lifecycle"
+    user: "nobody"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-alerts.yml:/etc/prometheus/alerts/medicore.yml:ro
+      - prometheus_data:/prometheus
+    secrets:
+      - metrics_token
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── Alertmanager ─────────────────────────────────────────────────────────────
+  # Email receiver (chosen 2026-05-31). Requires SMTP_* vars in .env.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: always
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      # Allow env-var interpolation in alertmanager.yml (SMTP_*, ALERT_EMAIL_TO).
+      - "--cluster.listen-address="
+    environment:
+      SMTP_SMARTHOST:  ${SMTP_SMARTHOST:?SMTP_SMARTHOST required (e.g. smtp.gmail.com:587)}
+      SMTP_FROM:       ${SMTP_FROM:?SMTP_FROM required (e.g. medicore-alerts@yourdomain)}
+      SMTP_AUTH_USER:  ${SMTP_AUTH_USER:?SMTP_AUTH_USER required}
+      SMTP_AUTH_PASS:  ${SMTP_AUTH_PASS:?SMTP_AUTH_PASS required}
+      ALERT_EMAIL_TO:  ${ALERT_EMAIL_TO:?ALERT_EMAIL_TO required}
+    volumes:
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 50
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9093/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  # SSH-tunnel-only access (decision 2026-05-31). NOT exposed via Caddy.
+  # To view dashboards:
+  #   ssh -L 3000:localhost:3000 deploy@host
+  #   (then open http://localhost:3000 on your laptop)
+  # Reachable only on the backend network; no port published, no frontend network.
+  grafana:
+    image: grafana/grafana:11.1.0
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER:           ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_USERS_ALLOW_SIGN_UP:           "false"
+      GF_AUTH_ANONYMOUS_ENABLED:        "false"
+      GF_ANALYTICS_REPORTING_ENABLED:   "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES:   "false"
+      GF_SERVER_HTTP_ADDR:              "0.0.0.0"
+    secrets:
+      - grafana_password
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    # Published on loopback only — reachable through `ssh -L 3000:localhost:3000`.
+    # Do NOT change to "3000:3000" without first adding TLS+auth in front.
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 100
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── Automated DB Backup ──────────────────────────────────────────────────────
+  # Daily 02:00 UTC. backup-verify.mjs does pg_dump | gpg --encrypt → verify
+  # → rsync over SSH to external server → 30-day retention prune. The script is
+  # idempotent — a duplicate 02:00 run is harmless. Quarterly restore drill:
+  #   docker compose -f docker-compose.prod.yml exec backup \
+  #     node scripts/backup-verify.mjs --restore
+  #
+  # Prerequisites on host:
+  #   - GPG public key for BACKUP_GPG_RECIPIENT imported into ${GNUPG_HOME:-~/.gnupg}
+  #   - SSH key at ${BACKUP_SSH_KEY:-./secrets/backup_ssh_key} (mode 0600) authorized
+  #     on the offsite server at BACKUP_RSYNC_TARGET (user@host:/path/)
+  #   - Run once to seed known_hosts:
+  #       ssh -i ./secrets/backup_ssh_key user@offsite.example.com true
+  backup:
+    image: ${API_IMAGE:-medicore-api:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    restart: always
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
+        # Install gpg + openssh + rsync (image is alpine-based; quick & cached).
+        apk add --no-cache gnupg openssh-client rsync >/dev/null 2>&1 || true
+        # rsync-over-SSH offsite uploader. {FILE} substituted by backup-verify.mjs.
+        # StrictHostKeyChecking=accept-new pins on first use; subsequent mismatches abort.
+        if [ -n "$${BACKUP_RSYNC_TARGET:-}" ]; then
+          export OFFSITE_UPLOAD_COMMAND="rsync -av -e 'ssh -i /run/secrets/backup_ssh_key -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts' {FILE} $${BACKUP_RSYNC_TARGET}"
+        fi
+        mkdir -p /root/.ssh && chmod 700 /root/.ssh
+        echo "[backup] Scheduled backup at 02:00 UTC daily, retention=$${BACKUP_RETENTION_DAYS}d"
+        # Lightweight cron-equivalent. Alpine has no systemd-timer; busybox crond
+        # would also work but this keeps the entrypoint single-file + observable.
+        LAST_RUN_DAY=""
+        while true; do
+          CURRENT_DAY=$$(date -u +%Y-%m-%d)
+          CURRENT_HOUR=$$(date -u +%H)
+          if [ "$$CURRENT_HOUR" = "02" ] && [ "$$CURRENT_DAY" != "$$LAST_RUN_DAY" ]; then
+            echo "[backup] Starting daily backup at $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if node scripts/backup-verify.mjs; then
+              LAST_RUN_DAY="$$CURRENT_DAY"
+              sh /opt/monitoring/backup-metrics.sh || echo "[backup] textfile write failed"
+              echo "[backup] Daily backup SUCCESS"
+            else
+              echo "[backup] Backup FAILED — will retry next hour"
+            fi
+          fi
+          sleep 60
+        done
+    environment:
+      NODE_ENV:               production
+      BACKUP_STORAGE_PATH:    /backups
+      BACKUP_RETENTION_DAYS:  "30"
+      BACKUP_GPG_RECIPIENT:   ${BACKUP_GPG_RECIPIENT:?BACKUP_GPG_RECIPIENT required (GPG key id/email)}
+      BACKUP_RSYNC_TARGET:    ${BACKUP_RSYNC_TARGET:?BACKUP_RSYNC_TARGET required (user@host:/path/)}
+      METRICS_TEXTFILE_DIR:   /metrics
+    secrets:
+      - postgres_password
+      - backup_ssh_key
+    volumes:
+      - backup_data:/backups
+      - backup_metrics:/metrics
+      - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
+      # GPG keyring is read-only — the backup container only needs the recipient
+      # PUBLIC key to encrypt. The private key lives on the restore host only
+      # (see docs/BACKUP_KEY_MANAGEMENT.md). For dev or single-host setups where
+      # the private key is co-located, mount accordingly.
+      - ${GNUPG_HOME:-/root/.gnupg}:/root/.gnupg:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: 0.5
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
 # ── Networks ──────────────────────────────────────────────────────────────────
 # Two-tier network: backend (postgres+redis+api+migrate) is invisible to caddy.
 # frontend (caddy+clinic+api) is the only path inbound traffic can take.
@@ -300,6 +581,13 @@ volumes:
   redis_data:
   caddy_data:       # ACME account + issued certs (PRESERVE THIS)
   caddy_config:
+  prometheus_data:    # 30d TSDB retention, capped at 5 GB
+  alertmanager_data:  # silences + notification log
+  grafana_data:       # admin sessions, starred dashboards
+  backup_data:        # Local backup files. Mount a host path or NFS in prod
+                      # for durability beyond container lifetime.
+  backup_metrics:     # Shared volume between backup container and (future)
+                      # node_exporter textfile collector for BackupStale alert.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 # All files: mode 0600 owned by the deploy user. Never check into git.
@@ -328,3 +616,14 @@ secrets:
     file: ./secrets/jwt_private_key
   jwt_public_key:
     file: ./secrets/jwt_public_key
+  grafana_password:
+    # Grafana admin password (plain text, mode 0600).
+    # Generate: openssl rand -base64 32 > ./secrets/grafana_password
+    file: ./secrets/grafana_password
+  backup_ssh_key:
+    # Private SSH key for rsync-over-SSH offsite uploads. Mode 0600.
+    # Generate: ssh-keygen -t ed25519 -N "" -f ./secrets/backup_ssh_key
+    # Then add ./secrets/backup_ssh_key.pub to ~/.ssh/authorized_keys on the
+    # offsite server. First connection: docker compose exec backup ssh \
+    #   -i /run/secrets/backup_ssh_key user@offsite true  (accepts host key).
+    file: ./secrets/backup_ssh_key

@@ -1192,7 +1192,7 @@ export interface WeekResponse {
 }
 
 export interface ClinicNotice {
-  id: number;
+  id: string;
   clinicId: number;
   title: string;
   content: string;
@@ -1205,7 +1205,7 @@ export interface ClinicNotice {
 
 export interface PaginatedClinicNotices {
   data: ClinicNotice[];
-  nextCursor: number | null;
+  nextCursor: string | null;
 }
 
 export interface CreateClinicNoticeBody {

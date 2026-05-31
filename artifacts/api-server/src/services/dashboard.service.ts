@@ -1,12 +1,28 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import {
   appointmentsTable, patientsTable, usersTable, labTestsTable,
   xrayRecordsTable, invoicesTable, operationsTable, inventoryTable, auditLogsTable,
   prescriptionsTable,
 } from "@workspace/db";
 import { eq, isNull, gte, lte, and, desc, notInArray, sql, like } from "drizzle-orm";
+import type { AuthRequest } from "../middlewares/auth";
+import { runtime } from "../lib/runtime";
 
-export async function getDashboardSummary() {
+// TODO: move cache TTLs to env vars if patient portal is added (higher concurrency).
+const TTL_DASHBOARD = 30;
+const TTL_RECENT_ACTIVITY = 15;
+
+export async function getDashboardSummary(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+  return runtime.cache.getOrSet(
+    `cache:${clinicId}:dashboard:summary`,
+    TTL_DASHBOARD,
+    () => computeDashboardSummary(req),
+  );
+}
+
+async function computeDashboardSummary(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
@@ -16,17 +32,19 @@ export async function getDashboardSummary() {
   const [
     todayAppts, allPatients, allUsers, pendingLabs, pendingXrays,
     todayInvoices, scheduledOps, inventory, yesterdayInvoices,
-  ] = await Promise.all([
-    db.select().from(appointmentsTable).where(and(gte(appointmentsTable.scheduledAt, todayStart), lte(appointmentsTable.scheduledAt, todayEnd))),
-    db.select({ id: patientsTable.id }).from(patientsTable).where(isNull(patientsTable.deletedAt)),
-    db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(and(isNull(usersTable.deletedAt), eq(usersTable.isActive, true))),
-    db.select({ id: labTestsTable.id }).from(labTestsTable).where(eq(labTestsTable.status, "requested")),
-    db.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(eq(xrayRecordsTable.status, "pending")),
-    db.select().from(invoicesTable).where(and(isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, todayStart), lte(invoicesTable.createdAt, todayEnd))),
-    db.select({ id: operationsTable.id }).from(operationsTable).where(eq(operationsTable.status, "scheduled")),
-    db.select().from(inventoryTable).where(and(isNull(inventoryTable.deletedAt), eq(inventoryTable.isActive, true))),
-    db.select({ total: invoicesTable.total, status: invoicesTable.status }).from(invoicesTable).where(and(isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, yestStart), lte(invoicesTable.createdAt, yestEnd))),
-  ]);
+  ] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select().from(appointmentsTable).where(and(eq(appointmentsTable.clinicId, clinicId), gte(appointmentsTable.scheduledAt, todayStart), lte(appointmentsTable.scheduledAt, todayEnd))),
+      tx.select({ id: patientsTable.id }).from(patientsTable).where(and(eq(patientsTable.clinicId, clinicId), isNull(patientsTable.deletedAt))),
+      tx.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(and(eq(usersTable.clinicId, clinicId), isNull(usersTable.deletedAt), eq(usersTable.isActive, true))),
+      tx.select({ id: labTestsTable.id }).from(labTestsTable).where(and(eq(labTestsTable.clinicId, clinicId), eq(labTestsTable.status, "requested"))),
+      tx.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(and(eq(xrayRecordsTable.clinicId, clinicId), eq(xrayRecordsTable.status, "pending"))),
+      tx.select().from(invoicesTable).where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, todayStart), lte(invoicesTable.createdAt, todayEnd))),
+      tx.select({ id: operationsTable.id }).from(operationsTable).where(and(eq(operationsTable.clinicId, clinicId), eq(operationsTable.status, "scheduled"))),
+      tx.select().from(inventoryTable).where(and(eq(inventoryTable.clinicId, clinicId), isNull(inventoryTable.deletedAt), eq(inventoryTable.isActive, true))),
+      tx.select({ total: invoicesTable.total, status: invoicesTable.status }).from(invoicesTable).where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, yestStart), lte(invoicesTable.createdAt, yestEnd))),
+    ]);
+  });
 
   const todayRevenue     = todayInvoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0);
   const yesterdayRevenue = yesterdayInvoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0);
@@ -47,22 +65,35 @@ export async function getDashboardSummary() {
   };
 }
 
-export async function getDepartmentLoad() {
+export async function getDepartmentLoad(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+  return runtime.cache.getOrSet(
+    `cache:${clinicId}:dashboard:dept_load`,
+    TTL_DASHBOARD,
+    () => computeDepartmentLoad(req),
+  );
+}
+
+async function computeDepartmentLoad(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now      = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const rows = await db.select({
-    doctorId:   appointmentsTable.doctorId,
-    doctorName: usersTable.fullName,
-    count:      appointmentsTable.id,
-  }).from(appointmentsTable)
-    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-    .where(and(
-      gte(appointmentsTable.scheduledAt, todayStart),
-      lte(appointmentsTable.scheduledAt, todayEnd),
-      notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
-    ));
+  const rows = await runInTenantContext(req.user!, async (tx) => {
+    return tx.select({
+      doctorId:   appointmentsTable.doctorId,
+      doctorName: usersTable.fullName,
+      count:      appointmentsTable.id,
+    }).from(appointmentsTable)
+      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+      .where(and(
+        eq(appointmentsTable.clinicId, clinicId),
+        gte(appointmentsTable.scheduledAt, todayStart),
+        lte(appointmentsTable.scheduledAt, todayEnd),
+        notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
+      ));
+  });
 
   const grouped: Record<number, { doctorId: number; doctorName: string; count: number }> = {};
   for (const row of rows) {
@@ -76,18 +107,31 @@ export async function getDepartmentLoad() {
   return Object.values(grouped).sort((a, b) => b.count - a.count);
 }
 
-export async function getRecentActivity() {
-  const rows = await db.select({
-    id:         auditLogsTable.id,
-    action:     auditLogsTable.action,
-    entityType: auditLogsTable.entityType,
-    entityId:   auditLogsTable.entityId,
-    createdAt:  auditLogsTable.createdAt,
-    user:       { fullName: usersTable.fullName },
-  }).from(auditLogsTable)
-    .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-    .orderBy(desc(auditLogsTable.createdAt))
-    .limit(20);
+export async function getRecentActivity(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+  return runtime.cache.getOrSet(
+    `cache:${clinicId}:dashboard:recent_activity`,
+    TTL_RECENT_ACTIVITY,
+    () => computeRecentActivity(req),
+  );
+}
+
+async function computeRecentActivity(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+  const rows = await runInTenantContext(req.user!, async (tx) => {
+    return tx.select({
+      id:         auditLogsTable.id,
+      action:     auditLogsTable.action,
+      entityType: auditLogsTable.entityType,
+      entityId:   auditLogsTable.entityId,
+      createdAt:  auditLogsTable.createdAt,
+      user:       { fullName: usersTable.fullName },
+    }).from(auditLogsTable)
+      .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
+      .where(eq(auditLogsTable.clinicId, clinicId))
+      .orderBy(desc(auditLogsTable.createdAt))
+      .limit(20);
+  });
 
   return rows.map(r => ({
     ...r,
@@ -103,18 +147,21 @@ function imagingShape(
   return { firstCount: first, secondCount: second, thirdCount: third, todayCount: today, weekCount: week, recentItems: recent };
 }
 
-export async function getImagingDashboard() {
+export async function getImagingDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
-  const [all, today, week, recent] = await Promise.all([
-    db.select({ status: xrayRecordsTable.status }).from(xrayRecordsTable),
-    db.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(gte(xrayRecordsTable.createdAt, todayStart)),
-    db.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(gte(xrayRecordsTable.createdAt, weekStart)),
-    db.select({ id: xrayRecordsTable.id, patientId: xrayRecordsTable.patientId, status: xrayRecordsTable.status, createdAt: xrayRecordsTable.createdAt })
-      .from(xrayRecordsTable).orderBy(desc(xrayRecordsTable.createdAt)).limit(10),
-  ]);
+  const [all, today, week, recent] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select({ status: xrayRecordsTable.status }).from(xrayRecordsTable).where(eq(xrayRecordsTable.clinicId, clinicId)),
+      tx.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(and(eq(xrayRecordsTable.clinicId, clinicId), gte(xrayRecordsTable.createdAt, todayStart))),
+      tx.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(and(eq(xrayRecordsTable.clinicId, clinicId), gte(xrayRecordsTable.createdAt, weekStart))),
+      tx.select({ id: xrayRecordsTable.id, patientId: xrayRecordsTable.patientId, status: xrayRecordsTable.status, createdAt: xrayRecordsTable.createdAt })
+        .from(xrayRecordsTable).where(eq(xrayRecordsTable.clinicId, clinicId)).orderBy(desc(xrayRecordsTable.createdAt)).limit(10),
+    ]);
+  });
 
   return imagingShape(
     all.filter(r => r.status === "pending").length,
@@ -124,18 +171,21 @@ export async function getImagingDashboard() {
   );
 }
 
-export async function getLabDashboard() {
+export async function getLabDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
-  const [all, today, week, recent] = await Promise.all([
-    db.select({ status: labTestsTable.status }).from(labTestsTable),
-    db.select({ id: labTestsTable.id }).from(labTestsTable).where(gte(labTestsTable.createdAt, todayStart)),
-    db.select({ id: labTestsTable.id }).from(labTestsTable).where(gte(labTestsTable.createdAt, weekStart)),
-    db.select({ id: labTestsTable.id, patientId: labTestsTable.patientId, status: labTestsTable.status, createdAt: labTestsTable.createdAt })
-      .from(labTestsTable).orderBy(desc(labTestsTable.createdAt)).limit(10),
-  ]);
+  const [all, today, week, recent] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select({ status: labTestsTable.status }).from(labTestsTable).where(eq(labTestsTable.clinicId, clinicId)),
+      tx.select({ id: labTestsTable.id }).from(labTestsTable).where(and(eq(labTestsTable.clinicId, clinicId), gte(labTestsTable.createdAt, todayStart))),
+      tx.select({ id: labTestsTable.id }).from(labTestsTable).where(and(eq(labTestsTable.clinicId, clinicId), gte(labTestsTable.createdAt, weekStart))),
+      tx.select({ id: labTestsTable.id, patientId: labTestsTable.patientId, status: labTestsTable.status, createdAt: labTestsTable.createdAt })
+        .from(labTestsTable).where(eq(labTestsTable.clinicId, clinicId)).orderBy(desc(labTestsTable.createdAt)).limit(10),
+    ]);
+  });
 
   return imagingShape(
     all.filter(r => r.status === "requested").length,
@@ -145,28 +195,32 @@ export async function getLabDashboard() {
   );
 }
 
-export async function getFrontDeskDashboard() {
+export async function getFrontDeskDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const [todayAppts, pendingInvoices] = await Promise.all([
-    db.select({
-      id:            appointmentsTable.id,
-      status:        appointmentsTable.status,
-      bookingSource: appointmentsTable.bookingSource,
-      scheduledAt:   appointmentsTable.scheduledAt,
-    })
-      .from(appointmentsTable)
-      .where(and(
-        gte(appointmentsTable.scheduledAt, todayStart),
-        lte(appointmentsTable.scheduledAt, todayEnd),
-      )),
+  const [todayAppts, pendingInvoices] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select({
+        id:            appointmentsTable.id,
+        status:        appointmentsTable.status,
+        bookingSource: appointmentsTable.bookingSource,
+        scheduledAt:   appointmentsTable.scheduledAt,
+      })
+        .from(appointmentsTable)
+        .where(and(
+          eq(appointmentsTable.clinicId, clinicId),
+          gte(appointmentsTable.scheduledAt, todayStart),
+          lte(appointmentsTable.scheduledAt, todayEnd),
+        )),
 
-    db.select({ id: invoicesTable.id, total: invoicesTable.total })
-      .from(invoicesTable)
-      .where(and(isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "pending"))),
-  ]);
+      tx.select({ id: invoicesTable.id, total: invoicesTable.total })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "pending"))),
+    ]);
+  });
 
   const statusCounts = {
     scheduled:           todayAppts.filter(a => a.status === "scheduled").length,
@@ -197,24 +251,28 @@ export async function getFrontDeskDashboard() {
   };
 }
 
-export async function getNurseDashboard() {
+export async function getNurseDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
-  const todayAppts = await db.select({
-    id:           appointmentsTable.id,
-    patientId:    appointmentsTable.patientId,
-    status:       appointmentsTable.status,
-    triagePriority: appointmentsTable.triagePriority,
-    checkedInAt:  appointmentsTable.checkedInAt,
-  })
-    .from(appointmentsTable)
-    .where(and(
-      gte(appointmentsTable.scheduledAt, todayStart),
-      lte(appointmentsTable.scheduledAt, todayEnd),
-      notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
-    ));
+  const todayAppts = await runInTenantContext(req.user!, async (tx) => {
+    return tx.select({
+      id:           appointmentsTable.id,
+      patientId:    appointmentsTable.patientId,
+      status:       appointmentsTable.status,
+      triagePriority: appointmentsTable.triagePriority,
+      checkedInAt:  appointmentsTable.checkedInAt,
+    })
+      .from(appointmentsTable)
+      .where(and(
+        eq(appointmentsTable.clinicId, clinicId),
+        gte(appointmentsTable.scheduledAt, todayStart),
+        lte(appointmentsTable.scheduledAt, todayEnd),
+        notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
+      ));
+  });
 
   const activeStatuses = ["checked_in", "in_triage", "ready_for_doctor", "in_consultation"] as const;
 
@@ -254,49 +312,53 @@ export async function getNurseDashboard() {
   };
 }
 
-export async function getPharmacistDashboard() {
+export async function getPharmacistDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
-  const [todayRx, weekRx, recentRx, lowStock] = await Promise.all([
-    db.select({ id: prescriptionsTable.id })
-      .from(prescriptionsTable)
-      .where(and(isNull(prescriptionsTable.deletedAt), gte(prescriptionsTable.createdAt, todayStart))),
+  const [todayRx, weekRx, recentRx, lowStock] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select({ id: prescriptionsTable.id })
+        .from(prescriptionsTable)
+        .where(and(eq(prescriptionsTable.clinicId, clinicId), isNull(prescriptionsTable.deletedAt), gte(prescriptionsTable.createdAt, todayStart))),
 
-    db.select({ id: prescriptionsTable.id })
-      .from(prescriptionsTable)
-      .where(and(isNull(prescriptionsTable.deletedAt), gte(prescriptionsTable.createdAt, weekStart))),
+      tx.select({ id: prescriptionsTable.id })
+        .from(prescriptionsTable)
+        .where(and(eq(prescriptionsTable.clinicId, clinicId), isNull(prescriptionsTable.deletedAt), gte(prescriptionsTable.createdAt, weekStart))),
 
-    db.select({
-      id:              prescriptionsTable.id,
-      patientId:       prescriptionsTable.patientId,
-      doctorName:      usersTable.fullName,
-      medicationCount: sql<number>`jsonb_array_length(${prescriptionsTable.medications})`,
-      createdAt:       prescriptionsTable.createdAt,
-    })
-      .from(prescriptionsTable)
-      .leftJoin(usersTable, eq(prescriptionsTable.doctorId, usersTable.id))
-      .where(isNull(prescriptionsTable.deletedAt))
-      .orderBy(desc(prescriptionsTable.createdAt))
-      .limit(10),
+      tx.select({
+        id:              prescriptionsTable.id,
+        patientId:       prescriptionsTable.patientId,
+        doctorName:      usersTable.fullName,
+        medicationCount: sql<number>`jsonb_array_length(${prescriptionsTable.medications})`,
+        createdAt:       prescriptionsTable.createdAt,
+      })
+        .from(prescriptionsTable)
+        .leftJoin(usersTable, eq(prescriptionsTable.doctorId, usersTable.id))
+        .where(and(eq(prescriptionsTable.clinicId, clinicId), isNull(prescriptionsTable.deletedAt)))
+        .orderBy(desc(prescriptionsTable.createdAt))
+        .limit(10),
 
-    db.select({
-      id:           inventoryTable.id,
-      name:         inventoryTable.name,
-      category:     inventoryTable.category,
-      quantity:     inventoryTable.quantity,
-      minimumStock: inventoryTable.minimumStock,
-      unit:         inventoryTable.unit,
-    })
-      .from(inventoryTable)
-      .where(and(
-        isNull(inventoryTable.deletedAt),
-        eq(inventoryTable.isActive, true),
-        sql`${inventoryTable.quantity} <= ${inventoryTable.minimumStock}`,
-      ))
-      .orderBy(inventoryTable.quantity),
-  ]);
+      tx.select({
+        id:           inventoryTable.id,
+        name:         inventoryTable.name,
+        category:     inventoryTable.category,
+        quantity:     inventoryTable.quantity,
+        minimumStock: inventoryTable.minimumStock,
+        unit:         inventoryTable.unit,
+      })
+        .from(inventoryTable)
+        .where(and(
+          eq(inventoryTable.clinicId, clinicId),
+          isNull(inventoryTable.deletedAt),
+          eq(inventoryTable.isActive, true),
+          sql`${inventoryTable.quantity} <= ${inventoryTable.minimumStock}`,
+        ))
+        .orderBy(inventoryTable.quantity),
+    ]);
+  });
 
   return {
     todayCount: todayRx.length,
@@ -312,61 +374,66 @@ export async function getPharmacistDashboard() {
   };
 }
 
-export async function getBillingDashboard() {
+export async function getBillingDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now        = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
   const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [paidInvoices, pendingInvoices, recentPayments, recentCancellations, dailyRevenue] = await Promise.all([
-    db.select({ total: invoicesTable.total, paidAt: invoicesTable.paidAt })
-      .from(invoicesTable)
-      .where(and(
-        isNull(invoicesTable.deletedAt),
-        eq(invoicesTable.status, "paid"),
-        gte(invoicesTable.paidAt, monthStart),
-      )),
+  const [paidInvoices, pendingInvoices, recentPayments, recentCancellations, dailyRevenue] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      tx.select({ total: invoicesTable.total, paidAt: invoicesTable.paidAt })
+        .from(invoicesTable)
+        .where(and(
+          eq(invoicesTable.clinicId, clinicId),
+          isNull(invoicesTable.deletedAt),
+          eq(invoicesTable.status, "paid"),
+          gte(invoicesTable.paidAt, monthStart),
+        )),
 
-    db.select({ total: invoicesTable.total })
-      .from(invoicesTable)
-      .where(and(isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "pending"))),
+      tx.select({ total: invoicesTable.total })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "pending"))),
 
-    db.select({
-      id:            invoicesTable.id,
-      invoiceNumber: invoicesTable.invoiceNumber,
-      total:         invoicesTable.total,
-      paidAt:        invoicesTable.paidAt,
-    })
-      .from(invoicesTable)
-      .where(and(isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "paid")))
-      .orderBy(desc(invoicesTable.paidAt))
-      .limit(10),
+      tx.select({
+        id:            invoicesTable.id,
+        invoiceNumber: invoicesTable.invoiceNumber,
+        total:         invoicesTable.total,
+        paidAt:        invoicesTable.paidAt,
+      })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "paid")))
+        .orderBy(desc(invoicesTable.paidAt))
+        .limit(10),
 
-    db.select({
-      id:            invoicesTable.id,
-      invoiceNumber: invoicesTable.invoiceNumber,
-      total:         invoicesTable.total,
-      updatedAt:     invoicesTable.updatedAt,
-    })
-      .from(invoicesTable)
-      .where(and(isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "cancelled")))
-      .orderBy(desc(invoicesTable.updatedAt))
-      .limit(5),
+      tx.select({
+        id:            invoicesTable.id,
+        invoiceNumber: invoicesTable.invoiceNumber,
+        total:         invoicesTable.total,
+        updatedAt:     invoicesTable.updatedAt,
+      })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), eq(invoicesTable.status, "cancelled")))
+        .orderBy(desc(invoicesTable.updatedAt))
+        .limit(5),
 
-    db.select({
-      day:    sql<string>`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`,
-      amount: sql<number>`cast(coalesce(sum(${invoicesTable.total}), 0) as float)`,
-    })
-      .from(invoicesTable)
-      .where(and(
-        isNull(invoicesTable.deletedAt),
-        eq(invoicesTable.status, "paid"),
-        gte(invoicesTable.paidAt, weekStart),
-      ))
-      .groupBy(sql`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`)
-      .orderBy(sql`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`),
-  ]);
+      tx.select({
+        day:    sql<string>`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`,
+        amount: sql<number>`cast(coalesce(sum(${invoicesTable.total}), 0) as float)`,
+      })
+        .from(invoicesTable)
+        .where(and(
+          eq(invoicesTable.clinicId, clinicId),
+          isNull(invoicesTable.deletedAt),
+          eq(invoicesTable.status, "paid"),
+          gte(invoicesTable.paidAt, weekStart),
+        ))
+        .groupBy(sql`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`)
+        .orderBy(sql`to_char(${invoicesTable.paidAt}, 'YYYY-MM-DD')`),
+    ]);
+  });
 
   const todayRevenue  = paidInvoices
     .filter(i => i.paidAt && i.paidAt >= todayStart && i.paidAt <= todayEnd)
@@ -400,73 +467,76 @@ export async function getBillingDashboard() {
   };
 }
 
-export async function getComplianceDashboard() {
+export async function getComplianceDashboard(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
   const now       = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const weekStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
-  const [todayRows, weekRows, topEntities, topUsers, recentDenied, dailyTrend] = await Promise.all([
-    // Today: total + denied counts
-    db.select({ action: auditLogsTable.action })
-      .from(auditLogsTable)
-      .where(gte(auditLogsTable.createdAt, todayStart)),
+  const [todayRows, weekRows, topEntities, topUsers, recentDenied, dailyTrend] = await runInTenantContext(req.user!, async (tx) => {
+    return Promise.all([
+      // Today: total + denied counts
+      tx.select({ action: auditLogsTable.action })
+        .from(auditLogsTable)
+        .where(and(eq(auditLogsTable.clinicId, clinicId), gte(auditLogsTable.createdAt, todayStart))),
 
-    // Week: total count
-    db.select({ id: auditLogsTable.id })
-      .from(auditLogsTable)
-      .where(gte(auditLogsTable.createdAt, weekStart)),
+      // Week: total count
+      tx.select({ id: auditLogsTable.id })
+        .from(auditLogsTable)
+        .where(and(eq(auditLogsTable.clinicId, clinicId), gte(auditLogsTable.createdAt, weekStart))),
 
-    // Top 5 accessed entity types (7-day window)
-    db.select({
-      entityType: auditLogsTable.entityType,
-      count: sql<number>`cast(count(*) as int)`,
-    })
-      .from(auditLogsTable)
-      .where(gte(auditLogsTable.createdAt, weekStart))
-      .groupBy(auditLogsTable.entityType)
-      .orderBy(desc(sql`count(*)`))
-      .limit(5),
+      // Top 5 accessed entity types (7-day window)
+      tx.select({
+        entityType: auditLogsTable.entityType,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+        .from(auditLogsTable)
+        .where(and(eq(auditLogsTable.clinicId, clinicId), gte(auditLogsTable.createdAt, weekStart)))
+        .groupBy(auditLogsTable.entityType)
+        .orderBy(desc(sql`count(*)`))
+        .limit(5),
 
-    // Top 5 active users (7-day window, exclude system/null)
-    db.select({
-      userId: auditLogsTable.userId,
-      fullName: usersTable.fullName,
-      role: usersTable.role,
-      count: sql<number>`cast(count(*) as int)`,
-    })
-      .from(auditLogsTable)
-      .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-      .where(gte(auditLogsTable.createdAt, weekStart))
-      .groupBy(auditLogsTable.userId, usersTable.fullName, usersTable.role)
-      .orderBy(desc(sql`count(*)`))
-      .limit(5),
+      // Top 5 active users (7-day window, exclude system/null)
+      tx.select({
+        userId: auditLogsTable.userId,
+        fullName: usersTable.fullName,
+        role: usersTable.role,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+        .from(auditLogsTable)
+        .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
+        .where(and(eq(auditLogsTable.clinicId, clinicId), gte(auditLogsTable.createdAt, weekStart)))
+        .groupBy(auditLogsTable.userId, usersTable.fullName, usersTable.role)
+        .orderBy(desc(sql`count(*)`))
+        .limit(5),
 
-    // Recent 20 denied events
-    db.select({
-      id:         auditLogsTable.id,
-      action:     auditLogsTable.action,
-      entityType: auditLogsTable.entityType,
-      entityId:   auditLogsTable.entityId,
-      createdAt:  auditLogsTable.createdAt,
-      fullName:   usersTable.fullName,
-      role:       usersTable.role,
-    })
-      .from(auditLogsTable)
-      .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-      .where(like(auditLogsTable.action, "%DENIED%"))
-      .orderBy(desc(auditLogsTable.createdAt))
-      .limit(20),
+      // Recent 20 denied events
+      tx.select({
+        id:         auditLogsTable.id,
+        action:     auditLogsTable.action,
+        entityType: auditLogsTable.entityType,
+        entityId:   auditLogsTable.entityId,
+        createdAt:  auditLogsTable.createdAt,
+        fullName:   usersTable.fullName,
+        role:       usersTable.role,
+      })
+        .from(auditLogsTable)
+        .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
+        .where(and(eq(auditLogsTable.clinicId, clinicId), like(auditLogsTable.action, "%DENIED%")))
+        .orderBy(desc(auditLogsTable.createdAt))
+        .limit(20),
 
-    // Daily event counts for last 7 days
-    db.select({
-      day: sql<string>`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`,
-      count: sql<number>`cast(count(*) as int)`,
-    })
-      .from(auditLogsTable)
-      .where(gte(auditLogsTable.createdAt, weekStart))
-      .groupBy(sql`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`)
-      .orderBy(sql`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`),
-  ]);
+      // Daily event counts for last 7 days
+      tx.select({
+        day: sql<string>`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`,
+        count: sql<number>`cast(count(*) as int)`,
+      })
+        .from(auditLogsTable)
+        .where(and(eq(auditLogsTable.clinicId, clinicId), gte(auditLogsTable.createdAt, weekStart)))
+        .groupBy(sql`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`)
+        .orderBy(sql`to_char(${auditLogsTable.createdAt}, 'YYYY-MM-DD')`),
+    ]);
+  });
 
   const todayEvents  = todayRows.length;
   const todayDenied  = todayRows.filter(r => r.action.includes("DENIED")).length;

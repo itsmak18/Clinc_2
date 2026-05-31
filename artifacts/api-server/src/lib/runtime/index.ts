@@ -1,8 +1,9 @@
 import type { EventBus } from "./event-bus";
 import type { RateStore } from "./rate-store";
 import type { RevocationStore } from "./revocation-store";
+import type { CacheService } from "./cache-service";
 
-export type { EventBus, RateStore, RevocationStore };
+export type { EventBus, RateStore, RevocationStore, CacheService };
 
 export interface ScopeCache {
   get(key: string): Promise<string | null>;
@@ -16,6 +17,8 @@ export interface Runtime {
   revocationStore: RevocationStore;
   /** Redis-backed doctor-scope cache. Undefined when SESSION_STORE=memory. */
   scopeCache?: ScopeCache;
+  /** General-purpose application cache (dashboard/patient/billing read-paths). */
+  cache: CacheService;
   dispose(): Promise<void>;
 }
 
@@ -46,10 +49,12 @@ async function buildRuntime(): Promise<Runtime> {
     const { createRedisEventBus } = await import("./redis/event-bus");
     const { createRedisRateStore } = await import("./redis/rate-store");
     const { createRedisRevocationStore } = await import("./redis/revocation-store");
+    const { createRedisCacheService } = await import("./redis/cache-service");
 
     const eventBus = createRedisEventBus(publisher, subscriber);
     const rateStore = createRedisRateStore(client);
     const revocationStore = createRedisRevocationStore(client);
+    const cache = createRedisCacheService(client);
 
     // Scope cache shares the main client connection
     const scopeCache: ScopeCache = {
@@ -65,6 +70,7 @@ async function buildRuntime(): Promise<Runtime> {
       rateStore,
       revocationStore,
       scopeCache,
+      cache,
       async dispose() {
         await Promise.all([
           eventBus.dispose(),
@@ -77,10 +83,12 @@ async function buildRuntime(): Promise<Runtime> {
   const { createMemoryEventBus } = await import("./memory/event-bus");
   const { createMemoryRateStore } = await import("./memory/rate-store");
   const { createMemoryRevocationStore } = await import("./memory/revocation-store");
+  const { createMemoryCacheService } = await import("./memory/cache-service");
 
   const eventBus = createMemoryEventBus();
   const rateStore = createMemoryRateStore();
   const revocationStore = createMemoryRevocationStore();
+  const cache = createMemoryCacheService();
 
   console.info("[runtime] session_store=memory (local — no Redis required)");
 
@@ -88,6 +96,7 @@ async function buildRuntime(): Promise<Runtime> {
     eventBus,
     rateStore,
     revocationStore,
+    cache,
     // scopeCache: undefined in memory mode — getDoctorPatientScope falls back to DB on every call
     async dispose() {
       await Promise.all([

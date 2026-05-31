@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -47,25 +47,27 @@ export async function listMedicalRecords(
     if (!isNaN(cursorId)) conditions.push(lt(medicalRecordsTable.id, cursorId));
   }
 
-  const results = await db.select({
-    id: medicalRecordsTable.id,
-    patientId: medicalRecordsTable.patientId,
-    doctorId: medicalRecordsTable.doctorId,
-    appointmentId: medicalRecordsTable.appointmentId,
-    chiefComplaint: medicalRecordsTable.chiefComplaint,
-    diagnosis: medicalRecordsTable.diagnosis,
-    treatment: medicalRecordsTable.treatment,
-    notes: medicalRecordsTable.notes,
-    vitals: medicalRecordsTable.vitals,
-    createdAt: medicalRecordsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-    doctor: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(medicalRecordsTable)
-    .leftJoin(patientsTable, eq(medicalRecordsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(medicalRecordsTable.doctorId, usersTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(medicalRecordsTable.id))
-    .limit(lim);
+  const results = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: medicalRecordsTable.id,
+      patientId: medicalRecordsTable.patientId,
+      doctorId: medicalRecordsTable.doctorId,
+      appointmentId: medicalRecordsTable.appointmentId,
+      chiefComplaint: medicalRecordsTable.chiefComplaint,
+      diagnosis: medicalRecordsTable.diagnosis,
+      treatment: medicalRecordsTable.treatment,
+      notes: medicalRecordsTable.notes,
+      vitals: medicalRecordsTable.vitals,
+      createdAt: medicalRecordsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      doctor: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(medicalRecordsTable)
+      .leftJoin(patientsTable, eq(medicalRecordsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(medicalRecordsTable.doctorId, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(medicalRecordsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = results.length === lim ? results[results.length - 1].id : null;
   void logAudit(req, "READ_LIST", "medical_record", undefined, { count: results.length });
@@ -118,11 +120,12 @@ export async function createMedicalRecord(
 }
 
 export async function getMedicalRecord(req: AuthRequest, recordId: number) {
-  if (!await assertMedicalRecordInScope(req, recordId)) {
-    throw Object.assign(new ForbiddenError("access_denied"), { reason: "record_not_owned_or_global" });
-  }
-  const conditions: any[] = [eq(medicalRecordsTable.id, recordId), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
-  const [record] = await db.select().from(medicalRecordsTable).where(and(...conditions));
+  await assertMedicalRecordInScope(req, recordId);
+  const record = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(medicalRecordsTable.id, recordId), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(medicalRecordsTable).where(and(...conditions));
+    return row;
+  });
   if (!record) throw new NotFoundError("medical record", recordId);
 
   void logRead(req, "medical_record", recordId);

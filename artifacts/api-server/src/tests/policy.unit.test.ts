@@ -51,7 +51,7 @@ import { runtime } from "../lib/runtime";
 import { E } from "../errors";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-const VALID_PAYLOAD = { userId: 7, username: "u7", role: "doctor", iat: 1000, exp: 9999 };
+const VALID_PAYLOAD = { userId: 7, username: "u7", role: "doctor", clinicId: 1, iat: 1000, exp: 9999 };
 
 function makeReq(overrides: Record<string, unknown> = {}): Request {
   return {
@@ -315,6 +315,53 @@ describe("Role check", () => {
       "write",
     );
     expect(d.ok).toBe(true);
+  });
+});
+
+// ── Tenancy ────────────────────────────────────────────────────────────────
+// The `?? 1` fallback was removed 2026-05-30. Tokens without a positive-integer
+// clinicId must fail closed — the previous behavior silently dropped them into
+// clinic 1, which is exactly the cross-tenant bug we are closing.
+describe("Tenancy check", () => {
+  it("token missing clinicId → AUTH_TOKEN_INVALID (1005)", async () => {
+    mockJwtVerify.mockResolvedValue({
+      payload: { userId: 7, username: "u7", role: "doctor", iat: 1000, exp: 9999 },
+    } as never);
+    mockDecodeJwt.mockReturnValue({ exp: 9999 } as never);
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) {
+      expect(d.error.code).toBe(E.AUTH_INVALID.code);
+      expect(d.trace.find(s => s.op === "tenancy")?.ok).toBe(false);
+    }
+  });
+
+  it("token with clinicId=0 → AUTH_TOKEN_INVALID (1005)", async () => {
+    goodJwt({ clinicId: 0 });
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.error.code).toBe(E.AUTH_INVALID.code);
+  });
+
+  it("token with negative clinicId → AUTH_TOKEN_INVALID (1005)", async () => {
+    goodJwt({ clinicId: -1 });
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.error.code).toBe(E.AUTH_INVALID.code);
+  });
+
+  it("token with non-integer clinicId → AUTH_TOKEN_INVALID (1005)", async () => {
+    goodJwt({ clinicId: 1.5 });
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.error.code).toBe(E.AUTH_INVALID.code);
+  });
+
+  it("token with positive integer clinicId → user.clinicId populated on success", async () => {
+    goodJwt({ clinicId: 42 });
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(true);
+    if (d.ok) expect(d.user.clinicId).toBe(42);
   });
 });
 

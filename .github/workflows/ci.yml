@@ -186,6 +186,25 @@ jobs:
       - name: Build all packages
         run: pnpm -r --if-present run build
 
+      # Emit the deploy tag (short commit SHA) so operators can pin API_IMAGE in
+      # .env to a known-good build. See RUNBOOK §10. Only runs on main — PRs do
+      # not need a deploy tag.
+      - name: Emit deploy tag
+        if: github.ref == 'refs/heads/main'
+        id: deploy_tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "tag=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Deploy tag"
+            echo ""
+            echo "Pin in \`.env\` to deploy this build:"
+            echo ""
+            echo '```env'
+            echo "API_IMAGE=registry/medicore-api:${SHORT_SHA}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ── 7. Migration Drift Check ──────────────────────────────────────────────────
   # Fails if a schema change was pushed without a corresponding migration file.
   # Runs drizzle-kit generate (no DB needed) and checks whether any new SQL
@@ -219,11 +238,42 @@ jobs:
           fi
           echo "OK — no migration drift."
 
+  # ── 8. Integration tests against a real Postgres ─────────────────────────────
+  # Uses testcontainers to spin up postgres:16-alpine inside the runner. Pins the
+  # most important guarantee in the system — cross-tenant PHI isolation + doctor
+  # scope — against a real DB instead of mocks. Added 2026-05-30 after the board
+  # review found that every other integration test mocks @workspace/db, so a
+  # forgotten `eq(table.clinicId, …)` filter would pass the 460-test suite.
+  # Docker is preinstalled on ubuntu-latest; no extra setup needed.
+  integration-db:
+    name: Integration Tests (real Postgres)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Pull postgres image up-front (avoids per-test cold pull)
+        run: docker pull postgres:16-alpine
+
+      - name: Run integration tests against testcontainers Postgres
+        run: pnpm --filter @workspace/api-server run test:integration-db
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -234,7 +284,8 @@ jobs:
                 "${{ needs.audit.result }}" != "success" ||
                 "${{ needs.secrets-scan.result }}" != "success" ||
                 "${{ needs.build.result }}" != "success" ||
-                "${{ needs.migration-drift.result }}" != "success" ]]; then
+                "${{ needs.migration-drift.result }}" != "success" ||
+                "${{ needs.integration-db.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

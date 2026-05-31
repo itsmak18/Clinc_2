@@ -2,7 +2,6 @@ import { initTracer } from "./lib/tracer";
 initTracer(); // Must run before any request handling; noop when OTEL_EXPORTER_OTLP_ENDPOINT unset
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startCronJobs, stopCronJobs, startAuditDrain, stopAuditDrain } from "./cron";
 import { drainAuditOutbox } from "./lib/audit";
 import { runtime } from "./lib/runtime";
 import { beginShutdown } from "./lib/lifecycle";
@@ -29,8 +28,6 @@ const server = app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
-  startCronJobs();
-  startAuditDrain();
 });
 
 // ── Graceful Shutdown (H7) ────────────────────────────────────────────────────
@@ -38,8 +35,6 @@ const server = app.listen(port, (err) => {
 //
 //   1. beginShutdown()       — flip the readiness flag so /healthz/ready 503s
 //                              AND new SSE connections return 503.
-//   2. stopCronJobs()        — prevent new cron writes against a closing pool.
-//   2b. stopAuditDrain()     — stop the 5-second drain interval.
 //   3. drainGracePeriodMs    — wait so Caddy / LB sees the 503 before we cut
 //                              connections (default 3s in prod, 50ms in test).
 //   4. SSE_DRAIN_MS hold     — keep existing SSE connections alive while new
@@ -94,10 +89,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
     beginShutdown();
     logger.info("Shutdown flag set — /healthz/ready will now report draining");
 
-    // 2. Stop scheduled work BEFORE draining the pool.
-    stopCronJobs();
-    stopAuditDrain();
-
     // 3. Brief grace so the edge proxy sees the 503 and stops sending new
     //    traffic before we start cutting connections.
     if (DRAIN_GRACE_MS > 0) {
@@ -138,7 +129,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
     await drainAuditOutbox();
     logger.info("Audit outbox flushed");
 
-    // 7. Postgres pool — must come AFTER cron stops + HTTP drains.
+    // 7. Postgres pool — must come AFTER HTTP drains.
     const { pool } = await import("@workspace/db");
     await pool.end();
     logger.info("PostgreSQL pool drained");

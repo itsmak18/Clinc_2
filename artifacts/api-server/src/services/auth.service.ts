@@ -19,7 +19,7 @@ async function logLoginAudit(
       userId: userId ?? null,
       action,
       entityType: "session",
-      entityId: userId ?? null,
+      entityId: userId != null ? String(userId) : null,
       ipAddress: ip,
       details: details ?? null,
     });
@@ -197,7 +197,7 @@ export async function logoutUser(userId: number, ip: string): Promise<void> {
       userId,
       action: "LOGOUT",
       entityType: "session",
-      entityId: userId,
+      entityId: String(userId),
       ipAddress: ip,
       details: null,
     });
@@ -245,7 +245,7 @@ export async function changePassword(
       userId,
       action: "CHANGE_PASSWORD",
       entityType: "user",
-      entityId: userId,
+      entityId: String(userId),
       ipAddress: ip,
       details: null,
     });

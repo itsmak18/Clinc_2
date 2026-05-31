@@ -30,6 +30,8 @@ export const xrayRecordsTable = pgTable("xray_records", {
   index("xray_created_idx").on(t.createdAt),
   index("xray_status_idx").on(t.status),
   index("xray_clinic_idx").on(t.clinicId),
+  index("xray_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
+  index("xray_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
 ]);
 
 export const insertXrayRecordSchema = createInsertSchema(xrayRecordsTable).omit({

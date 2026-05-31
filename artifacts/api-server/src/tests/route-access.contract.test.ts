@@ -66,14 +66,16 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy(obj, handler);
   };
+  const mockDb = {
+    insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+    select: vi.fn(() => chainable()),
+    update: vi.fn(() => chainable()),
+    delete: vi.fn(() => chainable()),
+    execute: vi.fn().mockResolvedValue([]),
+  };
   return {
-    db: {
-      insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
-      select: vi.fn(() => chainable()),
-      update: vi.fn(() => chainable()),
-      delete: vi.fn(() => chainable()),
-      execute: vi.fn().mockResolvedValue([]),
-    },
+    db: mockDb,
+    runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     patientsTable: {}, appointmentsTable: {}, medicalRecordsTable: {},
     prescriptionsTable: {}, xrayRecordsTable: {}, ultrasoundRecordsTable: {},
     labTestsTable: {}, invoicesTable: {}, invoiceItemsTable: {},
@@ -175,7 +177,7 @@ describe("Route access drift — frontend roles must reach backend without 403",
         // No roles declared on frontend = all roles can see it. Backend should
         // also allow at least the common roles; we sanity-check one.
         it("backend does not 403 a common role when frontend has no restriction", async () => {
-          const token = await signToken({ userId: 9000, username: "t_admin", role: "admin" });
+          const token = await signToken({ userId: 9000, username: "t_admin", role: "admin", clinicId: 1 });
           const res = await request(app).get(endpoint).set("Cookie", [`clinic_token=${token}`]);
           expect(res.status).not.toBe(403);
         });
@@ -184,7 +186,7 @@ describe("Route access drift — frontend roles must reach backend without 403",
 
       for (const role of roles) {
         it(`${role} (frontend-allowed) must not get 403 from ${endpoint}`, async () => {
-          const token = await signToken({ userId: 9000, username: `t_${role}`, role });
+          const token = await signToken({ userId: 9000, username: `t_${role}`, role, clinicId: 1 });
           const res = await request(app).get(endpoint).set("Cookie", [`clinic_token=${token}`]);
           expect(
             res.status,

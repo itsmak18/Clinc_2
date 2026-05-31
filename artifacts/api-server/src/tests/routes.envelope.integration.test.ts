@@ -30,13 +30,15 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy(obj, handler);
   };
+  const mockDb = {
+    insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
+    select: vi.fn(() => chainable()),
+    update: vi.fn(() => chainable()),
+    delete: vi.fn(() => chainable()),
+  };
   return {
-    db: {
-      insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
-      select: vi.fn(() => chainable()),
-      update: vi.fn(() => chainable()),
-      delete: vi.fn(() => chainable()),
-    },
+    db: mockDb,
+    runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     usersTable: { id: "id", username: "username", deletedAt: "deletedAt", isActive: "isActive" },
     auditLogsTable: { id: "id" },
     auditOutboxTable: { id: "id" },
@@ -61,7 +63,7 @@ import { E } from "../errors";
  * tests (the in-memory store is shared).
  */
 async function authCookie(userId: number): Promise<string> {
-  const token = await signToken({ userId, username: `test${userId}`, role: "super_admin" });
+  const token = await signToken({ userId, username: `test${userId}`, role: "super_admin", clinicId: 1 });
   return `clinic_token=${token}`;
 }
 

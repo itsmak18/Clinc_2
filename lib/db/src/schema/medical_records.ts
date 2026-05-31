@@ -25,6 +25,8 @@ export const medicalRecordsTable = pgTable("medical_records", {
   index("mr_doctor_idx").on(t.doctorId),
   index("mr_created_idx").on(t.createdAt),
   index("mr_clinic_idx").on(t.clinicId),
+  index("mr_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
+  index("mr_clinic_doctor_created_idx").on(t.clinicId, t.doctorId, t.createdAt),
 ]);
 
 export const insertMedicalRecordSchema = createInsertSchema(medicalRecordsTable).omit({

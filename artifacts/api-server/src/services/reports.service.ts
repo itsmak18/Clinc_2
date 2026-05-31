@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { appointmentsTable, invoicesTable, usersTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte } from "drizzle-orm";
 import { logRead } from "../lib/audit";
@@ -16,18 +16,26 @@ export async function appointmentsSummary(
 ) {
   const { start, end } = parseDateRange(params.dateFrom, params.dateTo);
 
-  const appointments = await db
-    .select({
-      id: appointmentsTable.id,
-      status: appointmentsTable.status,
-      scheduledAt: appointmentsTable.scheduledAt,
-      checkedInAt: appointmentsTable.checkedInAt,
-      doctorId: appointmentsTable.doctorId,
-      doctor: { fullName: usersTable.fullName },
-    })
-    .from(appointmentsTable)
-    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-    .where(and(gte(appointmentsTable.scheduledAt, start), lte(appointmentsTable.scheduledAt, end)));
+  const appointments = await runInTenantContext(req.user!, async (tx) => {
+    return tx
+      .select({
+        id: appointmentsTable.id,
+        status: appointmentsTable.status,
+        scheduledAt: appointmentsTable.scheduledAt,
+        checkedInAt: appointmentsTable.checkedInAt,
+        doctorId: appointmentsTable.doctorId,
+        doctor: { fullName: usersTable.fullName },
+      })
+      .from(appointmentsTable)
+      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+      .where(
+        and(
+          eq(appointmentsTable.clinicId, req.user!.clinicId),
+          gte(appointmentsTable.scheduledAt, start),
+          lte(appointmentsTable.scheduledAt, end)
+        )
+      );
+  });
 
   const total = appointments.length;
   const completed = appointments.filter((a) => a.status === "completed").length;
@@ -59,10 +67,19 @@ export async function revenueSummary(
 ) {
   const { start, end } = parseDateRange(params.dateFrom, params.dateTo);
 
-  const invoices = await db
-    .select()
-    .from(invoicesTable)
-    .where(and(isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end)));
+  const invoices = await runInTenantContext(req.user!, async (tx) => {
+    return tx
+      .select()
+      .from(invoicesTable)
+      .where(
+        and(
+          isNull(invoicesTable.deletedAt),
+          eq(invoicesTable.clinicId, req.user!.clinicId),
+          gte(invoicesTable.createdAt, start),
+          lte(invoicesTable.createdAt, end)
+        )
+      );
+  });
 
   const totalRevenue = invoices.filter((i) => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0);
   const totalInvoices = invoices.length;

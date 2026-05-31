@@ -179,3 +179,133 @@ The engineering team utilizes a primary and secondary on-call rotation.
 ## 9. Contact Information
 
 (Add specific contact info for on-call engineers, management, and vendors here).
+
+## 10. Deployment & Rollback
+
+The api/worker services in `docker-compose.prod.yml` resolve their image from the
+`API_IMAGE` / `WORKER_IMAGE` environment variables and fall back to `medicore-api:latest`
+when unset. CI tags every main-branch build with the short SHA so any prior build is
+re-deployable without rebuilding.
+
+### 10.1 Standard deploy
+
+1. CI builds `registry/medicore-api:<short-sha>` from `main` and writes the tag to
+   the build summary (`BUILD_TAG` step output in `.github/workflows/ci.yml`).
+2. On the prod host, snapshot the current env before changing it:
+   ```bash
+   cp .env .env.bak.$(date -u +%Y%m%dT%H%M%SZ)
+   ```
+3. Update `API_IMAGE` (and `WORKER_IMAGE` if pinned separately) in `.env`:
+   ```env
+   API_IMAGE=registry/medicore-api:abc1234
+   ```
+4. Pull + restart without rebuild:
+   ```bash
+   docker compose -f docker-compose.prod.yml pull api worker
+   docker compose -f docker-compose.prod.yml up -d --no-build api worker
+   ```
+5. Verify health within 60 s:
+   ```bash
+   curl -sf https://<CADDY_DOMAIN>/api/health | jq '.ok, .checks.db.status, .checks.redis.status'
+   ```
+   All three must read `true`/`ok`. If any is `error`, proceed to §10.2.
+
+### 10.2 Rollback
+
+1. Identify the previous working tag from the most recent `.env.bak.*` snapshot:
+   ```bash
+   grep ^API_IMAGE= .env.bak.* | tail -1
+   ```
+2. Restore the old tag in `.env`, then:
+   ```bash
+   docker compose -f docker-compose.prod.yml pull api worker
+   docker compose -f docker-compose.prod.yml up -d --no-build api worker
+   ```
+3. Re-verify health (`/api/health`).
+4. **Migration check.** If the bad release shipped a migration, the rollback only
+   reverts code — DB schema is still forward. Open the migration file and confirm
+   it is additive (new tables, new columns, new indexes). If it is destructive
+   (dropped column, narrowed type, RLS policy that breaks reads), assess whether
+   to:
+   - **Roll forward** with a hotfix migration that re-adds the lost shape, or
+   - **Restore from backup** (§2.2) and accept the data loss between the failed
+     deploy and the backup timestamp.
+
+   Drizzle does not auto-generate down migrations — there is no `db:rollback`.
+
+### 10.3 Blue-green / multi-replica
+
+Not implemented. Single-container deploy is the current footprint. Tracked alongside
+the warm-standby work in plan item D2.
+
+## 11. Monitoring & Alerting
+
+### 11.1 Grafana access (SSH-tunnel only)
+
+Grafana is **not** exposed via Caddy. It listens on `127.0.0.1:3000` on the host.
+Access it from a workstation:
+
+```bash
+ssh -L 3000:localhost:3000 deploy@<prod-host>
+# Then in a browser on the workstation: http://localhost:3000
+# Login: admin / contents of ./secrets/grafana_password
+```
+
+The `MediCore Overview` dashboard is provisioned from
+[monitoring/grafana/dashboards/medicore-overview.json](monitoring/grafana/dashboards/medicore-overview.json).
+
+### 11.2 Prometheus
+
+Prometheus has no published port. Reach it for ad-hoc queries via:
+
+```bash
+docker compose -f docker-compose.prod.yml exec prometheus \
+  wget -qO- 'http://localhost:9090/api/v1/targets' | jq '.data.activeTargets[].health'
+```
+
+Reload alert rules without a restart after editing `prometheus-alerts.yml`:
+
+```bash
+docker compose -f docker-compose.prod.yml exec prometheus \
+  wget -qO- --post-data='' http://localhost:9090/-/reload
+```
+
+### 11.3 Alertmanager — silencing
+
+Silence an alert during planned maintenance:
+
+```bash
+docker compose -f docker-compose.prod.yml exec alertmanager \
+  amtool silence add alertname=HighLatency --duration=1h --comment "planned migration"
+```
+
+List + expire silences:
+
+```bash
+docker compose -f docker-compose.prod.yml exec alertmanager amtool silence query
+docker compose -f docker-compose.prod.yml exec alertmanager amtool silence expire <id>
+```
+
+### 11.4 Alert playbooks
+
+| Alert | First action | Escalate to backup if |
+|---|---|---|
+| `HighErrorRate` | Tail `docker compose logs api --tail=200`; check the last deploy SHA — if it matches the failing window, roll back (§10.2). | Errors persist after rollback → restore from backup (§2.2). |
+| `DBPoolExhaustion` | Inspect `pg_stat_activity`; kill long-running queries; raise `DB_POOL_MAX` only if every conn shows healthy short-lived work. | Pool stays saturated after `+10` slots → DB instance too small, escalate to capacity planning. |
+| `AuditLogPermanentLoss` | **HIPAA §164.312(b) breach assessment is mandatory.** Query `audit_outbox_row_exhausted` log entries for affected entity IDs; do NOT delete the outbox rows. | Always — this alert is a SEV-1 by definition. |
+| `AuditIntegrityMismatch` | Run `SELECT * FROM audit_integrity_checks WHERE status='mismatch'`; preserve evidence — do NOT update `audit_logs` until investigation completes. | Always — possible tampering, SEV-1. |
+| `HighNodeMemory` | Capture heap snapshot (`kill -USR2 <pid>` in container then copy out); restart api container to recover headroom. | RSS climbs back to threshold within 1 h after restart → leak in latest build, roll back. |
+| `BackupStale` | Check `docker compose logs backup --tail=200` for the most recent run; verify GPG keyring + SSH target are still valid. | Two consecutive missed runs → restore drill is now overdue, treat as SEV-2. |
+
+### 11.5 Emergency manual backup
+
+If `BackupStale` fires and you need an immediate backup outside the 02:00 UTC slot:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backup \
+  node scripts/backup-verify.mjs
+```
+
+This runs the full dump → encrypt → verify → rsync chain synchronously and writes a
+fresh `backup_last_success_timestamp_seconds` after success, clearing the alert.
+

@@ -13,6 +13,7 @@ export interface AuthUser {
   email?: string;
   role: UserRole;
   isActive: boolean;
+  jwtExpUnix?: number;
 }
 
 interface AuthContextType {

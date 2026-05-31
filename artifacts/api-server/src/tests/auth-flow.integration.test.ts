@@ -75,7 +75,7 @@ describe("CSRF boundary — login exemption", () => {
 
 describe("CSRF boundary — logout enforcement", () => {
   it("POST /api/auth/logout without X-CSRF-Token → 403", async () => {
-    const token = await signToken({ userId: 8001, username: "testuser", role: "admin" });
+    const token = await signToken({ userId: 8001, username: "testuser", role: "admin", clinicId: 1 });
     const res = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", [`clinic_token=${token}`]);
@@ -83,7 +83,7 @@ describe("CSRF boundary — logout enforcement", () => {
   });
 
   it("POST /api/auth/logout with mismatched CSRF token → 403", async () => {
-    const token = await signToken({ userId: 8002, username: "testuser", role: "admin" });
+    const token = await signToken({ userId: 8002, username: "testuser", role: "admin", clinicId: 1 });
     const res = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", [`clinic_token=${token}`, "_csrf=aaaa"])
@@ -102,7 +102,7 @@ describe("Logout authority — cookie clearance and JWT revocation", () => {
   });
 
   it("successful logout clears clinic_token cookie", async () => {
-    const jwt = await signToken({ userId: 9001, username: "u1", role: "nurse" });
+    const jwt = await signToken({ userId: 9001, username: "u1", role: "nurse", clinicId: 1 });
 
     const res = await request(app)
       .post("/api/auth/logout")
@@ -119,7 +119,7 @@ describe("Logout authority — cookie clearance and JWT revocation", () => {
   });
 
   it("after logout, the same JWT is rejected server-side (revocation, not just cookie removal)", async () => {
-    const jwt = await signToken({ userId: 9002, username: "u2", role: "doctor" });
+    const jwt = await signToken({ userId: 9002, username: "u2", role: "doctor", clinicId: 1 });
 
     // Step 1: logout
     const logoutRes = await request(app)

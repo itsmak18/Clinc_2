@@ -27,6 +27,7 @@ vi.mock("../lib/audit", () => ({
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope, assertMedicalRecordInScope, recordDoctorPatientLink } from "../lib/scope";
 import { db } from "@workspace/db";
 import { logAudit, logDenied } from "../lib/audit";
+import { ForbiddenError } from "../services/errors";
 import type { AuthRequest } from "../middlewares/auth";
 
 // ── Helper to build a mock request ───────────────────────────────────────────
@@ -93,29 +94,25 @@ describe("getDoctorPatientScope", () => {
 describe("assertPatientInScope", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it("returns true immediately for non-doctor roles (admin)", async () => {
-    const result = await assertPatientInScope(adminReq(), 99);
-    expect(result).toBe(true);
+  it("resolves silently for non-doctor roles (admin)", async () => {
+    await expect(assertPatientInScope(adminReq(), 99)).resolves.toBeUndefined();
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("returns true immediately for super_admin", async () => {
-    const result = await assertPatientInScope(superAdminReq(), 99);
-    expect(result).toBe(true);
+  it("resolves silently for super_admin", async () => {
+    await expect(assertPatientInScope(superAdminReq(), 99)).resolves.toBeUndefined();
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("returns true when patient IS in doctor scope", async () => {
+  it("resolves silently when patient IS in doctor scope", async () => {
     mockScopeQuery([10, 20]);
-    const result = await assertPatientInScope(doctorReq(), 10);
-    expect(result).toBe(true);
+    await expect(assertPatientInScope(doctorReq(), 10)).resolves.toBeUndefined();
     expect(logAudit).not.toHaveBeenCalled();
   });
 
-  it("returns false and logs audit when patient is NOT in scope", async () => {
+  it("throws ForbiddenError and logs audit when patient is NOT in scope", async () => {
     mockScopeQuery([10, 20]);
-    const result = await assertPatientInScope(doctorReq(), 999);
-    expect(result).toBe(false);
+    await expect(assertPatientInScope(doctorReq(), 999)).rejects.toBeInstanceOf(ForbiddenError);
     expect(logAudit).toHaveBeenCalledWith(
       expect.anything(),
       "ACCESS_DENIED_OUT_OF_SCOPE",
@@ -125,9 +122,9 @@ describe("assertPatientInScope", () => {
     );
   });
 
-  it("uses provided entityType in audit log", async () => {
+  it("uses provided entityType in audit log on throw", async () => {
     mockScopeQuery([]);
-    await assertPatientInScope(doctorReq(), 5, "custom_entity");
+    await expect(assertPatientInScope(doctorReq(), 5, "custom_entity")).rejects.toBeInstanceOf(ForbiddenError);
     expect(logAudit).toHaveBeenCalledWith(
       expect.anything(),
       "ACCESS_DENIED_OUT_OF_SCOPE",
@@ -137,10 +134,9 @@ describe("assertPatientInScope", () => {
     );
   });
 
-  it("returns false when doctor has zero appointments (empty scope)", async () => {
+  it("throws when doctor has zero appointments (empty scope)", async () => {
     mockScopeQuery([]);
-    const result = await assertPatientInScope(doctorReq(), 1);
-    expect(result).toBe(false);
+    await expect(assertPatientInScope(doctorReq(), 1)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 
@@ -149,29 +145,25 @@ describe("assertPatientInScope", () => {
 describe("assertMedicalRecordInScope", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it("returns true immediately for non-doctor roles", async () => {
-    const result = await assertMedicalRecordInScope(adminReq(), 42);
-    expect(result).toBe(true);
+  it("resolves silently for non-doctor roles", async () => {
+    await expect(assertMedicalRecordInScope(adminReq(), 42)).resolves.toBeUndefined();
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("returns true immediately for super_admin", async () => {
-    const result = await assertMedicalRecordInScope(superAdminReq(), 42);
-    expect(result).toBe(true);
+  it("resolves silently for super_admin", async () => {
+    await expect(assertMedicalRecordInScope(superAdminReq(), 42)).resolves.toBeUndefined();
     expect(db.select).not.toHaveBeenCalled();
   });
 
-  it("[Rule 1] returns true when record.doctorId matches current user", async () => {
+  it("[Rule 1] resolves silently when record.doctorId matches current user", async () => {
     mockRecordQuery({ doctorId: 5 });
-    const result = await assertMedicalRecordInScope(doctorReq(5), 42);
-    expect(result).toBe(true);
+    await expect(assertMedicalRecordInScope(doctorReq(5), 42)).resolves.toBeUndefined();
     expect(logDenied).not.toHaveBeenCalled();
   });
 
-  it("[Rule 2] returns false and logs denied when different doctor owns the record", async () => {
+  it("[Rule 2] throws ForbiddenError and logs denied when different doctor owns the record", async () => {
     mockRecordQuery({ doctorId: 999 });
-    const result = await assertMedicalRecordInScope(doctorReq(5), 42);
-    expect(result).toBe(false);
+    await expect(assertMedicalRecordInScope(doctorReq(5), 42)).rejects.toBeInstanceOf(ForbiddenError);
     expect(logDenied).toHaveBeenCalledWith(
       expect.anything(),
       "medical_record",
@@ -180,10 +172,9 @@ describe("assertMedicalRecordInScope", () => {
     );
   });
 
-  it("returns true (let caller handle 404) when record does not exist", async () => {
+  it("resolves silently (let caller handle 404) when record does not exist", async () => {
     mockRecordQuery(null);
-    const result = await assertMedicalRecordInScope(doctorReq(5), 9999);
-    expect(result).toBe(true);
+    await expect(assertMedicalRecordInScope(doctorReq(5), 9999)).resolves.toBeUndefined();
     expect(logDenied).not.toHaveBeenCalled();
   });
 });

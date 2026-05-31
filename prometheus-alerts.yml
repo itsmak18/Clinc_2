@@ -148,3 +148,29 @@ groups:
         annotations:
           summary: "TLS certificate expires in < 14 days for {{ $labels.instance }}"
           description: "Certificate on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}. Check Caddy auto-renewal logs. If renewal is blocked, re-issue manually to prevent clinic disruption."
+
+  # ── Backup freshness ────────────────────────────────────────────────────────
+  # Requires: node_exporter with --collector.textfile.directory=/metrics.
+  # The backup container writes backup.prom (see monitoring/backup-metrics.sh)
+  # after every successful run. If no successful backup has landed in 26 hours
+  # (daily schedule + 2 h grace) the alert fires — daily 02:00 UTC schedule
+  # gives a 24 h cadence; 26 h covers one missed run only.
+  - name: medicore-backup-alerts
+    rules:
+      - alert: BackupStale
+        expr: (time() - backup_last_success_timestamp_seconds) > 93600
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful backup in the last 26 hours"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago. Check the backup container logs (docker compose logs backup) and verify GPG keyring + offsite SSH target."
+
+      - alert: BackupMissingTextfile
+        expr: absent(backup_last_success_timestamp_seconds)
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: "backup_last_success_timestamp_seconds series missing"
+          description: "node_exporter has not exposed a backup textfile metric for 6 hours. Either backup-metrics.sh is not running on success or the /metrics volume mount is broken."

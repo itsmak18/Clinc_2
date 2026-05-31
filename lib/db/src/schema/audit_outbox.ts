@@ -14,7 +14,7 @@ export const auditOutboxTable = pgTable("audit_outbox", {
   userId: integer("user_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
-  entityId: integer("entity_id"),
+  entityId: text("entity_id"),
   ipAddress: text("ip_address").notNull(),
   userAgent: text("user_agent"),
   details: jsonb("details"),

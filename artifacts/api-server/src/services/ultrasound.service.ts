@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { ultrasoundRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -33,26 +33,28 @@ export async function listUltrasounds(
     if (!isNaN(cursorId)) conditions.push(lt(ultrasoundRecordsTable.id, cursorId));
   }
 
-  const rows = await db.select({
-    id: ultrasoundRecordsTable.id,
-    patientId: ultrasoundRecordsTable.patientId,
-    requestedById: ultrasoundRecordsTable.requestedById,
-    performedById: ultrasoundRecordsTable.performedById,
-    examType: ultrasoundRecordsTable.examType,
-    bodyPart: ultrasoundRecordsTable.bodyPart,
-    imageUrl: ultrasoundRecordsTable.imageUrl,
-    report: ultrasoundRecordsTable.report,
-    status: ultrasoundRecordsTable.status,
-    notes: ultrasoundRecordsTable.notes,
-    createdAt: ultrasoundRecordsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-    requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(ultrasoundRecordsTable)
-    .leftJoin(patientsTable, eq(ultrasoundRecordsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(ultrasoundRecordsTable.requestedById, usersTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(ultrasoundRecordsTable.id))
-    .limit(lim);
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: ultrasoundRecordsTable.id,
+      patientId: ultrasoundRecordsTable.patientId,
+      requestedById: ultrasoundRecordsTable.requestedById,
+      performedById: ultrasoundRecordsTable.performedById,
+      examType: ultrasoundRecordsTable.examType,
+      bodyPart: ultrasoundRecordsTable.bodyPart,
+      imageUrl: ultrasoundRecordsTable.imageUrl,
+      report: ultrasoundRecordsTable.report,
+      status: ultrasoundRecordsTable.status,
+      notes: ultrasoundRecordsTable.notes,
+      createdAt: ultrasoundRecordsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(ultrasoundRecordsTable)
+      .leftJoin(patientsTable, eq(ultrasoundRecordsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(ultrasoundRecordsTable.requestedById, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(ultrasoundRecordsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: rows.length });
@@ -76,8 +78,11 @@ export async function createUltrasound(
 }
 
 export async function getUltrasound(req: AuthRequest, id: number) {
-  const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
-  const [record] = await db.select().from(ultrasoundRecordsTable).where(and(...conditions));
+  const record = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(ultrasoundRecordsTable).where(and(...conditions));
+    return row;
+  });
   if (!record) throw new NotFoundError("ultrasound record", id);
 
   if (isDoctorScoped(req.user?.role)) {

@@ -33,6 +33,8 @@ export const labTestsTable = pgTable("lab_tests", {
   index("lab_created_idx").on(t.createdAt),
   index("lab_status_idx").on(t.status),
   index("lab_clinic_idx").on(t.clinicId),
+  index("lab_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
+  index("lab_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
 ]);
 
 export const insertLabTestSchema = createInsertSchema(labTestsTable).omit({

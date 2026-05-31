@@ -3,11 +3,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@workspace/db", () => ({
   db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
   breakGlassSessionsTable: {
-    id: "id", userId: "userId", patientId: "patientId",
+    id: "id", userId: "userId", patientId: "patientId", clinicId: "clinicId",
     revokedAt: "revokedAt", expiresAt: "expiresAt",
   },
-  patientsTable: { id: "id", fullName: "fullName" },
-  usersTable: { id: "id", role: "role" },
+  patientsTable: { id: "id", fullName: "fullName", clinicId: "clinicId" },
+  usersTable: { id: "id", role: "role", clinicId: "clinicId" },
 }));
 
 vi.mock("../lib/audit", () => ({
@@ -23,8 +23,11 @@ import { db } from "@workspace/db";
 import type { AuthRequest } from "../middlewares/auth";
 
 function req(userId = 3, role = "doctor"): AuthRequest {
-  return { user: { userId, username: "dr_x", role }, ip: "127.0.0.1", socket: {} } as unknown as AuthRequest;
+  return { user: { userId, username: "dr_x", role, clinicId: 1 }, ip: "127.0.0.1", socket: {} } as unknown as AuthRequest;
 }
+
+const VALID_JUSTIFICATION = "Emergency — patient unconscious, need to review history immediately";
+const VALID_BODY = { justification: VALID_JUSTIFICATION, reasonCategory: "patient_unconscious" };
 
 // select().from().where() → resolves directly (no limit)
 function mockSelectDirect(rows: unknown[]) {
@@ -59,12 +62,22 @@ describe("activateBreakGlass", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("throws ValidationError when reasonCategory is missing or invalid", async () => {
+    const { ValidationError } = await import("../services/errors");
+    await expect(
+      activateBreakGlass(req(), 10, { justification: VALID_JUSTIFICATION }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      activateBreakGlass(req(), 10, { justification: VALID_JUSTIFICATION, reasonCategory: "not_a_real_category" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it("throws NotFoundError when patient does not exist", async () => {
     const { NotFoundError } = await import("../services/errors");
     // activateBreakGlass: db.select({id,fullName}).from(patients).where() — no .limit()
     mockSelectDirect([]);
     await expect(
-      activateBreakGlass(req(), 99, { justification: "Emergency — patient unconscious, need to review history" }),
+      activateBreakGlass(req(), 99, VALID_BODY),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 
@@ -94,7 +107,7 @@ describe("activateBreakGlass", () => {
     });
 
     await expect(
-      activateBreakGlass(req(), 10, { justification: "Emergency — patient unconscious, need to review history" }),
+      activateBreakGlass(req(), 10, VALID_BODY),
     ).rejects.toBeInstanceOf(ConflictError);
   });
 });
@@ -102,13 +115,13 @@ describe("activateBreakGlass", () => {
 describe("getActiveSession", () => {
   it("returns null when no active session exists", async () => {
     mockSelectWithLimit([]);
-    expect(await getActiveSession(3, 10)).toBeNull();
+    expect(await getActiveSession(3, 10, 1)).toBeNull();
   });
 
   it("returns the session when one exists", async () => {
     const session = { id: 1, userId: 3, patientId: 10, expiresAt: new Date(Date.now() + 60_000) };
     mockSelectWithLimit([session]);
-    expect(await getActiveSession(3, 10)).toEqual(session);
+    expect(await getActiveSession(3, 10, 1)).toEqual(session);
   });
 });
 

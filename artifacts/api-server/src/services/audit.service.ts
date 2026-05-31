@@ -56,13 +56,13 @@ export async function listAuditLogs(
   },
 ) {
   void logAudit(req, "AUDIT_LOG_READ", "audit_log");
-  const conditions = buildConditions(params);
+  const conditions = [eq(auditLogsTable.clinicId, req.user!.clinicId), ...buildConditions(params)];
 
   return db
     .select(auditRowSelect)
     .from(auditLogsTable)
     .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(auditLogsTable.createdAt))
     .limit(Math.min(parseInt(params.limit ?? "200"), 500))
     .offset(parseInt(params.offset ?? "0"));
@@ -71,16 +71,20 @@ export async function listAuditLogs(
 export async function getAuditLogsByEntity(
   req: AuthRequest,
   entityType: string,
-  entityId: number,
+  entityId: string,
 ) {
-  if (!entityType || isNaN(entityId)) throw new ValidationError("Invalid entity type or ID");
+  if (!entityType || !entityId) throw new ValidationError("Invalid entity type or ID");
   void logAudit(req, "AUDIT_LOG_READ", "audit_log");
 
   return db
     .select(auditRowSelect)
     .from(auditLogsTable)
     .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-    .where(and(eq(auditLogsTable.entityType, entityType), eq(auditLogsTable.entityId, entityId)))
+    .where(and(
+      eq(auditLogsTable.clinicId, req.user!.clinicId),
+      eq(auditLogsTable.entityType, entityType),
+      eq(auditLogsTable.entityId, entityId),
+    ))
     .orderBy(desc(auditLogsTable.createdAt))
     .limit(100);
 }
@@ -97,7 +101,7 @@ export async function exportAuditLogs(
   },
 ) {
   void logAudit(req, "AUDIT_LOG_EXPORT", "audit_log");
-  const conditions = buildConditions(params);
+  const conditions = [eq(auditLogsTable.clinicId, req.user!.clinicId), ...buildConditions(params)];
 
   const rows = await db
     .select({
@@ -113,7 +117,7 @@ export async function exportAuditLogs(
     })
     .from(auditLogsTable)
     .leftJoin(usersTable, eq(auditLogsTable.userId, usersTable.id))
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(auditLogsTable.createdAt))
     .limit(10000);
 

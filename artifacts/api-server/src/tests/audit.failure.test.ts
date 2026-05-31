@@ -8,9 +8,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { insertMock, loggerErrorMock } = vi.hoisted(() => ({
+const { insertMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   insertMock: vi.fn(),
   loggerErrorMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -19,11 +20,11 @@ vi.mock("@workspace/db", () => ({
 }));
 
 vi.mock("../lib/logger", () => ({
-  logger: { error: loggerErrorMock, info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  logger: { error: loggerErrorMock, info: vi.fn(), warn: loggerWarnMock, debug: vi.fn() },
 }));
 
-import { logAudit } from "../lib/audit";
-import { auditLogWriteFailuresTotal } from "../lib/metrics";
+import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID } from "../lib/audit";
+import { auditLogWriteFailuresTotal, auditSystemActorTotal } from "../lib/metrics";
 
 function fakeReq() {
   return {
@@ -45,6 +46,7 @@ describe("logAudit — fire-and-forget on DB failure", () => {
   beforeEach(() => {
     insertMock.mockReset();
     loggerErrorMock.mockReset();
+    loggerWarnMock.mockReset();
   });
 
   it("does not throw when the audit insert rejects", async () => {
@@ -84,10 +86,41 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     expect(await counterValue("CREATE", "patient")).toBe(before);
   });
 
-  it("returns early (no insert) when req.user is missing", async () => {
+  it("[Phase 3.2] writes a system-actor row when req.user is missing (no longer silent)", async () => {
     insertMock.mockResolvedValueOnce(undefined);
     await logAudit({ headers: {}, socket: {} } as any, "READ", "patient", 5);
-    expect(insertMock).not.toHaveBeenCalled();
+
+    // 1) The insert IS issued — events are no longer silently dropped.
+    expect(insertMock).toHaveBeenCalledTimes(1);
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: SYSTEM_USER_ID,
+        clinicId: SYSTEM_CLINIC_ID,
+        action: "READ",
+        entityType: "patient",
+        entityId: "5",
+      }),
+    );
+
+    // 2) A structured warning fires so operators can find the calling path.
+    expect(loggerWarnMock).toHaveBeenCalledTimes(1);
+    const [ctx, msg] = loggerWarnMock.mock.calls[0];
+    expect(msg).toBe("audit_system_actor_used");
+    expect(ctx).toMatchObject({ action: "READ", entityType: "patient", entityId: 5 });
+
+    // 3) The error-path counter does not increment on a successful insert.
     expect(loggerErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("[Phase 3.2] increments audit_system_actor_total when req.user is missing", async () => {
+    insertMock.mockResolvedValueOnce(undefined);
+
+    const before = (await auditSystemActorTotal.get()).values
+      .find(v => v.labels.action === "UPDATE" && v.labels.entity_type === "operation")?.value ?? 0;
+    await logAudit({ headers: {}, socket: {} } as any, "UPDATE", "operation", 9);
+    const after = (await auditSystemActorTotal.get()).values
+      .find(v => v.labels.action === "UPDATE" && v.labels.entity_type === "operation")?.value ?? 0;
+
+    expect(after).toBe(before + 1);
   });
 });
