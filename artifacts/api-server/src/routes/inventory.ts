@@ -35,10 +35,10 @@ router.post(
 router.get(
   "/inventory/:itemId",
   requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
     const itemId = safeParseInt(req.params.itemId);
     if (!itemId) throw new ValidationError("Invalid item ID");
-    res.json(await getInventoryItem(itemId));
+    res.json(await getInventoryItem(req, itemId));
   }),
 );
 

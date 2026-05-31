@@ -52,6 +52,7 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
     // fields; promoting them would require a shape extension across the surface.
     // Tracked as a follow-up — see PR-A2 description.
     if (err.status === 429) {
+      res.set("Retry-After", String(err.retryAfterSecs));
       res.status(429).json({ error: err.message, retryAfterSecs: err.retryAfterSecs });
       return;
     }
@@ -116,7 +117,8 @@ router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, r
 }));
 
 router.get("/auth/me", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
-  res.json(await getMe(req.user!.userId));
+  const user = await getMe(req.user!.userId);
+  res.json({ ...user, jwtExpUnix: req.user!.jwtExpUnix });
 }));
 
 router.post("/auth/change-password", requireAuth, asyncHandler(async (req: AuthRequest, res) => {

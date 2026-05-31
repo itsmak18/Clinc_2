@@ -3467,12 +3467,12 @@ export const useCreateClinicNotice = <
 /**
  * @summary Soft-delete a clinic notice (super_admin only)
  */
-export const getDeleteClinicNoticeUrl = (noticeId: number) => {
+export const getDeleteClinicNoticeUrl = (noticeId: string) => {
   return `/api/clinic-notices/${noticeId}`;
 };
 
 export const deleteClinicNotice = async (
-  noticeId: number,
+  noticeId: string,
   options?: RequestInit,
 ): Promise<void> => {
   return customFetch<void>(getDeleteClinicNoticeUrl(noticeId), {
@@ -3488,14 +3488,14 @@ export const getDeleteClinicNoticeMutationOptions = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof deleteClinicNotice>>,
     TError,
-    { noticeId: number },
+    { noticeId: string },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
   Awaited<ReturnType<typeof deleteClinicNotice>>,
   TError,
-  { noticeId: number },
+  { noticeId: string },
   TContext
 > => {
   const mutationKey = ["deleteClinicNotice"];
@@ -3509,7 +3509,7 @@ export const getDeleteClinicNoticeMutationOptions = <
 
   const mutationFn: MutationFunction<
     Awaited<ReturnType<typeof deleteClinicNotice>>,
-    { noticeId: number }
+    { noticeId: string }
   > = (props) => {
     const { noticeId } = props ?? {};
 
@@ -3535,14 +3535,14 @@ export const useDeleteClinicNotice = <
   mutation?: UseMutationOptions<
     Awaited<ReturnType<typeof deleteClinicNotice>>,
     TError,
-    { noticeId: number },
+    { noticeId: string },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
   Awaited<ReturnType<typeof deleteClinicNotice>>,
   TError,
-  { noticeId: number },
+  { noticeId: string },
   TContext
 > => {
   return useMutation(getDeleteClinicNoticeMutationOptions(options));

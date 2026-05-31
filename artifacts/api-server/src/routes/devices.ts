@@ -89,7 +89,7 @@ router.post(
     }
 
     const jwt = await signToken(
-      { userId: user.id, username: user.username, role: user.role },
+      { userId: user.id, username: user.username, role: user.role, clinicId: user.clinicId },
       {
         "user-agent": req.headers["user-agent"],
         "accept-language": req.headers["accept-language"],

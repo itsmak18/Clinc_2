@@ -50,6 +50,8 @@ export const appointmentsTable = pgTable("appointments", {
     .where(sql`status NOT IN ('cancelled', 'no_show')`),
   index("appt_updated_idx").on(t.updatedAt),
   index("appt_clinic_idx").on(t.clinicId),
+  index("appt_clinic_doctor_scheduled_idx").on(t.clinicId, t.doctorId, t.scheduledAt),
+  index("appt_clinic_scheduled_status_idx").on(t.clinicId, t.scheduledAt, t.status),
 ]);
 
 export const insertAppointmentSchema = createInsertSchema(appointmentsTable).omit({

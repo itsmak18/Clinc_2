@@ -69,7 +69,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required — set it in .env}
       METRICS_TOKEN:  ${METRICS_TOKEN:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      DB_POOL_MAX:    ${DB_POOL_MAX:-10}
+      DB_POOL_MAX:    ${DB_POOL_MAX:-40}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +86,31 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  # ── Background Worker ────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["node", "--enable-source-maps", "dist/worker.mjs"]
+    environment:
+      NODE_ENV:       production
+      DATABASE_URL:   postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-clinic_hub}
+      REDIS_URL:      redis://redis:6379
+      SESSION_STORE:  redis
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required — set it in .env}
+      METRICS_TOKEN:  ${METRICS_TOKEN:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      DB_POOL_MAX:    ${DB_POOL_MAX:-40}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 35s
 
   # ── Clinic Frontend (nginx) ──────────────────────────────────────────────────
   clinic:

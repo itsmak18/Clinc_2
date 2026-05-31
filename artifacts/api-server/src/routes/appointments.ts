@@ -25,19 +25,19 @@ router.post("/appointments", asyncHandler(async (req: AuthRequest, res) => {
 
 router.get("/appointments/flow",
   requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"),
-  asyncHandler(async (_req, res) => {
-    res.json(await getAppointmentFlow());
+  asyncHandler(async (req: AuthRequest, res) => {
+    res.json(await getAppointmentFlow(req));
   }),
 );
 
-router.get("/appointments/today", asyncHandler(async (_req, res) => {
-  res.json(await getTodayAppointments());
+router.get("/appointments/today", asyncHandler(async (req: AuthRequest, res) => {
+  res.json(await getTodayAppointments(req));
 }));
 
-router.get("/appointments/:appointmentId", asyncHandler(async (req, res) => {
+router.get("/appointments/:appointmentId", asyncHandler(async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) throw new ValidationError("Invalid appointment ID");
-  res.json(await getAppointment(id));
+  res.json(await getAppointment(req, id));
 }));
 
 router.patch("/appointments/:appointmentId",
@@ -132,10 +132,10 @@ router.post("/appointments/:appointmentId/complete",
   }),
 );
 
-router.get("/appointments/:appointmentId/discharge", asyncHandler(async (req, res) => {
+router.get("/appointments/:appointmentId/discharge", asyncHandler(async (req: AuthRequest, res) => {
   const id = safeParseInt(req.params.appointmentId);
   if (!id) throw new ValidationError("Invalid appointment ID");
-  res.json(await getDischarge(id));
+  res.json(await getDischarge(req, id));
 }));
 
 export default router;

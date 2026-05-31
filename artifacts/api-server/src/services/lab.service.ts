@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -30,24 +30,26 @@ export async function listLabTests(
     if (!isNaN(cursorId)) conditions.push(lt(labTestsTable.id, cursorId));
   }
 
-  const rows = await db.select({
-    id: labTestsTable.id,
-    patientId: labTestsTable.patientId,
-    requestedById: labTestsTable.requestedById,
-    performedById: labTestsTable.performedById,
-    testName: labTestsTable.testName,
-    results: labTestsTable.results,
-    status: labTestsTable.status,
-    notes: labTestsTable.notes,
-    createdAt: labTestsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-    requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(labTestsTable)
-    .leftJoin(patientsTable, eq(labTestsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(labTestsTable.requestedById, usersTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(labTestsTable.id))
-    .limit(lim);
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: labTestsTable.id,
+      patientId: labTestsTable.patientId,
+      requestedById: labTestsTable.requestedById,
+      performedById: labTestsTable.performedById,
+      testName: labTestsTable.testName,
+      results: labTestsTable.results,
+      status: labTestsTable.status,
+      notes: labTestsTable.notes,
+      createdAt: labTestsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(labTestsTable)
+      .leftJoin(patientsTable, eq(labTestsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(labTestsTable.requestedById, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(labTestsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "lab_test", undefined, { count: rows.length });
@@ -71,8 +73,11 @@ export async function createLabTest(
 }
 
 export async function getLabTest(req: AuthRequest, testId: number) {
-  const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
-  const [test] = await db.select().from(labTestsTable).where(and(...conditions));
+  const test = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(labTestsTable).where(and(...conditions));
+    return row;
+  });
   if (!test) throw new NotFoundError("lab test", testId);
 
   if (isDoctorScoped(req.user?.role)) {

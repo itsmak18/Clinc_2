@@ -10,7 +10,7 @@ export const auditLogsTable = pgTable("audit_logs", {
   userId: integer("user_id").references(() => usersTable.id),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
-  entityId: integer("entity_id"),
+  entityId: text("entity_id"),
   ipAddress: text("ip_address").notNull(),
   userAgent: text("user_agent"),
   details: jsonb("details"),

@@ -22,6 +22,7 @@ export const prescriptionsTable = pgTable("prescriptions", {
   index("rx_doctor_idx").on(t.doctorId),
   index("rx_created_idx").on(t.createdAt),
   index("rx_clinic_idx").on(t.clinicId),
+  index("rx_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
 ]);
 
 export const insertPrescriptionSchema = createInsertSchema(prescriptionsTable).omit({

@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import {
   patientConsentsTable, patientsTable,
   type PatientConsent,
@@ -18,8 +18,9 @@ function assertValidType(type: unknown): asserts type is ConsentType {
 }
 
 // Returns true if the patient has an active (non-revoked) consent of the given type.
-export async function hasActiveConsent(patientId: number, consentType: ConsentType): Promise<boolean> {
-  const [row] = await db
+export async function hasActiveConsent(patientId: number, consentType: ConsentType, tx?: any): Promise<boolean> {
+  const client = tx || db;
+  const [row] = await client
     .select({ id: patientConsentsTable.id })
     .from(patientConsentsTable)
     .where(
@@ -34,19 +35,21 @@ export async function hasActiveConsent(patientId: number, consentType: ConsentTy
 }
 
 export async function listConsents(req: AuthRequest, patientId: number): Promise<PatientConsent[]> {
-  const conditions: any[] = [eq(patientsTable.id, patientId)];
-  const [patient] = await db
-    .select({ id: patientsTable.id })
-    .from(patientsTable)
-    .where(and(...conditions));
-  if (!patient) throw new NotFoundError("patient", patientId);
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
+    const [patient] = await tx
+      .select({ id: patientsTable.id })
+      .from(patientsTable)
+      .where(and(...conditions));
+    if (!patient) throw new NotFoundError("patient", patientId);
 
-  void logAudit(req, "READ_LIST", "patient_consent", patientId);
-  return db
-    .select()
-    .from(patientConsentsTable)
-    .where(eq(patientConsentsTable.patientId, patientId))
-    .orderBy(desc(patientConsentsTable.createdAt));
+    void logAudit(req, "READ_LIST", "patient_consent", patientId);
+    return tx
+      .select()
+      .from(patientConsentsTable)
+      .where(and(eq(patientConsentsTable.patientId, patientId), eq(patientConsentsTable.clinicId, req.user!.clinicId)))
+      .orderBy(desc(patientConsentsTable.createdAt));
+  });
 }
 
 export async function grantConsent(
@@ -54,42 +57,49 @@ export async function grantConsent(
   patientId: number,
   body: Record<string, unknown>,
 ): Promise<PatientConsent> {
-  assertValidType(body.consentType);
-  if (!body.documentVersion || typeof body.documentVersion !== "string") {
+  const consentType = body.consentType as ConsentType;
+  assertValidType(consentType);
+  const documentVersion = body.documentVersion;
+  if (!documentVersion || typeof documentVersion !== "string") {
     throw new ValidationError("documentVersion is required");
   }
+  const notes = typeof body.notes === "string" ? body.notes : null;
 
-  const conditions: any[] = [eq(patientsTable.id, patientId)];
-  const [patient] = await db
-    .select({ id: patientsTable.id })
-    .from(patientsTable)
-    .where(and(...conditions));
-  if (!patient) throw new NotFoundError("patient", patientId);
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
+    const [patient] = await tx
+      .select({ id: patientsTable.id })
+      .from(patientsTable)
+      .where(and(...conditions));
+    if (!patient) throw new NotFoundError("patient", patientId);
 
-  // Revoke any existing active consent of the same type before granting new one
-  await db.update(patientConsentsTable)
-    .set({ revokedAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(patientConsentsTable.patientId, patientId),
-        eq(patientConsentsTable.consentType, body.consentType),
-        isNull(patientConsentsTable.revokedAt),
-      ),
-    );
+    // Revoke any existing active consent of the same type before granting new one
+    await tx.update(patientConsentsTable)
+      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(patientConsentsTable.patientId, patientId),
+          eq(patientConsentsTable.clinicId, req.user!.clinicId),
+          eq(patientConsentsTable.consentType, consentType),
+          isNull(patientConsentsTable.revokedAt),
+        ),
+      );
 
-  const [consent] = await db.insert(patientConsentsTable).values({
-    patientId,
-    consentType: body.consentType,
-    grantedByUserId: req.user!.userId,
-    ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
-    documentVersion: body.documentVersion,
-    notes: typeof body.notes === "string" ? body.notes : null,
-  }).returning();
+    const [consent] = await tx.insert(patientConsentsTable).values({
+      clinicId: req.user!.clinicId,
+      patientId,
+      consentType,
+      grantedByUserId: req.user!.userId,
+      ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
+      documentVersion,
+      notes,
+    }).returning();
 
-  await logAudit(req, "CONSENT_GRANTED", "patient_consent", consent.id, {
-    patientId, consentType: body.consentType, documentVersion: body.documentVersion,
+    await logAudit(req, "CONSENT_GRANTED", "patient_consent", consent.id, {
+      patientId, consentType, documentVersion,
+    });
+    return consent;
   });
-  return consent;
 }
 
 export async function revokeConsent(
@@ -97,27 +107,30 @@ export async function revokeConsent(
   patientId: number,
   consentId: number,
 ): Promise<PatientConsent> {
-  const [consent] = await db
-    .select()
-    .from(patientConsentsTable)
-    .where(
-      and(
-        eq(patientConsentsTable.id, consentId),
-        eq(patientConsentsTable.patientId, patientId),
-      ),
-    );
-  if (!consent) throw new NotFoundError("consent", consentId);
-  if (consent.revokedAt) throw new ConflictError("Consent is already revoked");
+  return runInTenantContext(req.user!, async (tx) => {
+    const [consent] = await tx
+      .select()
+      .from(patientConsentsTable)
+      .where(
+        and(
+          eq(patientConsentsTable.id, consentId),
+          eq(patientConsentsTable.patientId, patientId),
+          eq(patientConsentsTable.clinicId, req.user!.clinicId),
+        ),
+      );
+    if (!consent) throw new NotFoundError("consent", consentId);
+    if (consent.revokedAt) throw new ConflictError("Consent is already revoked");
 
-  const [updated] = await db.update(patientConsentsTable)
-    .set({ revokedAt: new Date(), updatedAt: new Date() })
-    .where(eq(patientConsentsTable.id, consentId))
-    .returning();
+    const [updated] = await tx.update(patientConsentsTable)
+      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(patientConsentsTable.id, consentId), eq(patientConsentsTable.clinicId, req.user!.clinicId)))
+      .returning();
 
-  await logAudit(req, "CONSENT_REVOKED", "patient_consent", consentId, {
-    patientId, consentType: consent.consentType,
+    await logAudit(req, "CONSENT_REVOKED", "patient_consent", consentId, {
+      patientId, consentType: consent.consentType,
+    });
+    return updated;
   });
-  return updated;
 }
 
 export { hasActiveConsent as default, type ConsentType };

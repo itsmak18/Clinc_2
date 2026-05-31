@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { E } from "../errors";
 
 export interface AuthRequest extends Request {
-  user?: { userId: number; username: string; role: string; clinicId: number };
+  user?: { userId: number; username: string; role: string; clinicId: number; jwtExpUnix: number };
 }
 
 export function authGate(scope: Scope, allowedRoles?: string[]): RequestHandler {
@@ -29,7 +29,12 @@ export function authGate(scope: Scope, allowedRoles?: string[]): RequestHandler 
       return;
     }
 
-    (req as AuthRequest).user = d.user;
+    (req as AuthRequest).user = {
+      ...d.user,
+      jwtExpUnix: d.meta.sessionTtl != null
+        ? Math.floor(Date.now() / 1000) + d.meta.sessionTtl
+        : Math.floor(Date.now() / 1000) + 1800,
+    };
     res.setHeader("X-Session-State", "authenticated");
 
     // Success-path observability: baseline for rate alerting on degradation.

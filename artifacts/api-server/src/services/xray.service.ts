@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { xrayRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -30,25 +30,27 @@ export async function listXrays(
     if (!isNaN(cursorId)) conditions.push(lt(xrayRecordsTable.id, cursorId));
   }
 
-  const rows = await db.select({
-    id: xrayRecordsTable.id,
-    patientId: xrayRecordsTable.patientId,
-    requestedById: xrayRecordsTable.requestedById,
-    performedById: xrayRecordsTable.performedById,
-    bodyPart: xrayRecordsTable.bodyPart,
-    imageUrl: xrayRecordsTable.imageUrl,
-    report: xrayRecordsTable.report,
-    status: xrayRecordsTable.status,
-    notes: xrayRecordsTable.notes,
-    createdAt: xrayRecordsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-    requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(xrayRecordsTable)
-    .leftJoin(patientsTable, eq(xrayRecordsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(xrayRecordsTable.requestedById, usersTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(xrayRecordsTable.id))
-    .limit(lim);
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: xrayRecordsTable.id,
+      patientId: xrayRecordsTable.patientId,
+      requestedById: xrayRecordsTable.requestedById,
+      performedById: xrayRecordsTable.performedById,
+      bodyPart: xrayRecordsTable.bodyPart,
+      imageUrl: xrayRecordsTable.imageUrl,
+      report: xrayRecordsTable.report,
+      status: xrayRecordsTable.status,
+      notes: xrayRecordsTable.notes,
+      createdAt: xrayRecordsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(xrayRecordsTable)
+      .leftJoin(patientsTable, eq(xrayRecordsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(xrayRecordsTable.requestedById, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(xrayRecordsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "xray", undefined, { count: rows.length });
@@ -72,8 +74,11 @@ export async function createXray(
 }
 
 export async function getXray(req: AuthRequest, xrayId: number) {
-  const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
-  const [xray] = await db.select().from(xrayRecordsTable).where(and(...conditions));
+  const xray = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(xrayRecordsTable).where(and(...conditions));
+    return row;
+  });
   if (!xray) throw new NotFoundError("xray record", xrayId);
 
   if (isDoctorScoped(req.user?.role)) {

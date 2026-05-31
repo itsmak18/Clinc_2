@@ -1,19 +1,47 @@
 import type { Response } from "express";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
+import { sseConnectionsGauge } from "./metrics";
 
 const clients = new Map<number, Set<Response>>();
+let totalConnections = 0;
 
-export function addSSEClient(userId: number, res: Response): void {
-  if (!clients.has(userId)) clients.set(userId, new Set());
-  clients.get(userId)!.add(res);
+// Safety nets; not expected to hit at current scale (~20 internal users).
+const MAX_CONNECTIONS = parseInt(process.env.SSE_MAX_CONNECTIONS ?? "500", 10);
+const MAX_PER_USER    = parseInt(process.env.SSE_MAX_PER_USER    ?? "10",  10);
+
+/**
+ * Register a new SSE client. Returns false when the per-process cap has been
+ * reached — the caller must respond 503 + Retry-After. When the per-user cap
+ * is reached, the oldest connection for that user is evicted to make room.
+ */
+export function addSSEClient(userId: number, res: Response): boolean {
+  if (totalConnections >= MAX_CONNECTIONS) return false;
+  let set = clients.get(userId);
+  if (!set) {
+    set = new Set();
+    clients.set(userId, set);
+  }
+  if (set.size >= MAX_PER_USER) {
+    const oldest = set.values().next().value;
+    if (oldest) {
+      try { oldest.end(); } catch { /* already closed */ }
+      set.delete(oldest);
+      totalConnections--;
+    }
+  }
+  set.add(res);
+  totalConnections++;
+  sseConnectionsGauge.set(totalConnections);
+  return true;
 }
 
 export function removeSSEClient(userId: number, res: Response): void {
   const set = clients.get(userId);
   if (!set) return;
-  set.delete(res);
+  if (set.delete(res)) totalConnections--;
   if (set.size === 0) clients.delete(userId);
+  sseConnectionsGauge.set(totalConnections);
 }
 
 const SSE_CHANNEL = "medicore_sse_events";
@@ -77,5 +105,7 @@ export function closeAllSSEClients(): number {
     }
   }
   clients.clear();
+  totalConnections = 0;
+  sseConnectionsGauge.set(0);
   return closed;
 }

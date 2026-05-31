@@ -20,7 +20,7 @@ router.get(
   "/audit-logs/entity/:entityType/:entityId",
   asyncHandler(async (req: AuthRequest, res) => {
     const entityType = String(req.params.entityType);
-    const entityId = parseInt(String(req.params.entityId));
+    const entityId = String(req.params.entityId);
     res.json(await getAuditLogsByEntity(req, entityType, entityId));
   }),
 );

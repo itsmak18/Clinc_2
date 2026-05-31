@@ -30,6 +30,8 @@ export const patientsTable = pgTable("patients", {
 }, (t) => [
   index("patient_phone_idx").on(t.phone),
   index("patient_clinic_idx").on(t.clinicId),
+  index("patient_clinic_phone_idx").on(t.clinicId, t.phone),
+  index("patient_clinic_active_idx").on(t.clinicId, t.isActive),
 ]);
 
 export const insertPatientSchema = createInsertSchema(patientsTable).omit({

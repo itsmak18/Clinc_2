@@ -1,13 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@workspace/db", () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-  patientConsentsTable: {
-    id: "id", patientId: "patientId", consentType: "consentType",
-    revokedAt: "revokedAt", grantedAt: "grantedAt",
-  },
-  patientsTable: { id: "id" },
-}));
+vi.mock("@workspace/db", () => {
+  const mockDb = { select: vi.fn(), insert: vi.fn(), update: vi.fn() };
+  return {
+    db: mockDb,
+    runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
+    patientConsentsTable: {
+      id: "id", patientId: "patientId", consentType: "consentType",
+      revokedAt: "revokedAt", grantedAt: "grantedAt",
+    },
+    patientsTable: { id: "id" },
+  };
+});
 
 vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),

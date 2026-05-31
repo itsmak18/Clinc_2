@@ -821,7 +821,8 @@ paths:
           in: path
           required: true
           schema:
-            type: integer
+            type: string
+            format: uuid
       responses:
         "204":
           description: Notice deleted
@@ -3923,7 +3924,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
+          type: string
+          format: uuid
         clinicId:
           type: integer
         title:
@@ -3954,7 +3956,8 @@ components:
           items:
             $ref: "#/components/schemas/ClinicNotice"
         nextCursor:
-          type: integer
+          type: string
+          format: uuid
           nullable: true
       required: [data, nextCursor]
 

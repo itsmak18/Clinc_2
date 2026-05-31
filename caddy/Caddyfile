@@ -19,9 +19,37 @@
         X-Content-Type-Options    "nosniff"
         Referrer-Policy           "strict-origin-when-cross-origin"
         Permissions-Policy        "camera=(), microphone=(), geolocation=()"
+        # Cross-origin isolation: prevents this app from being embedded by, or
+        # leaking resources to, third-party origins. Defense in depth on top of
+        # X-Frame-Options DENY above.
+        Cross-Origin-Opener-Policy    "same-origin"
+        Cross-Origin-Resource-Policy  "same-origin"
+        Cross-Origin-Embedder-Policy  "require-corp"
         # Hide server fingerprint
         -Server
     }
+
+    # ── Phase 4.3 edge WAF: block common scan paths before they reach the api ──
+    # These are paths that no legitimate MediCore client ever requests. Blocking
+    # at the edge keeps probe noise out of pino-http logs and reduces audit-trail
+    # cardinality. Returns 403 with no body, so a scanner sees a uniform response
+    # to any of these and gets minimal information.
+    @scan_paths path \
+        /.env* /.git* /.svn* /.hg* /.aws/* \
+        /wp-admin* /wp-login* /wordpress* /xmlrpc.php \
+        /phpinfo* /phpmyadmin* /pma* \
+        /vendor/* /node_modules/* \
+        /actuator* /actuator/health \
+        /admin.php /administrator/* /admin/login* \
+        /server-status /server-info \
+        /backup.* /db.* /database.* /dump.sql \
+        /.well-known/security.txt
+    respond @scan_paths "Forbidden" 403
+
+    # Reject obviously-malformed methods (TRACE, CONNECT etc.) — Express handles
+    # only GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS.
+    @bad_method not method GET HEAD POST PUT PATCH DELETE OPTIONS
+    respond @bad_method "Method Not Allowed" 405
 
     # /metrics is api-internal; the api also gates this with METRICS_TOKEN, but
     # deny at the edge so probes never reach the backend.

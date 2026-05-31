@@ -1,36 +1,30 @@
-/**
- * clinic-notices.service.test.ts
- *
- * Unit tests for the clinic-notices service — covers the full CRUD surface:
- * list (paginated), create (validation + audit), delete (soft + 404).
- *
- * Strategy: mock @workspace/db so tests run without a real DB connection.
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mock handles ──────────────────────────────────────────────────────
-const mockInsertValues = vi.hoisted(() => vi.fn());
-const mockUpdateSet = vi.hoisted(() => vi.fn());
 const mockLogAudit = vi.hoisted(() => vi.fn());
 
-vi.mock("@workspace/db", () => ({
-  db: {
+vi.mock("@workspace/db", () => {
+  const mockDb = {
     select: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
-  },
-  clinicNoticesTable: {
-    id: "id",
-    clinicId: "clinicId",
-    title: "title",
-    content: "content",
-    createdBy: "createdBy",
-    reason: "reason",
-    deletedAt: "deletedAt",
-    createdAt: "createdAt",
-    updatedAt: "updatedAt",
-  },
-}));
+  };
+  return {
+    db: mockDb,
+    runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
+    clinicNoticesTable: {
+      id: "id",
+      clinicId: "clinicId",
+      title: "title",
+      content: "content",
+      createdBy: "createdBy",
+      reason: "reason",
+      deletedAt: "deletedAt",
+      createdAt: "createdAt",
+      updatedAt: "updatedAt",
+    },
+  };
+});
 
 vi.mock("../lib/audit", () => ({
   logAudit: mockLogAudit.mockResolvedValue(undefined),
@@ -57,24 +51,13 @@ function makeReq(role = "super_admin", userId = 1, clinicId = 1) {
   } as any;
 }
 
+const NOTICE_UUID = "01960000-0000-7000-8000-000000000001";
+
 const SAMPLE_NOTICE = {
-  id: 10, clinicId: 1, title: "A title", content: "Content body text here",
+  id: NOTICE_UUID, clinicId: 1, title: "A title", content: "Content body text here",
   createdBy: 1, reason: "Reason with enough characters", deletedAt: null,
   createdAt: new Date(), updatedAt: new Date(),
 };
-
-function mockSelectChain(rows: unknown[]) {
-  const where = vi.fn().mockResolvedValue(rows);
-  const orderBy = vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) });
-  const from = vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ orderBy }) });
-  (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
-}
-
-function mockSelectOne(row: unknown | null) {
-  const where = vi.fn().mockResolvedValue(row ? [row] : []);
-  const from = vi.fn().mockReturnValue({ where });
-  (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
-}
 
 // ── listClinicNotices ─────────────────────────────────────────────────────────
 
@@ -94,8 +77,11 @@ describe("listClinicNotices", () => {
     expect(result.nextCursor).toBeNull();
   });
 
-  it("returns nextCursor equal to last row id when results fill the page", async () => {
-    const rows = Array.from({ length: 50 }, (_, i) => ({ ...SAMPLE_NOTICE, id: 100 - i }));
+  it("returns nextCursor equal to last row id (UUID) when results fill the page", async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      ...SAMPLE_NOTICE,
+      id: `01960000-0000-7000-8000-${String(i).padStart(12, "0")}`,
+    }));
     const where = vi.fn().mockReturnValue({
       orderBy: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) }),
     });
@@ -104,7 +90,7 @@ describe("listClinicNotices", () => {
 
     const result = await listClinicNotices(makeReq(), { limit: "50" });
     expect(result.data).toHaveLength(50);
-    expect(result.nextCursor).toBe(51); // last row id = 100 - 49 = 51
+    expect(result.nextCursor).toBe(rows[49].id);
   });
 
   it("logs a READ_LIST audit entry", async () => {
@@ -131,7 +117,7 @@ describe("listClinicNotices", () => {
 describe("createClinicNotice", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it("creates a notice and returns it", async () => {
+  it("creates a notice and logs audit with UUID entityId", async () => {
     const returning = vi.fn().mockResolvedValue([SAMPLE_NOTICE]);
     const values = vi.fn().mockReturnValue({ returning });
     (db.insert as ReturnType<typeof vi.fn>).mockReturnValue({ values });
@@ -142,7 +128,9 @@ describe("createClinicNotice", () => {
       reason: "Reason that is at least twenty characters long",
     });
     expect(result).toEqual(SAMPLE_NOTICE);
-    expect(mockLogAudit).toHaveBeenCalledWith(expect.anything(), "CREATE", "clinic_notice", SAMPLE_NOTICE.id);
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.anything(), "CREATE", "clinic_notice", NOTICE_UUID,
+    );
   });
 
   it("throws ValidationError when title is too short", async () => {
@@ -172,18 +160,18 @@ describe("createClinicNotice", () => {
 describe("deleteClinicNotice", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it("soft-deletes the notice and logs audit", async () => {
-    // First select: find existing
-    const where1 = vi.fn().mockResolvedValue([{ id: 10 }]);
+  it("soft-deletes the notice and logs audit with UUID entityId", async () => {
+    const where1 = vi.fn().mockResolvedValue([{ id: NOTICE_UUID }]);
     const from1 = vi.fn().mockReturnValue({ where: where1 });
-    // Update chain
     const where2 = vi.fn().mockResolvedValue(undefined);
     const set = vi.fn().mockReturnValue({ where: where2 });
     (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce({ from: from1 });
     (db.update as ReturnType<typeof vi.fn>).mockReturnValue({ set });
 
-    await deleteClinicNotice(makeReq(), 10);
-    expect(mockLogAudit).toHaveBeenCalledWith(expect.anything(), "DELETE", "clinic_notice", 10);
+    await deleteClinicNotice(makeReq(), NOTICE_UUID);
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.anything(), "DELETE", "clinic_notice", NOTICE_UUID,
+    );
   });
 
   it("throws NotFoundError when notice does not exist", async () => {
@@ -192,6 +180,8 @@ describe("deleteClinicNotice", () => {
     (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 
     const { NotFoundError } = await import("../services/errors");
-    await expect(deleteClinicNotice(makeReq(), 999)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(
+      deleteClinicNotice(makeReq(), "01960000-0000-7000-8000-000000000099")
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 });

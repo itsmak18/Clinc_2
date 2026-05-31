@@ -2212,7 +2212,7 @@ export const ListClinicNoticesQueryParams = zod.object({
 export const ListClinicNoticesResponse = zod.object({
   data: zod.array(
     zod.object({
-      id: zod.number(),
+      id: zod.string().uuid(),
       clinicId: zod.number(),
       title: zod.string(),
       content: zod.string(),
@@ -2223,7 +2223,7 @@ export const ListClinicNoticesResponse = zod.object({
       updatedAt: zod.coerce.date(),
     }),
   ),
-  nextCursor: zod.number().nullable(),
+  nextCursor: zod.string().uuid().nullable(),
 });
 
 /**
@@ -2249,7 +2249,7 @@ export const CreateClinicNoticeBody = zod.object({
  * @summary Soft-delete a clinic notice (super_admin only)
  */
 export const DeleteClinicNoticeParams = zod.object({
-  noticeId: zod.coerce.number(),
+  noticeId: zod.coerce.string().uuid(),
 });
 
 /**

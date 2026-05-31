@@ -17,6 +17,13 @@ export const breakGlassSessionsTable = pgTable("break_glass_sessions", {
   justification: text("justification").notNull(),
   activatedAt: timestamp("activated_at").notNull().defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
+  // Phase 3.4 (2026-05-31): compliance approval gate.
+  // A newly activated session has approvedAt = NULL and is valid only during
+  // the 5-minute grace window (BREAK_GLASS_GRACE_MS). A compliance_officer must
+  // call POST /break-glass/sessions/:id/approve to extend access to expiresAt.
+  // Without approval the session auto-expires at activatedAt + grace.
+  approvedAt: timestamp("approved_at"),
+  approvedByUserId: integer("approved_by_user_id").references(() => usersTable.id),
   revokedAt: timestamp("revoked_at"),
   revokedByUserId: integer("revoked_by_user_id").references(() => usersTable.id),
   alertSentAt: timestamp("alert_sent_at"),

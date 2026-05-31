@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -39,22 +39,24 @@ export async function listPrescriptions(
     if (!isNaN(cursorId)) conditions.push(lt(prescriptionsTable.id, cursorId));
   }
 
-  const rows = await db.select({
-    id: prescriptionsTable.id,
-    patientId: prescriptionsTable.patientId,
-    doctorId: prescriptionsTable.doctorId,
-    recordId: prescriptionsTable.recordId,
-    medications: prescriptionsTable.medications,
-    notes: prescriptionsTable.notes,
-    createdAt: prescriptionsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName },
-    doctor: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(prescriptionsTable)
-    .leftJoin(patientsTable, eq(prescriptionsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(prescriptionsTable.doctorId, usersTable.id))
-    .where(and(...conditions))
-    .orderBy(desc(prescriptionsTable.id))
-    .limit(lim);
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: prescriptionsTable.id,
+      patientId: prescriptionsTable.patientId,
+      doctorId: prescriptionsTable.doctorId,
+      recordId: prescriptionsTable.recordId,
+      medications: prescriptionsTable.medications,
+      notes: prescriptionsTable.notes,
+      createdAt: prescriptionsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      doctor: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(prescriptionsTable)
+      .leftJoin(patientsTable, eq(prescriptionsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(prescriptionsTable.doctorId, usersTable.id))
+      .where(and(...conditions))
+      .orderBy(desc(prescriptionsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   void logAudit(req, "READ_LIST", "prescription", undefined, { count: rows.length });
@@ -93,8 +95,11 @@ export async function createPrescription(
 }
 
 export async function getPrescription(req: AuthRequest, id: number) {
-  const conditions: any[] = [eq(prescriptionsTable.id, id), isNull(prescriptionsTable.deletedAt), eq(prescriptionsTable.clinicId, req.user!.clinicId)];
-  const [prescription] = await db.select().from(prescriptionsTable).where(and(...conditions));
+  const prescription = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(prescriptionsTable.id, id), isNull(prescriptionsTable.deletedAt), eq(prescriptionsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(prescriptionsTable).where(and(...conditions));
+    return row;
+  });
   if (!prescription) throw new NotFoundError("prescription", id);
   void logRead(req, "prescription", id);
   return decryptPrescription(prescription);

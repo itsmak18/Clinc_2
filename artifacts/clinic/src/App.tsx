@@ -150,10 +150,11 @@ function SessionTimeoutWarning({
 function ProtectedRoutes() {
   const { isAuthenticated, isLoading, user, logout } = useAuth();
 
-  // Session timeout: warn at 28 min, logout at 30 min of inactivity
+  // Session timeout: warn 2 min before JWT expiry (per-role TTL), fall back to 28/30 min defaults.
   const { showWarning, secondsLeft, stayLoggedIn } = useSessionTimeout({
     enabled: isAuthenticated,
     onLogout: logout,
+    jwtExpUnix: user?.jwtExpUnix,
   });
 
   // Register 401 interceptor so expired tokens force logout immediately

@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import {
   patientsTable, appointmentsTable, medicalRecordsTable, xrayRecordsTable,
   labTestsTable, invoicesTable, usersTable,
@@ -65,8 +65,16 @@ export async function listPatients(
   }
 
   const whereClause = and(...conditions);
-  const patients = await db.select().from(patientsTable).where(whereClause).orderBy(desc(patientsTable.id)).limit(lim);
-  const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(patientsTable).where(and(isNull(patientsTable.deletedAt)));
+  // Phase 2.2 rollout: both queries go through runInTenantContext so the DB
+  // enforces clinic isolation. Also fixes a pre-existing leak in the count
+  // query, which was missing the clinic filter (covered by the app-layer
+  // filter only — RLS now plugs it as a second line of defense).
+  const { patients, count } = await runInTenantContext(req.user!, async (tx) => {
+    const rows = await tx.select().from(patientsTable).where(whereClause).orderBy(desc(patientsTable.id)).limit(lim);
+    const [c] = await tx.select({ count: sql<number>`count(*)` }).from(patientsTable)
+      .where(and(isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)));
+    return { patients: rows, count: c.count };
+  });
 
   const nextCursor = patients.length === lim ? patients[patients.length - 1].id : null;
   void logAudit(req, "READ_LIST", "patient", undefined, { count: patients.length });
@@ -110,11 +118,17 @@ export async function createPatient(
 }
 
 export async function getPatient(req: AuthRequest, patientId: number) {
-  if (!await assertPatientInScope(req, patientId, "patient")) {
-    throw new ForbiddenError();
-  }
-  const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
-  const [patient] = await db.select().from(patientsTable).where(and(...conditions));
+  await assertPatientInScope(req, patientId, "patient");
+  // Phase 2.2 demo conversion: read goes through runInTenantContext so the DB
+  // enforces clinic isolation via the RLS tenant_isolation policy (0015). The
+  // existing `eq(patientsTable.clinicId, req.user!.clinicId)` filter is kept
+  // belt-and-braces until the full rollout completes; the integration tests
+  // (rls-tenant-context + cross-tenant) cover both layers.
+  const patient = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
+    const [row] = await tx.select().from(patientsTable).where(and(...conditions));
+    return row;
+  });
   if (!patient) throw new NotFoundError("patient", patientId);
 
   void logRead(req, "patient", patientId);
@@ -176,41 +190,56 @@ export async function deletePatient(req: AuthRequest, patientId: number) {
 }
 
 export async function getPatientSummary(req: AuthRequest, patientId: number) {
-  if (!await assertPatientInScope(req, patientId, "patient")) {
-    throw new ForbiddenError();
-  }
-  const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
-  const [patient] = await db.select().from(patientsTable).where(and(...conditions));
-  if (!patient) throw new NotFoundError("patient", patientId);
+  await assertPatientInScope(req, patientId, "patient");
 
+  // Phase 2.2 rollout: every query in the summary fan-out goes through the
+  // tenant context — RLS enforces clinic isolation on each of the six tables
+  // (patients, appointments, medical_records, xray_records, lab_tests,
+  // invoices). The summary previously trusted FK chains to keep secondary
+  // tables clinic-correct; RLS makes that explicit.
+  const result = await runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(patientsTable.id, patientId), isNull(patientsTable.deletedAt), eq(patientsTable.clinicId, req.user!.clinicId)];
+    const [patient] = await tx.select().from(patientsTable).where(and(...conditions));
+    if (!patient) return null;
+
+    const [recentAppointments, recentRecords, recentXrays, recentLabTests, pendingInvoices] = await Promise.all([
+      tx.select({
+        id: appointmentsTable.id, reason: appointmentsTable.reason, status: appointmentsTable.status,
+        scheduledAt: appointmentsTable.scheduledAt,
+        doctor: { id: usersTable.id, fullName: usersTable.fullName },
+      }).from(appointmentsTable)
+        .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+        .where(eq(appointmentsTable.patientId, patientId))
+        .orderBy(desc(appointmentsTable.scheduledAt)).limit(5),
+      tx.select().from(medicalRecordsTable)
+        .where(eq(medicalRecordsTable.patientId, patientId))
+        .orderBy(desc(medicalRecordsTable.createdAt)).limit(5),
+      tx.select().from(xrayRecordsTable)
+        .where(eq(xrayRecordsTable.patientId, patientId))
+        .orderBy(desc(xrayRecordsTable.createdAt)).limit(5),
+      tx.select().from(labTestsTable)
+        .where(eq(labTestsTable.patientId, patientId))
+        .orderBy(desc(labTestsTable.createdAt)).limit(5),
+      tx.select().from(invoicesTable)
+        .where(eq(invoicesTable.patientId, patientId)),
+    ]);
+
+    return { patient, recentAppointments, recentRecords, recentXrays, recentLabTests, pendingInvoices };
+  });
+
+  if (!result) throw new NotFoundError("patient", patientId);
   void logRead(req, "patient_summary", patientId);
-  const decrypted = decryptPatient(patient);
-
-  const [recentAppointments, recentRecords, recentXrays, recentLabTests, pendingInvoices] = await Promise.all([
-    db.select({
-      id: appointmentsTable.id, reason: appointmentsTable.reason, status: appointmentsTable.status,
-      scheduledAt: appointmentsTable.scheduledAt,
-      doctor: { id: usersTable.id, fullName: usersTable.fullName },
-    }).from(appointmentsTable)
-      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-      .where(eq(appointmentsTable.patientId, patientId))
-      .orderBy(desc(appointmentsTable.scheduledAt)).limit(5),
-    db.select().from(medicalRecordsTable)
-      .where(eq(medicalRecordsTable.patientId, patientId))
-      .orderBy(desc(medicalRecordsTable.createdAt)).limit(5),
-    db.select().from(xrayRecordsTable)
-      .where(eq(xrayRecordsTable.patientId, patientId))
-      .orderBy(desc(xrayRecordsTable.createdAt)).limit(5),
-    db.select().from(labTestsTable)
-      .where(eq(labTestsTable.patientId, patientId))
-      .orderBy(desc(labTestsTable.createdAt)).limit(5),
-    db.select().from(invoicesTable)
-      .where(eq(invoicesTable.patientId, patientId)),
-  ]);
-
-  const outstandingBalance = pendingInvoices
+  const decrypted = decryptPatient(result.patient);
+  const outstandingBalance = result.pendingInvoices
     .filter(inv => inv.status === "pending")
     .reduce((s, inv) => s + parseFloat(String(inv.total)), 0);
 
-  return { patient: decrypted, recentAppointments, recentRecords, recentXrays, recentLabTests, outstandingBalance };
+  return {
+    patient: decrypted,
+    recentAppointments: result.recentAppointments,
+    recentRecords: result.recentRecords,
+    recentXrays: result.recentXrays,
+    recentLabTests: result.recentLabTests,
+    outstandingBalance,
+  };
 }

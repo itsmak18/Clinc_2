@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { db, runInTenantContext } from "@workspace/db";
 import {
   appointmentsTable, patientsTable, usersTable, notificationsTable,
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
@@ -55,27 +55,29 @@ export async function listAppointments(
     if (!isNaN(cursorId)) conditions.push(lt(appointmentsTable.id, cursorId));
   }
 
-  const rows = await db.select({
-    id: appointmentsTable.id,
-    patientId: appointmentsTable.patientId,
-    doctorId: appointmentsTable.doctorId,
-    scheduledAt: appointmentsTable.scheduledAt,
-    reason: appointmentsTable.reason,
-    status: appointmentsTable.status,
-    notes: appointmentsTable.notes,
-    cancellationReason: appointmentsTable.cancellationReason,
-    checkedInAt: appointmentsTable.checkedInAt,
-    triageStartedAt: appointmentsTable.triageStartedAt,
-    consultationStartedAt: appointmentsTable.consultationStartedAt,
-    createdAt: appointmentsTable.createdAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn },
-    doctor: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(appointmentsTable)
-    .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(appointmentsTable.id))
-    .limit(lim);
+  const rows = await runInTenantContext(req.user!, async (tx) =>
+    tx.select({
+      id: appointmentsTable.id,
+      patientId: appointmentsTable.patientId,
+      doctorId: appointmentsTable.doctorId,
+      scheduledAt: appointmentsTable.scheduledAt,
+      reason: appointmentsTable.reason,
+      status: appointmentsTable.status,
+      notes: appointmentsTable.notes,
+      cancellationReason: appointmentsTable.cancellationReason,
+      checkedInAt: appointmentsTable.checkedInAt,
+      triageStartedAt: appointmentsTable.triageStartedAt,
+      consultationStartedAt: appointmentsTable.consultationStartedAt,
+      createdAt: appointmentsTable.createdAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn },
+      doctor: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(appointmentsTable)
+      .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(appointmentsTable.id))
+      .limit(lim),
+  );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
   return { data: rows, nextCursor };
@@ -109,16 +111,22 @@ export async function createAppointment(
   return appt;
 }
 
-export async function getAppointmentFlow() {
+export async function getAppointmentFlow(req: AuthRequest) {
   const { start, end } = todayBoundary();
-  const rows = await db.select({
-    status: appointmentsTable.status,
-    checkedInAt: appointmentsTable.checkedInAt,
-    triageStartedAt: appointmentsTable.triageStartedAt,
-    consultationStartedAt: appointmentsTable.consultationStartedAt,
-    updatedAt: appointmentsTable.updatedAt,
-  }).from(appointmentsTable)
-    .where(and(gte(appointmentsTable.scheduledAt, start), lte(appointmentsTable.scheduledAt, end)));
+  const rows = await runInTenantContext(req.user!, async (tx) => {
+    return tx.select({
+      status: appointmentsTable.status,
+      checkedInAt: appointmentsTable.checkedInAt,
+      triageStartedAt: appointmentsTable.triageStartedAt,
+      consultationStartedAt: appointmentsTable.consultationStartedAt,
+      updatedAt: appointmentsTable.updatedAt,
+    }).from(appointmentsTable)
+      .where(and(
+        eq(appointmentsTable.clinicId, req.user!.clinicId),
+        gte(appointmentsTable.scheduledAt, start),
+        lte(appointmentsTable.scheduledAt, end)
+      ));
+  });
 
   const counts: Record<string, number> = {
     scheduled: 0, checked_in: 0, in_triage: 0, ready_for_doctor: 0,
@@ -157,23 +165,29 @@ export async function getAppointmentFlow() {
   };
 }
 
-export async function getTodayAppointments() {
+export async function getTodayAppointments(req: AuthRequest) {
   const { start, end } = todayBoundary();
-  const appointments = await db.select({
-    id: appointmentsTable.id,
-    patientId: appointmentsTable.patientId,
-    doctorId: appointmentsTable.doctorId,
-    scheduledAt: appointmentsTable.scheduledAt,
-    reason: appointmentsTable.reason,
-    status: appointmentsTable.status,
-    checkedInAt: appointmentsTable.checkedInAt,
-    patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, allergies: patientsTable.allergies },
-    doctor: { id: usersTable.id, fullName: usersTable.fullName },
-  }).from(appointmentsTable)
-    .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
-    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-    .where(and(gte(appointmentsTable.scheduledAt, start), lte(appointmentsTable.scheduledAt, end)))
-    .orderBy(appointmentsTable.scheduledAt);
+  const appointments = await runInTenantContext(req.user!, async (tx) => {
+    return tx.select({
+      id: appointmentsTable.id,
+      patientId: appointmentsTable.patientId,
+      doctorId: appointmentsTable.doctorId,
+      scheduledAt: appointmentsTable.scheduledAt,
+      reason: appointmentsTable.reason,
+      status: appointmentsTable.status,
+      checkedInAt: appointmentsTable.checkedInAt,
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, allergies: patientsTable.allergies },
+      doctor: { id: usersTable.id, fullName: usersTable.fullName },
+    }).from(appointmentsTable)
+      .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
+      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+      .where(and(
+        eq(appointmentsTable.clinicId, req.user!.clinicId),
+        gte(appointmentsTable.scheduledAt, start),
+        lte(appointmentsTable.scheduledAt, end)
+      ))
+      .orderBy(appointmentsTable.scheduledAt);
+  });
 
   return {
     appointments,
@@ -185,8 +199,17 @@ export async function getTodayAppointments() {
   };
 }
 
-export async function getAppointment(id: number) {
-  const [appt] = await db.select().from(appointmentsTable).where(eq(appointmentsTable.id, id));
+export async function getAppointment(req: AuthRequest, id: number) {
+  // Phase 2.2 rollout: was previously unconditional `db.select()` with no
+  // clinic filter — another forgotten-filter foot-gun the audit found.
+  // Now scoped via runInTenantContext + explicit eq(clinicId).
+  const appt = await runInTenantContext(req.user!, async (tx) => {
+    const [row] = await tx.select().from(appointmentsTable).where(and(
+      eq(appointmentsTable.id, id),
+      eq(appointmentsTable.clinicId, req.user!.clinicId),
+    ));
+    return row;
+  });
   if (!appt) throw new NotFoundError("appointment", id);
   return appt;
 }
@@ -214,34 +237,38 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
   }
   if (Object.keys(update).length === 1) throw new ValidationError("No permitted fields provided for your role");
 
-  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
 
-  const [before] = await db.select().from(appointmentsTable).where(and(...conditions));
-  if (!before) throw new NotFoundError("appointment", id);
+    const [before] = await tx.select().from(appointmentsTable).where(and(...conditions));
+    if (!before) throw new NotFoundError("appointment", id);
 
-  const targetDoctorId    = update.doctorId    !== undefined ? update.doctorId    : before.doctorId;
-  const targetScheduledAt = update.scheduledAt !== undefined ? update.scheduledAt : new Date(before.scheduledAt);
+    const targetDoctorId    = update.doctorId    !== undefined ? update.doctorId    : before.doctorId;
+    const targetScheduledAt = update.scheduledAt !== undefined ? update.scheduledAt : new Date(before.scheduledAt);
 
-  if (update.doctorId !== undefined || update.scheduledAt !== undefined) {
-    const availability = await checkDoctorAvailability(targetDoctorId, targetScheduledAt);
-    if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
-  }
+    if (update.doctorId !== undefined || update.scheduledAt !== undefined) {
+      const availability = await checkDoctorAvailability(targetDoctorId, targetScheduledAt);
+      if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
+    }
 
-  const [appt] = await db.update(appointmentsTable).set(update).where(and(...conditions)).returning();
-  await logAudit(req, "UPDATE", "appointment", appt.id, null, before, appt);
-  await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt ?? new Date());
-  await invalidateDoctorScope(appt.doctorId);
-  return appt;
+    const [appt] = await tx.update(appointmentsTable).set(update).where(and(...conditions)).returning();
+    await logAudit(req, "UPDATE", "appointment", appt.id, null, before, appt);
+    await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt ?? new Date());
+    await invalidateDoctorScope(appt.doctorId);
+    return appt;
+  });
 }
 
 export async function cancelAppointment(req: AuthRequest, id: number, cancellationReason?: string) {
-  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
-  const [appt] = await db.update(appointmentsTable)
-    .set({ status: "cancelled", cancellationReason: cancellationReason || null, updatedAt: new Date() })
-    .where(and(...conditions))
-    .returning();
-  await logAudit(req, "CANCEL", "appointment", appt.id, { cancellationReason });
-  await invalidateDoctorScope(appt.doctorId);
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+    const [appt] = await tx.update(appointmentsTable)
+      .set({ status: "cancelled", cancellationReason: cancellationReason || null, updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
+    await logAudit(req, "CANCEL", "appointment", appt.id, { cancellationReason });
+    await invalidateDoctorScope(appt.doctorId);
+  });
 }
 
 export async function transitionAppointment(
@@ -250,125 +277,137 @@ export async function transitionAppointment(
   action: string,
   extraFields: Record<string, any> = {},
 ) {
-  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
 
-  const [existing] = await db.select().from(appointmentsTable).where(and(...conditions));
-  if (!existing) throw new NotFoundError("appointment", id);
+    const [existing] = await tx.select().from(appointmentsTable).where(and(...conditions));
+    if (!existing) throw new NotFoundError("appointment", id);
 
-  const transition = validateTransition(action as any, existing.status as AppointmentStatus, req.user!.role);
-  if (!transition.ok) {
-    throw Object.assign(new Error(transition.error ?? "Transition not allowed"), {
-      status: transition.status,
-      detail: transition.detail,
-    });
-  }
+    const transition = validateTransition(action as any, existing.status as AppointmentStatus, req.user!.role);
+    if (!transition.ok) {
+      throw Object.assign(new Error(transition.error ?? "Transition not allowed"), {
+        status: transition.status,
+        detail: transition.detail,
+      });
+    }
 
-  const [appt] = await db.update(appointmentsTable)
-    .set({ status: transition.toStatus, updatedAt: new Date(), ...extraFields })
-    .where(and(...conditions))
-    .returning();
+    const [appt] = await tx.update(appointmentsTable)
+      .set({ status: transition.toStatus, updatedAt: new Date(), ...extraFields })
+      .where(and(...conditions))
+      .returning();
 
-  return { appt, existing };
+    return { appt, existing };
+  });
 }
 
 export async function checkinAppointment(req: AuthRequest, id: number) {
-  const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+  return runInTenantContext(req.user!, async (tx) => {
+    const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
 
-  const [existing] = await db.select().from(appointmentsTable).where(and(...conditions));
-  if (!existing) throw new NotFoundError("appointment", id);
-  if (existing.status !== "scheduled") {
-    throw new ConflictError(`Cannot check in: appointment is already '${existing.status}'`);
-  }
+    const [existing] = await tx.select().from(appointmentsTable).where(and(...conditions));
+    if (!existing) throw new NotFoundError("appointment", id);
+    if (existing.status !== "scheduled") {
+      throw new ConflictError(`Cannot check in: appointment is already '${existing.status}'`);
+    }
 
-  const [appt] = await db.update(appointmentsTable)
-    .set({ status: "checked_in", checkedInAt: new Date(), updatedAt: new Date() })
-    .where(and(...conditions))
-    .returning();
+    const [appt] = await tx.update(appointmentsTable)
+      .set({ status: "checked_in", checkedInAt: new Date(), updatedAt: new Date() })
+      .where(and(...conditions))
+      .returning();
 
-  const notifData = {
-    userId: appt.doctorId,
-    title: "Patient Arrived",
-    message: `A patient has checked in for their appointment (ID: ${appt.id})`,
-    type: "patient_arrived" as const,
-  };
-  const [notif] = await db.insert(notificationsTable).values(notifData).returning();
-  emitToUser(appt.doctorId, "notification", notif);
+    const notifData = {
+      clinicId: req.user!.clinicId,
+      userId: appt.doctorId,
+      title: "Patient Arrived",
+      message: `A patient has checked in for their appointment (ID: ${appt.id})`,
+      type: "patient_arrived" as const,
+    };
+    const [notif] = await tx.insert(notificationsTable).values(notifData).returning();
+    emitToUser(appt.doctorId, "notification", notif);
 
-  await logAudit(req, "CHECK_IN", "appointment", appt.id);
-  return appt;
+    await logAudit(req, "CHECK_IN", "appointment", appt.id);
+    return appt;
+  });
 }
 
 export async function readyAppointment(req: AuthRequest, id: number) {
   const { appt } = await transitionAppointment(req, id, "ready");
 
-  const notifData = {
-    userId: appt.doctorId,
-    title: "Patient Ready",
-    message: "Patient is ready for consultation (vitals recorded)",
-    type: "patient_arrived" as const,
-  };
-  const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
-  if (notif) emitToUser(appt.doctorId, "notification", notif);
+  return runInTenantContext(req.user!, async (tx) => {
+    const notifData = {
+      clinicId: req.user!.clinicId,
+      userId: appt.doctorId,
+      title: "Patient Ready",
+      message: "Patient is ready for consultation (vitals recorded)",
+      type: "patient_arrived" as const,
+    };
+    const [notif] = await tx.insert(notificationsTable).values(notifData).returning().catch(() => [null]);
+    if (notif) emitToUser(appt.doctorId, "notification", notif);
 
-  await logAudit(req, "TRIAGE_COMPLETE", "appointment", appt.id);
-  return appt;
+    await logAudit(req, "TRIAGE_COMPLETE", "appointment", appt.id);
+    return appt;
+  });
 }
 
-export async function getDischarge(id: number) {
-  const [appt] = await db.select({
-    id: appointmentsTable.id,
-    patientId: appointmentsTable.patientId,
-    doctorId: appointmentsTable.doctorId,
-    scheduledAt: appointmentsTable.scheduledAt,
-    reason: appointmentsTable.reason,
-    status: appointmentsTable.status,
-    notes: appointmentsTable.notes,
-    checkedInAt: appointmentsTable.checkedInAt,
-    triageStartedAt: appointmentsTable.triageStartedAt,
-    consultationStartedAt: appointmentsTable.consultationStartedAt,
-    createdAt: appointmentsTable.createdAt,
-    doctor: { id: usersTable.id, fullName: usersTable.fullName, fullNameAr: usersTable.fullNameAr },
-  }).from(appointmentsTable)
-    .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-    .where(eq(appointmentsTable.id, id));
+export async function getDischarge(req: AuthRequest, id: number) {
+  return runInTenantContext(req.user!, async (tx) => {
+    const [appt] = await tx.select({
+      id: appointmentsTable.id,
+      patientId: appointmentsTable.patientId,
+      doctorId: appointmentsTable.doctorId,
+      scheduledAt: appointmentsTable.scheduledAt,
+      reason: appointmentsTable.reason,
+      status: appointmentsTable.status,
+      notes: appointmentsTable.notes,
+      checkedInAt: appointmentsTable.checkedInAt,
+      triageStartedAt: appointmentsTable.triageStartedAt,
+      consultationStartedAt: appointmentsTable.consultationStartedAt,
+      createdAt: appointmentsTable.createdAt,
+      doctor: { id: usersTable.id, fullName: usersTable.fullName, fullNameAr: usersTable.fullNameAr },
+    }).from(appointmentsTable)
+      .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
+      .where(and(eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)));
 
-  if (!appt) throw new NotFoundError("appointment", id);
+    if (!appt) throw new NotFoundError("appointment", id);
 
-  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, appt.patientId));
-  if (!patient) throw new NotFoundError("patient");
+    const [patient] = await tx.select().from(patientsTable).where(and(eq(patientsTable.id, appt.patientId), eq(patientsTable.clinicId, req.user!.clinicId)));
+    if (!patient) throw new NotFoundError("patient");
 
-  const [medicalRecord] = await db.select().from(medicalRecordsTable)
-    .where(eq(medicalRecordsTable.appointmentId, id))
-    .orderBy(desc(medicalRecordsTable.createdAt))
-    .limit(1);
+    const [medicalRecord] = await tx.select().from(medicalRecordsTable)
+      .where(and(eq(medicalRecordsTable.appointmentId, id), eq(medicalRecordsTable.clinicId, req.user!.clinicId)))
+      .orderBy(desc(medicalRecordsTable.createdAt))
+      .limit(1);
 
-  const prescriptions = medicalRecord
-    ? await db.select().from(prescriptionsTable).where(eq(prescriptionsTable.recordId, medicalRecord.id))
-    : [];
+    const prescriptions = medicalRecord
+      ? await tx.select().from(prescriptionsTable).where(and(eq(prescriptionsTable.recordId, medicalRecord.id), eq(prescriptionsTable.clinicId, req.user!.clinicId)))
+      : [];
 
-  const apptDay = new Date(appt.scheduledAt);
-  const dayStart = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate());
-  const dayEnd   = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate(), 23, 59, 59);
+    const apptDay = new Date(appt.scheduledAt);
+    const dayStart = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate());
+    const dayEnd   = new Date(apptDay.getFullYear(), apptDay.getMonth(), apptDay.getDate(), 23, 59, 59);
 
-  const [labTests, xrays, invoice] = await Promise.all([
-    db.select().from(labTestsTable).where(and(
-      eq(labTestsTable.patientId, appt.patientId),
-      sql`(${labTestsTable.appointmentId} = ${id} OR (${labTestsTable.appointmentId} IS NULL AND ${labTestsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`,
-    )),
-    db.select().from(xrayRecordsTable).where(and(
-      eq(xrayRecordsTable.patientId, appt.patientId),
-      sql`(${xrayRecordsTable.appointmentId} = ${id} OR (${xrayRecordsTable.appointmentId} IS NULL AND ${xrayRecordsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`,
-    )),
-    db.select().from(invoicesTable)
-      .where(eq(invoicesTable.patientId, appt.patientId))
-      .orderBy(desc(invoicesTable.createdAt))
-      .limit(1),
-  ]);
+    const [labTests, xrays, invoice] = await Promise.all([
+      tx.select().from(labTestsTable).where(and(
+        eq(labTestsTable.patientId, appt.patientId),
+        eq(labTestsTable.clinicId, req.user!.clinicId),
+        sql`(${labTestsTable.appointmentId} = ${id} OR (${labTestsTable.appointmentId} IS NULL AND ${labTestsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`,
+      )),
+      tx.select().from(xrayRecordsTable).where(and(
+        eq(xrayRecordsTable.patientId, appt.patientId),
+        eq(xrayRecordsTable.clinicId, req.user!.clinicId),
+        sql`(${xrayRecordsTable.appointmentId} = ${id} OR (${xrayRecordsTable.appointmentId} IS NULL AND ${xrayRecordsTable.createdAt} BETWEEN ${dayStart} AND ${dayEnd}))`,
+      )),
+      tx.select().from(invoicesTable)
+        .where(and(eq(invoicesTable.patientId, appt.patientId), eq(invoicesTable.clinicId, req.user!.clinicId)))
+        .orderBy(desc(invoicesTable.createdAt))
+        .limit(1),
+    ]);
 
-  return {
-    appointment: appt, patient,
-    medicalRecord: medicalRecord ?? null,
-    prescriptions, labTests, xrays,
-    invoice: invoice[0] ?? null,
-  };
+    return {
+      appointment: appt, patient,
+      medicalRecord: medicalRecord ?? null,
+      prescriptions, labTests, xrays,
+      invoice: invoice[0] ?? null,
+    };
+  });
 }

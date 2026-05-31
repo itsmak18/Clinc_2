@@ -25,6 +25,8 @@ export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("ultrasound_clinic_idx").on(t.clinicId),
+  index("ultrasound_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
+  index("ultrasound_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
 ]);
 
 export const insertUltrasoundRecordSchema = createInsertSchema(ultrasoundRecordsTable).omit({

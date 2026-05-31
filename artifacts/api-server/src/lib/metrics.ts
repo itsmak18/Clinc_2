@@ -43,6 +43,40 @@ export const auditIntegrityMismatchTotal = new client.Counter({
 });
 register.registerMetric(auditIntegrityMismatchTotal);
 
+// Phase 3.2 (2026-05-31): audit calls without a logged-in user are routed to a
+// system actor instead of being silently dropped. This counter alerts on any
+// such routing — most production calls SHOULD have a user; a sustained non-zero
+// rate means something is calling logAudit from an unauthenticated path that
+// needs investigation.
+export const auditSystemActorTotal = new client.Counter({
+  name: "audit_system_actor_total",
+  help: "Audit events written under the system actor because req.user was absent — investigate the call path",
+  labelNames: ["action", "entity_type"],
+});
+register.registerMetric(auditSystemActorTotal);
+
+// Application cache hit/miss counters (read-path Redis cache)
+export const cacheHitTotal = new client.Counter({
+  name: "cache_hit_total",
+  help: "Read-path cache hits",
+  labelNames: ["key_prefix"],
+});
+register.registerMetric(cacheHitTotal);
+
+export const cacheMissTotal = new client.Counter({
+  name: "cache_miss_total",
+  help: "Read-path cache misses (fetcher invoked)",
+  labelNames: ["key_prefix"],
+});
+register.registerMetric(cacheMissTotal);
+
+// SSE connection gauge — per-process count of active SSE clients
+export const sseConnectionsGauge = new client.Gauge({
+  name: "sse_active_connections",
+  help: "Number of active SSE connections on this process",
+});
+register.registerMetric(sseConnectionsGauge);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",

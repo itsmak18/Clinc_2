@@ -24,6 +24,12 @@ router.get("/notifications/stream", (req: AuthRequest, res) => {
 
   const userId = req.user!.userId;
 
+  const accepted = addSSEClient(userId, res);
+  if (!accepted) {
+    res.status(503).set("Retry-After", "30").json({ error: "Too many SSE connections" });
+    return;
+  }
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -31,8 +37,6 @@ router.get("/notifications/stream", (req: AuthRequest, res) => {
   res.flushHeaders();
 
   res.write(`event: connected\ndata: ${JSON.stringify({ userId })}\n\n`);
-
-  addSSEClient(userId, res);
 
   const keepAlive = setInterval(() => {
     try { res.write(`: ping\n\n`); } catch { clearInterval(keepAlive); }

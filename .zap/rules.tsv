@@ -1,0 +1,16 @@
+# ZAP baseline rule overrides — per-rule severity adjustments for the
+# nightly DAST scan against staging.
+#
+# Format: <plugin_id>	<action>	<reason>
+# Actions: IGNORE | INFO | WARN | FAIL
+#
+# Each entry MUST have a documented reason. Anything left without a reason is
+# a finding the team has chosen not to investigate — that should be visible.
+#
+# Sources:
+#   ZAP plugin IDs: https://www.zaproxy.org/docs/alerts/
+#   GitHub Actions doc: https://github.com/marketplace/actions/zap-baseline-scan
+
+# Currently empty — add documented overrides here as the scan finds them.
+# Recommended starter rule (uncomment after first run if applicable):
+# 10202	IGNORE	Absence of Anti-CSRF Tokens — MediCore uses double-submit cookie inspected inside policy.ts, not <input> tokens

@@ -12,6 +12,11 @@ export default defineConfig({
     pool: "forks", // ESM-safe pool
     globals: true,
     setupFiles: ["./src/tests/setup.env.ts"],
+    // Default suite excludes the real-Postgres integration tests — those run
+    // under `pnpm test:integration-db` against vitest.config.integration.ts
+    // and need a Docker daemon. Including them here would break the fast
+    // mocked-DB suite on machines without Docker.
+    exclude: ["**/node_modules/**", "**/*.integration-db.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

@@ -71,6 +71,69 @@
       "when": 1780013794699,
       "tag": "0009_smooth_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780193541000,
+      "tag": "0010_audit_integrity_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1780193541001,
+      "tag": "0011_clinic_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780193541002,
+      "tag": "0012_clinic_notices_uuid_pk",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780193541003,
+      "tag": "0013_audit_entity_id_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780193541004,
+      "tag": "0014_clinic_id_check_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1780193541005,
+      "tag": "0015_enable_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1780193541006,
+      "tag": "0016_break_glass_approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780193541007,
+      "tag": "0017_doctor_scope_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780193541064,
+      "tag": "0018_performance_indexes",
+      "breakpoints": true
     }
   ]
 }

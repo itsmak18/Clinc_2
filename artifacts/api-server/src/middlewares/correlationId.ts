@@ -14,7 +14,7 @@ export function correlationId(req: Request, res: Response, next: NextFunction): 
   const id = (req.headers["x-request-id"] as string) || randomUUID();
   res.locals.requestId = id;
   res.setHeader("X-Request-ID", id);
-  // Attach to req for pino-http auto-pickup via req.id
-  (req as any).id = id;
+  // Attach to req for pino-http auto-pickup via req.id (typed by types/express-augment.d.ts)
+  req.id = id;
   next();
 }
