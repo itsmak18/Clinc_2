@@ -21,6 +21,8 @@ export const clinicsTable = pgTable("clinics", {
   address: text("address"),
   phone: text("phone"),
   email: text("email"),
+  locale: text("locale").notNull().default("en"),
+  timezone: text("timezone").notNull().default("Europe/Istanbul"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

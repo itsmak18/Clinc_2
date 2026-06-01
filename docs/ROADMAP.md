@@ -1,5 +1,11 @@
 # Roadmap
 
+> As of 2026-06-02: **Phase 3 ops hardening complete** — PgBouncer connection pooling, `audit_logs` monthly partitioning (migration 0021, ADR-009), and enhanced restore drill (audit integrity check + RUNBOOK §12) all shipped. Scalability score 8.0→8.5. Operational Resilience 7.5→8.0.
+>
+> As of 2026-06-02: **F-03 MEDIUM closed** — frontend test harness live (25 tests: route-access matrix, i18n key parity, Guard render smoke). `frontend-test` CI job now blocking.
+>
+> As of 2026-06-02: **F-01 HIGH security gap closed** — `medicore_app` role (NOSUPERUSER NOBYPASSRLS) created; api/worker connect as it; RLS now enforces in production; ESLint guard added; break-glass wrapped; integration tests prove non-superuser. See CHANGELOG for full detail.
+>
 > As of 2026-05-31: backend remediation phases 0, 1, 3, 4, 5 and Phase 6 RLS complete; **Phase 2 Architecture Corrections complete** — 100% service-by-service transaction RLS rollout complete; compound indexes generated in migration `0018_performance_indexes.sql` and physically applied; batch audit outbox draining implemented reducing round-trips from 200/cycle to 2; background worker extracted and fully containerized with matching production-hardened profiles. All 461/461 tests passing. **Phase 2 OpenAPI sync complete** — all 8 routes in spec, codegen re-run, 24-test suite added. **Phase 2 flag-ON test suite** — 11 tests: fingerprint binding, token atomicity, role-branch, HIBP; 408/408 tests passing. **Bayan Design Port complete:** 2026-05-27. **Security hardening bundle (2026-05-27).** **M3 — EdDSA + JWKS (2026-05-28).** **M8 — Drop `invoices.items` JSONB (2026-05-28).** **P1-1 — Audit transactional outbox (2026-05-28).** **P1-9 — Erasure ↔ backup blackout (2026-05-28).** **P1-8 — SSE graceful drain (2026-05-28).** **P0-4 — clinic_id service-layer enforcement (2026-05-28): 398/398 tests passing.** **P2-3 — Additional Prometheus alerts (2026-05-29): 11 rules, 417/417 tests passing.** **Flow 2 — Materialized `doctor_patients` scope table (2026-05-29): O(1) scope lookup, 419/419 tests passing.** **P2-4 — OpenTelemetry distributed tracing (2026-05-29): `lib/tracer.ts`, HTTP spans, `withSpan()` helper, 428/428 tests passing.** **Audit-log hash chain (2026-05-29): nightly SHA-256 chain, `AuditIntegrityMismatch` alert, migration `0010_audit_integrity_chain.sql`, 441/441 tests passing.** **P2-2 — `style-src 'unsafe-inline'` removed (2026-05-29): chart.tsx `<style>` injector replaced with DOM-API inline styles; CSP regression guard added; 442/442 tests passing.** **P2-6 — `medical_records.isGlobal` modeling smell resolved (2026-05-29): `clinic_notices` table extracted; isGlobal/globalReason dropped from medical_records; `assertMedicalRecordInScope` simplified; 449/449 tests passing.** **P3-1 — `cookie-signature` dedup (2026-05-29): pnpm.overrides forces ^1.2.2.** **P3-2 — Service worker (2026-05-29): PHI-safe caching; nginx no-store on sw.js; 449/449 tests passing.** **REDIS_PASSWORD file-mounted (2026-05-29): all secrets out of `docker inspect`.** **UUIDv7 PK infra (2026-05-29): `uuidV7()` generator, `clinic_notices` migrated, codegen post-step fixed; 454/454 tests passing.**
 
 ## Bayan Design Port (complete 2026-05-27)
@@ -95,6 +101,15 @@ Closes the four operational gaps that left the platform blind in production: ale
 - ✅ **CI security tooling** — CodeQL SAST, Trivy fs scan (HIGH/CRITICAL, `ignore-unfixed`, SARIF), and CycloneDX SBOM (Anchore Syft) added as GitHub Actions workflows.
 - ✅ **Field-encryption KID envelope** — `enc:v2:<kid>:<iv>:<tag>:<data>` replaces `enc:v1:`. Key registry supports two concurrent keys during rotation. Rotation now operational — documented six-step procedure in `SECURITY.md`.
 
+## ✅ Phase 6 — Strategic Features (complete 2026-05-31)
+
+- ✅ **Multi-language clinical content** — `locale` + `timezone` columns on `clinics`; Arabic text columns on all five clinical content tables (medical_records, prescriptions, lab_tests, xray_records, ultrasound_records) + services_catalog. All services accept/return Arabic fields. Frontend forms have collapsible Arabic section (ع toggle). Print templates render bilingual when Arabic is populated. 34 new i18n keys.
+- ✅ **Doctor performance analytics** — Per-doctor KPI dashboard: patient volume, no-show rate, avg consult time, revenue, order rate, cancellation rate; clinic-wide peer benchmarking (clinic average alongside each doctor's values); 6-month monthly trend (LineChart); admin leaderboard. New `DoctorAnalytics.tsx` page. Route `/analytics` accessible to doctor/admin/super_admin.
+- ❌ **Appointment reminders** — Excluded: no patient-facing communication channel.
+- ❌ **Insurance claims** — Excluded: no insurance system in market.
+- ❌ **Telemedicine** — Excluded: no video calls inside the app.
+- ❌ **Patient portal** — Excluded since Phase 1.
+
 ## Phase 6 — Scalability & Multi-Tenancy
 
 - ✅ **Cursor pagination** — All 7 list endpoints (`patients`, `appointments`, `lab`, `xray`, `ultrasound`, `prescriptions`, `medical-records`). `?cursor=<id>` replaces `?offset`. Hard max 100. Response: `{ data, nextCursor }`. `ORDER BY id DESC`.
@@ -106,7 +121,10 @@ Closes the four operational gaps that left the platform blind in production: ale
   - DB pool defaults bumped (max 40, min 2 warm, `statement_timeout=30s`, `allowExitOnIdle`).
   - `CacheService` on `Runtime` (Redis SETEX/SCAN/UNLINK + in-memory fallback); 15–30 s TTL on `getDashboardSummary` / `getDepartmentLoad` / `getRecentActivity`. PHI- and audit-emitting paths (`getPatientSummary`, `billing.getDailySummary`) intentionally left uncached for HIPAA semantics.
   - SSE caps: 500 per process + 10 per user with oldest-evicts; `sse_active_connections` gauge.
-  - Deferred: **PgBouncer** (trigger: ≥2 API replicas or `max_connections` exhaustion); **SSE → Redis Streams** (trigger: patient portal pushing connections to thousands — current Pub/Sub fan-out already multi-replica correct).
+  - ✅ **PgBouncer (2026-06-02)** — Transaction-pooling pgbouncer service in `docker-compose.prod.yml`; api/worker DATABASE_URL routed through pgbouncer:6432; `statement_timeout` + `idle_in_transaction_session_timeout` moved to `ALTER ROLE medicore_app SET ...` (migration 0021) for pooling-safe enforcement; GUC scoping verified safe under transaction mode; pool math in RUNBOOK §11.6; `PGBOUNCER_DEFAULT_POOL_SIZE`/`PGBOUNCER_MAX_CLIENT_CONN` tunable via env. Unblocks a 2nd API replica with only a config change.
+  - ✅ **audit_logs monthly partitioning (2026-06-02)** — Migration 0021 converts `audit_logs` to RANGE PARTITION BY month (2026-01→2036-12, 132 partitions + DEFAULT). Composite PK (id, created_at). RLS re-applied, medicore_app grants re-applied, row-count verified, legacy table dropped. `audit_partition_months_remaining` Prometheus gauge + `AuditPartitionLow` alert (< 24 months). ADR-009-audit-partitioning.md. F-01 non-superuser boundary maintained (no runtime DDL by medicore_app).
+  - ✅ **Restore drill enhanced (2026-06-02)** — `backup-verify.mjs --restore` now includes audit integrity check (queries `audit_integrity_checks` for mismatches after restore). Quarterly drill procedure documented in RUNBOOK §12 with measured RTO tracking.
+  - Deferred: **SSE → Redis Streams** (trigger: patient portal pushing connections to thousands — current Pub/Sub fan-out already multi-replica correct).
 - **Read replicas** — Separate analytics DB for reports; prevent report queries from degrading clinical workflows.
 
 ## Quality & Testing Track — Planned (decisions locked 2026-05-31)

@@ -98,6 +98,20 @@ groups:
           summary: "Node.js event loop P99 lag > 500ms"
           description: "Event loop P99 lag is {{ $value }}s — sustained above 500ms for 2 minutes. Look for blocking synchronous operations (bcrypt, crypto, JSON.parse on large payloads) or CPU starvation under load."
 
+      # Partition headroom: the monthly data-retention cron (1st of month 03:00 UTC)
+      # emits the number of future audit_logs monthly partitions that exist.
+      # Below 24 months means < 2 years of headroom remain before rows overflow
+      # into the DEFAULT catch-all partition (where they can't be pruned by month).
+      # Resolution: land a follow-up migration to extend the partition horizon.
+      - alert: AuditPartitionLow
+        expr: audit_partition_months_remaining < 24
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "audit_logs partition horizon < 24 months"
+          description: "Only {{ $value }} future monthly audit_logs partitions remain. Rows will overflow into the DEFAULT partition when the horizon is exhausted, preventing month-granularity pruning and HIPAA partition-drop retention. Land a follow-up migration (see ADR-009-audit-partitioning.md) to pre-create additional monthly partitions."
+
   # ── Infrastructure-level alerts ───────────────────────────────────────────────
   # These alerts require additional Prometheus exporters that are NOT yet deployed.
   # Add the relevant exporter to docker-compose when provisioning the cloud host.

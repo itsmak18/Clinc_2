@@ -18,7 +18,8 @@ Secrets that can decrypt PHI or forge sessions live in `./secrets/` as files (mo
 
 | Secret file | Used by | Generator |
 |---|---|---|
-| `./secrets/postgres_password` | PG connection string | `openssl rand -base64 48` |
+| `./secrets/postgres_password` | Bootstrap superuser PG password — migrate container only | `openssl rand -base64 48` |
+| `./secrets/app_db_password` | `medicore_app` role password — api + worker (F-01 fix, ADR-008) | `openssl rand -base64 48 \| tr -d '\n'` |
 | `./secrets/session_secret` | HMAC key for device-fingerprint HMAC (Phase 2 device trust) — see [lib/device-fingerprint.ts](artifacts/api-server/src/lib/device-fingerprint.ts) | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `./secrets/field_encryption_key` | AES-256-GCM for diagnosis/vitals/medications/allergies/emergencyContact — see [lib/field-encryption.ts](artifacts/api-server/src/lib/field-encryption.ts) | same Node generator |
 | `./secrets/metrics_token` | Bearer auth for `/metrics` | `openssl rand -hex 32` |
@@ -147,6 +148,36 @@ Treat any of the following as a SEV-1 incident:
 - A backup of `./secrets/` ends up anywhere outside the deploy host.
 
 Recovery: rotate the affected secret immediately per the procedure above; for `session_secret`, force-logout everyone (acceptable — see step 4); for `field_encryption_key`, escalate to the engineering manager — it is the most dangerous secret in the system and an unplanned rotation is a multi-hour outage at best.
+
+## Password Policy — HIBP Fail-Open Decision (F-08)
+
+**Conscious architectural choice — signed off 2026-06-02.**
+
+When `PHASE2_STRICT_PASSWORD_POLICY=true` is enabled, new passwords are checked against
+the [HaveIBeenPwned k-anonymity API](https://haveibeenpwned.com/API/v3#PwnedPasswords).
+If HIBP is unreachable (network timeout or 5xx), the strict password validator **fails
+open** — the password is accepted without the breach check.
+
+**Why this is intentional:**
+
+- MediCore is an internal-staff system. A nurse or pharmacist who cannot log in during
+  a HIBP outage cannot administer patient care. Availability takes precedence over the
+  marginal security benefit of HIBP during outages.
+- The primary mitigations are the other strict-mode requirements (12 chars + special
+  char + dictionary blocklist) which are always enforced regardless of HIBP reachability.
+
+**Observability (so it's not silent):**
+
+The Phase 2 validator logs `audit_hibp_check_skipped` when it falls through. Implement
+an alert or metric on this log line to know when HIBP is degraded. The current metric
+`audit_log_write_failures_total` does NOT cover HIBP skips — a dedicated
+`password_hibp_skip_total` counter should be added if HIBP availability becomes a
+concern.
+
+**If you want fail-closed behavior:** change `validatePasswordStrictAsync()` in
+`lib/password.ts` to rethrow HIBP network errors instead of returning `{ ok: true }` on
+catch. This will cause password changes to fail with a 503 during HIBP outages — test
+this against acceptable UX degradation before enabling.
 
 ## Vulnerability Disclosure Policy
 

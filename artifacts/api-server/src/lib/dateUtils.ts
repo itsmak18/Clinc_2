@@ -1,20 +1,24 @@
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import type { AuthRequest } from "../middlewares/auth";
+
+const DEFAULT_TZ = process.env.CLINIC_TZ ?? "Europe/Istanbul";
 
 /**
- * Timezone-aware day boundary helpers (L-03).
- * Uses CLINIC_TZ env var (default: Europe/Istanbul UTC+3) so "today"
- * matches the clinic's local calendar, not UTC midnight.
+ * Resolve effective timezone for a request: per-clinic from JWT claim if
+ * populated, otherwise env default. The mint path will start populating
+ * `req.user.timezone` from the clinics table — until then this falls back
+ * cleanly so existing callsites keep working.
  */
-const CLINIC_TZ = process.env.CLINIC_TZ ?? "Europe/Istanbul";
+export function getClinicTimezone(req?: AuthRequest): string {
+  return req?.user?.timezone ?? DEFAULT_TZ;
+}
 
-/** Truncate a zoned Date to start of day (midnight 00:00:00.000) */
 function zonedStartOfDay(d: Date): Date {
   const out = new Date(d);
   out.setHours(0, 0, 0, 0);
   return out;
 }
 
-/** Set a zoned Date to end of day (23:59:59.999) */
 function zonedEndOfDay(d: Date): Date {
   const out = new Date(d);
   out.setHours(23, 59, 59, 999);
@@ -22,26 +26,26 @@ function zonedEndOfDay(d: Date): Date {
 }
 
 /**
- * Returns the start and end of the current day in clinic timezone as UTC Date objects.
+ * Start/end of "today" in clinic timezone. Pass `tz` (or `req`) to use a
+ * per-clinic zone; omit for env default.
  */
-export function todayBoundary(): { start: Date; end: Date } {
+export function todayBoundary(tz: string = DEFAULT_TZ): { start: Date; end: Date } {
   const now = new Date();
-  const zoned = toZonedTime(now, CLINIC_TZ);
+  const zoned = toZonedTime(now, tz);
   return {
-    start: fromZonedTime(zonedStartOfDay(zoned), CLINIC_TZ),
-    end:   fromZonedTime(zonedEndOfDay(zoned),   CLINIC_TZ),
+    start: fromZonedTime(zonedStartOfDay(zoned), tz),
+    end:   fromZonedTime(zonedEndOfDay(zoned),   tz),
   };
 }
 
 /**
- * Returns the start and end of the given date string in clinic timezone as UTC Date objects.
- * @param dateStr ISO date string e.g. "2026-05-11"
+ * Start/end of `dateStr` (ISO yyyy-mm-dd) in clinic timezone.
  */
-export function dayBoundary(dateStr: string): { start: Date; end: Date } {
+export function dayBoundary(dateStr: string, tz: string = DEFAULT_TZ): { start: Date; end: Date } {
   const d = new Date(dateStr);
-  const zoned = toZonedTime(d, CLINIC_TZ);
+  const zoned = toZonedTime(d, tz);
   return {
-    start: fromZonedTime(zonedStartOfDay(zoned), CLINIC_TZ),
-    end:   fromZonedTime(zonedEndOfDay(zoned),   CLINIC_TZ),
+    start: fromZonedTime(zonedStartOfDay(zoned), tz),
+    end:   fromZonedTime(zonedEndOfDay(zoned),   tz),
   };
 }

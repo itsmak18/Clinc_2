@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@workspace/db", () => {
   const mockDb = { select: vi.fn(), insert: vi.fn(), update: vi.fn(), transaction: vi.fn() };
-  return {
+  const __m: any = {
     db: mockDb,
     runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     erasureRequestsTable: {
@@ -12,6 +12,8 @@ vi.mock("@workspace/db", () => {
     medicalRecordsTable: { patientId: "patientId" },
     prescriptionsTable: { patientId: "patientId", deletedAt: "deletedAt" },
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 vi.mock("../lib/audit", () => ({
@@ -30,14 +32,14 @@ function superAdminReq(): AuthRequest {
   return { user: { userId: 1, username: "sa", role: "super_admin" }, ip: "127.0.0.1", socket: {} } as unknown as AuthRequest;
 }
 
-// select().from().where() → resolves directly (no .limit())
+// select().from().where() â†’ resolves directly (no .limit())
 function mockSelectDirect(rows: unknown[]) {
   const where = vi.fn().mockResolvedValue(rows);
   const from = vi.fn().mockReturnValue({ where });
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
-// select().from().where().limit() → resolves with rows
+// select().from().where().limit() â†’ resolves with rows
 function mockSelectWithLimit(rows: unknown[]) {
   const limit = vi.fn().mockResolvedValue(rows);
   const where = vi.fn().mockReturnValue({ limit });

@@ -49,6 +49,7 @@ const DoctorOrders      = lazy(() => import("@/pages/DoctorOrders"));
 const DoctorInbox       = lazy(() => import("@/pages/DoctorInbox"));
 const NurseVitals       = lazy(() => import("@/pages/NurseVitals"));
 const FrontDeskCheckin  = lazy(() => import("@/pages/FrontDeskCheckin"));
+const DoctorAnalytics   = lazy(() => import("@/pages/DoctorAnalytics"));
 const AccessDenied = lazy(() => import("@/pages/AccessDenied"));
 const NotFound     = lazy(() => import("@/pages/not-found"));
 
@@ -262,6 +263,9 @@ function ProtectedRoutes() {
           </Route>
           <Route path="/audit">
             <Guard path="/audit" role={role}><AuditLog /></Guard>
+          </Route>
+          <Route path="/analytics">
+            <Guard path="/analytics" role={role}><DoctorAnalytics /></Guard>
           </Route>
           <Route path="/settings">
             <Guard path="/settings" role={role}><Settings /></Guard>

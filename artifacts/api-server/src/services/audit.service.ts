@@ -1,4 +1,7 @@
-import { db } from "@workspace/db";
+// dbUnsafe: audit reads apply manual eq(clinicId) filters already. super_admin
+// reads intentionally span clinics. The direct auditLogsTable write path (login
+// events) must bypass tenant context because it runs before auth completes.
+import { dbUnsafe as db } from "@workspace/db";
 import { auditLogsTable, usersTable } from "@workspace/db";
 import { eq, gte, lte, and, desc } from "drizzle-orm";
 import { logAudit } from "../lib/audit";

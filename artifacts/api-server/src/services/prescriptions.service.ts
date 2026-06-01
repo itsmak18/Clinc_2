@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -47,6 +50,7 @@ export async function listPrescriptions(
       recordId: prescriptionsTable.recordId,
       medications: prescriptionsTable.medications,
       notes: prescriptionsTable.notes,
+      notesAr: prescriptionsTable.notesAr,
       createdAt: prescriptionsTable.createdAt,
       patient: { id: patientsTable.id, fullName: patientsTable.fullName },
       doctor: { id: usersTable.id, fullName: usersTable.fullName },
@@ -65,7 +69,7 @@ export async function listPrescriptions(
 
 export async function createPrescription(
   req: AuthRequest,
-  data: { patientId: unknown; doctorId: string; recordId?: string; medications: unknown; notes?: string },
+  data: { patientId: unknown; doctorId: string; recordId?: string; medications: unknown; notes?: string; notesAr?: string },
 ) {
   if (!data.patientId || !data.doctorId) {
     throw new ValidationError("Missing required fields: patientId, doctorId, medications");
@@ -87,7 +91,7 @@ export async function createPrescription(
   const [prescription] = await db.insert(prescriptionsTable).values({
     clinicId: req.user!.clinicId,
     patientId: pid, doctorId: Number(data.doctorId), recordId: data.recordId !== undefined ? Number(data.recordId) : undefined,
-    medications: encryptJson(parsedMeds.data), notes: data.notes,
+    medications: encryptJson(parsedMeds.data), notes: data.notes, notesAr: data.notesAr,
   }).returning();
 
   await logAudit(req, "CREATE", "prescription", prescription.id);

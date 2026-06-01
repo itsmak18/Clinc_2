@@ -41,7 +41,8 @@ export default function Lab() {
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ patientId: "", requestedById: "", testName: "", notes: "" });
+  const [showArCreate, setShowArCreate] = useState(false);
+  const [form, setForm] = useState({ patientId: "", requestedById: "", testName: "", testNameAr: "", notes: "", notesAr: "" });
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [inlineParams, setInlineParams] = useState<LabParam[]>([emptyParam()]);
@@ -58,7 +59,7 @@ export default function Lab() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() });
         setShowCreate(false);
-        setForm({ patientId: "", requestedById: "", testName: "", notes: "" });
+        setForm({ patientId: "", requestedById: "", testName: "", testNameAr: "", notes: "", notesAr: "" });
         toast({ title: t("labTestCreated") });
       },
       onError: () => toast({ title: t("failed"), variant: "destructive" }),
@@ -332,11 +333,31 @@ export default function Lab() {
               <Label className="text-xs">{t("notes")}</Label>
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
+            {/* Arabic fields toggle */}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm h-7 text-xs gap-1.5 text-[var(--ink-muted)] w-full justify-start px-0"
+              onClick={() => setShowArCreate(v => !v)}
+            >
+              <span className="text-base leading-none">ع</span> {t("arabicFields")}
+            </button>
+            {showArCreate && (
+              <div className="space-y-3 border border-[var(--line)] rounded-lg p-3 bg-[var(--surface-2)]" dir="rtl">
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("testNameAr")}</Label>
+                  <Input value={form.testNameAr} onChange={e => setForm(f => ({ ...f, testNameAr: e.target.value }))} className="text-right" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("notesAr")}</Label>
+                  <Textarea value={form.notesAr} onChange={e => setForm(f => ({ ...f, notesAr: e.target.value }))} rows={2} className="text-right" />
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), testName: form.testName, notes: form.notes || undefined } as any })}
+                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), testName: form.testName, testNameAr: form.testNameAr || undefined, notes: form.notes || undefined, notesAr: form.notesAr || undefined } as any })}
                 disabled={createMutation.isPending}
                 data-testid="button-save-lab"
               >

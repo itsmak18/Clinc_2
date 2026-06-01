@@ -77,6 +77,16 @@ export const sseConnectionsGauge = new client.Gauge({
 });
 register.registerMetric(sseConnectionsGauge);
 
+// Partition headroom gauge — count of future monthly audit_logs partitions.
+// Emitted by the monthly data retention cron in cron.ts. Alerts when headroom
+// drops below 24 months so an operator can land a follow-up migration before
+// the DEFAULT catch-all partition fills with un-prunable data.
+export const auditPartitionMonthsRemainingGauge = new client.Gauge({
+  name: "audit_partition_months_remaining",
+  help: "Number of future monthly audit_logs partitions that exist (current month inclusive)",
+});
+register.registerMetric(auditPartitionMonthsRemainingGauge);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",

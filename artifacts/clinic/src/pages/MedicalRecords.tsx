@@ -19,9 +19,14 @@ export default function MedicalRecords() {
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({
-    patientId: "", doctorId: "", chiefComplaint: "", diagnosis: "", treatment: "", notes: "",
+    patientId: "", doctorId: "",
+    chiefComplaint: "", chiefComplaintAr: "",
+    diagnosis: "", diagnosisAr: "",
+    treatment: "", treatmentAr: "",
+    notes: "",
     bloodPressure: "", heartRate: "", temperature: "", weight: "", height: "", oxygenSaturation: "",
   });
+  const [showAr, setShowAr] = useState(false);
 
   const { data: records, isLoading } = useListMedicalRecords({}, { query: { queryKey: getListMedicalRecordsQueryKey({}) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
@@ -47,7 +52,18 @@ export default function MedicalRecords() {
       height:           form.height           ? parseFloat(form.height)          : undefined,
       oxygenSaturation: form.oxygenSaturation ? parseFloat(form.oxygenSaturation) : undefined,
     };
-    createMutation.mutate({ data: { patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), chiefComplaint: form.chiefComplaint, diagnosis: form.diagnosis, treatment: form.treatment, notes: form.notes || undefined, vitals } as any });
+    createMutation.mutate({ data: {
+      patientId: parseInt(form.patientId),
+      doctorId: parseInt(form.doctorId),
+      chiefComplaint: form.chiefComplaint,
+      chiefComplaintAr: form.chiefComplaintAr || undefined,
+      diagnosis: form.diagnosis,
+      diagnosisAr: form.diagnosisAr || undefined,
+      treatment: form.treatment,
+      treatmentAr: form.treatmentAr || undefined,
+      notes: form.notes || undefined,
+      vitals,
+    } as any });
   };
 
   return (
@@ -142,6 +158,27 @@ export default function MedicalRecords() {
             <div className="space-y-1">
               <Label className="text-xs">{t("notes")}</Label>
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
+            </div>
+            <div className="pt-1">
+              <button type="button" onClick={() => setShowAr(s => !s)} className="text-xs text-[var(--teal-600)] hover:underline">
+                {showAr ? "▾" : "▸"} {t("arabicFields")}
+              </button>
+              {showAr && (
+                <div className="mt-2 space-y-3" dir="rtl">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("chiefComplaintAr")}</Label>
+                    <Input value={form.chiefComplaintAr} onChange={e => setForm(f => ({ ...f, chiefComplaintAr: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("diagnosisAr")}</Label>
+                    <Textarea value={form.diagnosisAr} onChange={e => setForm(f => ({ ...f, diagnosisAr: e.target.value }))} rows={2} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("treatmentAr")}</Label>
+                    <Textarea value={form.treatmentAr} onChange={e => setForm(f => ({ ...f, treatmentAr: e.target.value }))} rows={2} />
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <Label className="text-xs font-semibold">{t("vitals")}</Label>

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * phase2.flagON.integration.test.ts
  *
  * Flag-ON behavior tests for Phase 2 routes.
@@ -7,10 +7,10 @@
  * for the password-policy group).
  *
  * Coverage:
- *   POST /auth/verify-device  — fingerprint binding, expired/consumed tokens, success
- *   POST /auth/wasnt-me       — token consume + revocation
- *   POST /auth/login          — role-branched: blocked (202) vs allow_unverified (200)
- *   POST /auth/reset-password — strict password policy, HIBP rejection
+ *   POST /auth/verify-device  â€” fingerprint binding, expired/consumed tokens, success
+ *   POST /auth/wasnt-me       â€” token consume + revocation
+ *   POST /auth/login          â€” role-branched: blocked (202) vs allow_unverified (200)
+ *   POST /auth/reset-password â€” strict password policy, HIBP rejection
  *
  * Design notes:
  * - DB mock is the same thenable-chainable pattern as phase2.integration.test.ts
@@ -25,7 +25,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { createHash } from "crypto";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 vi.mock("@workspace/db", () => {
   const chainable = () => {
     const handler: ProxyHandler<unknown[]> = {
@@ -39,7 +39,7 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy([] as unknown[], handler);
   };
-  return {
+  const __m: any = {
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
       select: vi.fn(() => chainable()),
@@ -64,6 +64,8 @@ vi.mock("@workspace/db", () => {
     desc: vi.fn(),
     or: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 import app from "../app";
@@ -72,7 +74,7 @@ import * as deviceTrustService from "../services/device-trust.service";
 import * as authService from "../services/auth.service";
 import * as pwResetService from "../services/password-reset.service";
 
-// ── Shared mock token shapes ──────────────────────────────────────────────────
+// â”€â”€ Shared mock token shapes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const mockVerificationToken = {
   id: 1,
@@ -91,7 +93,7 @@ const mockActiveUser = {
   role: "doctor" as const,
   clinicId: 1,
   fullName: "Dr Ali Hassan",
-  fullNameAr: "د علي حسن",
+  fullNameAr: "Ø¯ Ø¹Ù„ÙŠ Ø­Ø³Ù†",
   email: "dr.ali@clinic.example",
   isActive: true,
   isOnShift: false,
@@ -104,9 +106,9 @@ const mockActiveUser = {
   deletedAt: null,
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Group 1 — POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Group 1 â€” POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   beforeEach(() => {
@@ -118,7 +120,7 @@ describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns 400 {error:'invalid'} when the token is not found (peekToken → null)", async () => {
+  it("returns 400 {error:'invalid'} when the token is not found (peekToken â†’ null)", async () => {
     vi.spyOn(deviceVerificationService, "peekToken").mockResolvedValue(null);
 
     const res = await request(app)
@@ -130,7 +132,7 @@ describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   });
 
   it("returns 400 {error:'fingerprint_mismatch'} when device fingerprint does not match token", async () => {
-    // peekToken succeeds — the attacker knows the token value
+    // peekToken succeeds â€” the attacker knows the token value
     vi.spyOn(deviceVerificationService, "peekToken").mockResolvedValue(mockVerificationToken);
     // consumeVerificationToken rejects because the attacker's device fingerprint differs
     vi.spyOn(deviceVerificationService, "consumeVerificationToken").mockResolvedValue({
@@ -141,7 +143,7 @@ describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
 
     const res = await request(app)
       .post("/api/auth/verify-device")
-      // No User-Agent / Sec-CH-UA-Platform → fingerprint ≠ mockToken.fingerprintHash
+      // No User-Agent / Sec-CH-UA-Platform â†’ fingerprint â‰  mockToken.fingerprintHash
       .send({ token: "a".repeat(32) });
 
     expect(res.status).toBe(400);
@@ -150,7 +152,7 @@ describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
 
   it("returns 400 {error:'expired_or_consumed'} when the token was already used (atomicity)", async () => {
     vi.spyOn(deviceVerificationService, "peekToken").mockResolvedValue(mockVerificationToken);
-    // A second concurrent request: UPDATE ... RETURNING [] → token already consumed
+    // A second concurrent request: UPDATE ... RETURNING [] â†’ token already consumed
     vi.spyOn(deviceVerificationService, "consumeVerificationToken").mockResolvedValue({
       ok: false,
       token: null,
@@ -189,9 +191,9 @@ describe("POST /auth/verify-device (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Group 2 — POST /auth/wasnt-me (PHASE2_DEVICE_TRUST_ENABLED=true)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Group 2 â€” POST /auth/wasnt-me (PHASE2_DEVICE_TRUST_ENABLED=true)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("POST /auth/wasnt-me (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   beforeEach(() => {
@@ -218,13 +220,13 @@ describe("POST /auth/wasnt-me (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   });
 
   it("returns 200 {status:'revoked'} on a valid kill-switch click", async () => {
-    // bypassFingerprint=true path — fingerprint is not checked
+    // bypassFingerprint=true path â€” fingerprint is not checked
     vi.spyOn(deviceVerificationService, "consumeVerificationToken").mockResolvedValue({
       ok: true,
       token: mockVerificationToken,
     });
     // lockUserIfPrivileged returns null because the DB mock returns [] for the user select
-    // (non-privileged fallback) — no need to spy, the default DB mock handles it
+    // (non-privileged fallback) â€” no need to spy, the default DB mock handles it
 
     const res = await request(app)
       .post("/api/auth/wasnt-me")
@@ -235,11 +237,11 @@ describe("POST /auth/wasnt-me (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Group 3 — POST /auth/login role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Group 3 â€” POST /auth/login role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/login — role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
+describe("POST /auth/login â€” role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)", () => {
   beforeEach(() => {
     process.env.PHASE2_DEVICE_TRUST_ENABLED = "true";
   });
@@ -262,7 +264,7 @@ describe("POST /auth/login — role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)"
     expect(res.status).toBe(202);
     expect(res.body.status).toBe("pending_verification");
     expect(typeof res.body.message).toBe("string");
-    // No session cookie must be set — the user is not authenticated yet
+    // No session cookie must be set â€” the user is not authenticated yet
     const cookies = res.headers["set-cookie"] as string[] | string | undefined;
     const cookieStr = Array.isArray(cookies) ? cookies.join(";") : (cookies ?? "");
     expect(cookieStr).not.toContain("clinic_token");
@@ -278,7 +280,7 @@ describe("POST /auth/login — role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)"
         id: 9,
         username: "nurse1",
         fullName: "Nurse Fatima",
-        fullNameAr: "فاطمة",
+        fullNameAr: "ÙØ§Ø·Ù…Ø©",
         email: "nurse@clinic.example",
         role: "nurse",
         isActive: true,
@@ -292,18 +294,18 @@ describe("POST /auth/login — role-branched (PHASE2_DEVICE_TRUST_ENABLED=true)"
     expect(res.status).toBe(200);
     expect(res.body.user).toBeDefined();
     expect(res.body.user.role).toBe("nurse");
-    // The route sets the cookie for allow_unverified too — a session is issued
+    // The route sets the cookie for allow_unverified too â€” a session is issued
     const cookies = res.headers["set-cookie"] as string[] | string | undefined;
     const cookieStr = Array.isArray(cookies) ? cookies.join(";") : (cookies ?? "");
     expect(cookieStr).toContain("clinic_token");
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Group 4 — POST /auth/reset-password strict policy (PHASE2_STRICT_PASSWORD_POLICY=true)
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Group 4 â€” POST /auth/reset-password strict policy (PHASE2_STRICT_PASSWORD_POLICY=true)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/reset-password — strict password policy (PHASE2_STRICT_PASSWORD_POLICY=true)", () => {
+describe("POST /auth/reset-password â€” strict password policy (PHASE2_STRICT_PASSWORD_POLICY=true)", () => {
   beforeEach(() => {
     // isStrictPasswordPolicyEnabled() is gated by isPhase2Enabled() (master flag).
     // Both must be true for the strict checks to fire.
@@ -318,7 +320,7 @@ describe("POST /auth/reset-password — strict password policy (PHASE2_STRICT_PA
   });
 
   it("returns 400 WEAK_PASSWORD for a password that is shorter than 12 chars (strict minimum)", async () => {
-    // "Abc123!@" is 8 chars — passes Zod's min(8) but fails strict mode's min(12).
+    // "Abc123!@" is 8 chars â€” passes Zod's min(8) but fails strict mode's min(12).
     // No DB interaction: password check fires and returns before token consume.
     const res = await request(app)
       .post("/api/auth/reset-password")
@@ -330,7 +332,7 @@ describe("POST /auth/reset-password — strict password policy (PHASE2_STRICT_PA
   });
 
   it("returns 400 WEAK_PASSWORD for a password that lacks a special character (strict mode)", async () => {
-    // "Abcdefghi123" — 12 chars, has letter + number, but no special char.
+    // "Abcdefghi123" â€” 12 chars, has letter + number, but no special char.
     const res = await request(app)
       .post("/api/auth/reset-password")
       .send({ token: "a".repeat(32), newPassword: "Abcdefghi123" });

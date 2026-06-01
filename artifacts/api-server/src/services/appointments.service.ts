@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   appointmentsTable, patientsTable, usersTable, notificationsTable,
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
@@ -7,7 +10,7 @@ import { eq, and, gte, lte, sql, desc, lt, inArray } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope, recordDoctorPatientLink } from "../lib/scope";
-import { todayBoundary } from "../lib/dateUtils";
+import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
 import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
 import { checkDoctorAvailability } from "../lib/schedule-validator";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
@@ -112,7 +115,7 @@ export async function createAppointment(
 }
 
 export async function getAppointmentFlow(req: AuthRequest) {
-  const { start, end } = todayBoundary();
+  const { start, end } = todayBoundary(getClinicTimezone(req));
   const rows = await runInTenantContext(req.user!, async (tx) => {
     return tx.select({
       status: appointmentsTable.status,
@@ -166,7 +169,7 @@ export async function getAppointmentFlow(req: AuthRequest) {
 }
 
 export async function getTodayAppointments(req: AuthRequest) {
-  const { start, end } = todayBoundary();
+  const { start, end } = todayBoundary(getClinicTimezone(req));
   const appointments = await runInTenantContext(req.user!, async (tx) => {
     return tx.select({
       id: appointmentsTable.id,
@@ -201,7 +204,7 @@ export async function getTodayAppointments(req: AuthRequest) {
 
 export async function getAppointment(req: AuthRequest, id: number) {
   // Phase 2.2 rollout: was previously unconditional `db.select()` with no
-  // clinic filter — another forgotten-filter foot-gun the audit found.
+  // clinic filter â€” another forgotten-filter foot-gun the audit found.
   // Now scoped via runInTenantContext + explicit eq(clinicId).
   const appt = await runInTenantContext(req.user!, async (tx) => {
     const [row] = await tx.select().from(appointmentsTable).where(and(

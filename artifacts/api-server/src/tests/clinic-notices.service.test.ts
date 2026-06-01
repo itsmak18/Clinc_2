@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ── Hoisted mock handles ──────────────────────────────────────────────────────
+// â”€â”€ Hoisted mock handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const mockLogAudit = vi.hoisted(() => vi.fn());
 
 vi.mock("@workspace/db", () => {
@@ -9,7 +9,7 @@ vi.mock("@workspace/db", () => {
     insert: vi.fn(),
     update: vi.fn(),
   };
-  return {
+  const __m: any = {
     db: mockDb,
     runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     clinicNoticesTable: {
@@ -24,6 +24,8 @@ vi.mock("@workspace/db", () => {
       updatedAt: "updatedAt",
     },
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 vi.mock("../lib/audit", () => ({
@@ -43,7 +45,7 @@ vi.mock("../services/errors", () => {
 import { listClinicNotices, createClinicNotice, deleteClinicNotice } from "../services/clinic-notices.service";
 import { db } from "@workspace/db";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function makeReq(role = "super_admin", userId = 1, clinicId = 1) {
   return {
@@ -59,7 +61,7 @@ const SAMPLE_NOTICE = {
   createdAt: new Date(), updatedAt: new Date(),
 };
 
-// ── listClinicNotices ─────────────────────────────────────────────────────────
+// â”€â”€ listClinicNotices â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("listClinicNotices", () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -112,7 +114,7 @@ describe("listClinicNotices", () => {
   });
 });
 
-// ── createClinicNotice ────────────────────────────────────────────────────────
+// â”€â”€ createClinicNotice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("createClinicNotice", () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -155,7 +157,7 @@ describe("createClinicNotice", () => {
   });
 });
 
-// ── deleteClinicNotice ────────────────────────────────────────────────────────
+// â”€â”€ deleteClinicNotice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("deleteClinicNotice", () => {
   beforeEach(() => { vi.clearAllMocks(); });

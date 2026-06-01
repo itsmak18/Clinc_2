@@ -54,6 +54,8 @@ import type {
   FrontDeskDashboard,
   GetAppointmentReportParams,
   GetDailyBillingSummaryParams,
+  GetDoctorAnalytics200,
+  GetDoctorAnalyticsParams,
   GetDoctorAvailabilityParams,
   GetRevenueReportParams,
   GetScheduleWeekParams,
@@ -65,6 +67,8 @@ import type {
   ListAppointmentsParams,
   ListAuditLogsParams,
   ListClinicNoticesParams,
+  ListDoctorAnalytics200,
+  ListDoctorAnalyticsParams,
   ListInventoryItemsParams,
   ListInvoicesParams,
   ListLabTestsParams,
@@ -9009,6 +9013,229 @@ export const useRevokeDevice = <
 > => {
   return useMutation(getRevokeDeviceMutationOptions(options));
 };
+
+/**
+ * @summary All-doctors performance leaderboard (admin only)
+ */
+export const getListDoctorAnalyticsUrl = (
+  params?: ListDoctorAnalyticsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/analytics/doctors?${stringifiedParams}`
+    : `/api/analytics/doctors`;
+};
+
+export const listDoctorAnalytics = async (
+  params?: ListDoctorAnalyticsParams,
+  options?: RequestInit,
+): Promise<ListDoctorAnalytics200> => {
+  return customFetch<ListDoctorAnalytics200>(
+    getListDoctorAnalyticsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListDoctorAnalyticsQueryKey = (
+  params?: ListDoctorAnalyticsParams,
+) => {
+  return [`/api/analytics/doctors`, ...(params ? [params] : [])] as const;
+};
+
+export const getListDoctorAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listDoctorAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListDoctorAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDoctorAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListDoctorAnalyticsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listDoctorAnalytics>>
+  > = ({ signal }) =>
+    listDoctorAnalytics(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listDoctorAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListDoctorAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listDoctorAnalytics>>
+>;
+export type ListDoctorAnalyticsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary All-doctors performance leaderboard (admin only)
+ */
+
+export function useListDoctorAnalytics<
+  TData = Awaited<ReturnType<typeof listDoctorAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListDoctorAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listDoctorAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListDoctorAnalyticsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary KPIs for a single doctor (own only for doctor role; any for admin)
+ */
+export const getGetDoctorAnalyticsUrl = (
+  doctorId: number,
+  params?: GetDoctorAnalyticsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/analytics/doctors/${doctorId}?${stringifiedParams}`
+    : `/api/analytics/doctors/${doctorId}`;
+};
+
+export const getDoctorAnalytics = async (
+  doctorId: number,
+  params?: GetDoctorAnalyticsParams,
+  options?: RequestInit,
+): Promise<GetDoctorAnalytics200> => {
+  return customFetch<GetDoctorAnalytics200>(
+    getGetDoctorAnalyticsUrl(doctorId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetDoctorAnalyticsQueryKey = (
+  doctorId: number,
+  params?: GetDoctorAnalyticsParams,
+) => {
+  return [
+    `/api/analytics/doctors/${doctorId}`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetDoctorAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getDoctorAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  params?: GetDoctorAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetDoctorAnalyticsQueryKey(doctorId, params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getDoctorAnalytics>>
+  > = ({ signal }) =>
+    getDoctorAnalytics(doctorId, params, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!doctorId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getDoctorAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetDoctorAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getDoctorAnalytics>>
+>;
+export type GetDoctorAnalyticsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary KPIs for a single doctor (own only for doctor role; any for admin)
+ */
+
+export function useGetDoctorAnalytics<
+  TData = Awaited<ReturnType<typeof getDoctorAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  doctorId: number,
+  params?: GetDoctorAnalyticsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getDoctorAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetDoctorAnalyticsQueryOptions(
+    doctorId,
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Receive a CSP violation report from the browser

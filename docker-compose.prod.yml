@@ -7,6 +7,8 @@
 #   1. .env populated from .env.prod.example with strong values
 #   2. ./secrets/ files exist (chmod 0600, owned by deploy user):
 #        ./secrets/postgres_password
+#        ./secrets/app_db_password               — medicore_app role password (NOSUPERUSER NOBYPASSRLS)
+#                                                  openssl rand -base64 48 | tr -d '\n' > ./secrets/app_db_password
 #        ./secrets/session_secret            — 64 hex chars (HMAC key for device fingerprinting)
 #                                              node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 #        ./secrets/field_encryption_key      — 64 hex chars (AES-256-GCM; LOSING THIS = TOTAL PHI LOSS)
@@ -101,6 +103,12 @@ services:
       - backend
 
   # ── Database migration (run-once init container) ────────────────────────────
+  # Ownership split: this container runs as the bootstrap superuser (POSTGRES_USER)
+  # which has DDL rights. After migrations, it sets the medicore_app role password
+  # from ./secrets/app_db_password (F-01 fix, ADR-008). api + worker then connect
+  # as medicore_app (NOSUPERUSER NOBYPASSRLS) so RLS actually enforces.
+  # api/worker depend_on this service completing successfully — role existence
+  # is guaranteed before the app starts.
   migrate:
     build:
       context: .
@@ -111,16 +119,125 @@ services:
     # `docker inspect` output. ${VARS} interpolated by compose at parse time.
     command:
       - |
+        set -eu
         export DATABASE_URL="postgresql://${POSTGRES_USER:?POSTGRES_USER required}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB:?POSTGRES_DB required}"
-        exec pnpm --filter @workspace/db run db:migrate
+        pnpm --filter @workspace/db run db:migrate
+
+        # Set medicore_app password from Docker secret (not committed to SQL).
+        # apk is available in the build target image (same pattern as backup service).
+        apk add --no-cache postgresql-client > /dev/null 2>&1 || true
+        APP_PW="$$(cat /run/secrets/app_db_password)"
+        psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 \
+          -c "ALTER ROLE medicore_app LOGIN PASSWORD '$$APP_PW'"
+        echo "[migrate] medicore_app password set"
+
+        # Pre-cutover smoke gate: verify medicore_app can connect and is a
+        # non-superuser (NOSUPERUSER NOBYPASSRLS). If grants are wrong or the
+        # role was somehow created as a superuser, this fails migrate → api/worker
+        # never start (cleaner than a crash-loop). See ADR-008-app-db-role.md.
+        PGPASSWORD="$$APP_PW" psql \
+          "postgresql://medicore_app@postgres:5432/${POSTGRES_DB}" \
+          -v ON_ERROR_STOP=1 \
+          -c "SELECT current_user, rolsuper::text, rolbypassrls::text FROM pg_roles WHERE rolname = current_user" \
+          -c "SELECT 1 FROM patients LIMIT 1"
+        echo "[migrate] smoke OK — medicore_app verified non-superuser with SELECT on patients"
     secrets:
       - postgres_password
+      - app_db_password
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
     mem_limit: 512m
     cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - backend
+
+  # ── PgBouncer connection pooler ──────────────────────────────────────────────
+  # Sits between api/worker and Postgres. Transaction pooling lets api + worker
+  # each hold DB_POOL_MAX=40 cheap connections to PgBouncer while PgBouncer
+  # maintains only default_pool_size=20 real connections to Postgres — keeping
+  # total Postgres connections well below max_connections=100 even with a 2nd
+  # api replica. Config template: ./pgbouncer/pgbouncer.ini (see file comments
+  # for pool math). See also RUNBOOK §PgBouncer and ADR-009.
+  #
+  # statement_timeout and idle_in_transaction_session_timeout are enforced via
+  # ALTER ROLE medicore_app SET ... (migration 0021) so they survive DISCARD ALL
+  # correctly under transaction pooling.
+  pgbouncer:
+    # Pinned by digest — same rationale as postgres above. Populate via:
+    #   docker pull pgbouncer/pgbouncer:1.23.1
+    #   docker inspect --format='{{index .RepoDigests 0}}' pgbouncer/pgbouncer:1.23.1
+    image: ${PGBOUNCER_IMAGE:?PGBOUNCER_IMAGE required — must include @sha256:<digest> pin}
+    restart: always
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        # Build MD5 userlist for medicore_app from the Docker secret.
+        # Format: "username" "md5<md5(password + username)>"
+        # The MD5 is computed over the concatenation of password + username
+        # (Postgres wire-protocol convention).
+        APP_PW="$$(cat /run/secrets/app_db_password)"
+        HASH=$$(printf '%s' "$${APP_PW}medicore_app" | md5sum | cut -d' ' -f1)
+        printf '"medicore_app" "md5%s"\n' "$$HASH" > /tmp/userlist.txt
+
+        # Generate runtime pgbouncer.ini referencing the secret-derived userlist.
+        cat > /tmp/pgbouncer.ini <<PGBCONF
+        [databases]
+        * = host=postgres port=5432
+
+        [pgbouncer]
+        listen_port = 6432
+        listen_addr = *
+        auth_type = md5
+        auth_file = /tmp/userlist.txt
+        pool_mode = transaction
+        default_pool_size = $${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+        reserve_pool_size = 5
+        reserve_pool_timeout = 3
+        max_client_conn = $${PGBOUNCER_MAX_CLIENT_CONN:-200}
+        server_reset_query = DISCARD ALL
+        ignore_startup_parameters = extra_float_digits,search_path
+        server_connect_timeout = 5
+        server_idle_timeout = 600
+        client_idle_timeout = 0
+        tcp_keepalive = 1
+        log_connections = 0
+        log_disconnections = 0
+        log_pooler_errors = 1
+        stats_period = 60
+        PGBCONF
+        exec pgbouncer /tmp/pgbouncer.ini
+    secrets:
+      - app_db_password
+    environment:
+      # Expose pool-size knobs so they can be tuned per-env without rebuilding.
+      # default_pool_size: PgBouncer → Postgres connections (the scarce resource).
+      #   Raise when adding API replicas; verify Postgres max_connections headroom.
+      # max_client_conn: app → PgBouncer connections (cheap). Must exceed
+      #   sum of (DB_POOL_MAX × number_of_api_worker_instances).
+      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+      PGBOUNCER_MAX_CLIENT_CONN:   ${PGBOUNCER_MAX_CLIENT_CONN:-200}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # pg_isready speaks the PostgreSQL startup handshake — PgBouncer responds
+      # to it without completing auth, making it a reliable liveness probe.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 50
     logging:
       driver: json-file
       options:
@@ -166,10 +283,14 @@ services:
     command:
       - |
         set -eu
-        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
+        for s in app_db_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
           test -s "/run/secrets/$$s" || { echo "FATAL: /run/secrets/$$s missing or empty" >&2; exit 1; }
         done
-        export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
+        # Connect as medicore_app (NOSUPERUSER NOBYPASSRLS) so RLS enforces.
+        # Route through PgBouncer (transaction pooling) — statement_timeout and
+        # idle_in_transaction_session_timeout are set via ALTER ROLE (migration
+        # 0021) so they survive DISCARD ALL correctly under transaction pooling.
+        export DATABASE_URL="postgresql://medicore_app:$$(cat /run/secrets/app_db_password)@pgbouncer:6432/${POSTGRES_DB}"
         export SESSION_SECRET="$$(cat /run/secrets/session_secret)"
         export FIELD_ENCRYPTION_KEY="$$(cat /run/secrets/field_encryption_key)"
         export METRICS_TOKEN="$$(cat /run/secrets/metrics_token)"
@@ -178,7 +299,7 @@ services:
         export REDIS_URL="redis://:$$(cat /run/secrets/redis_password)@redis:6379"
         exec node --enable-source-maps dist/index.mjs
     secrets:
-      - postgres_password
+      - app_db_password
       - session_secret
       - field_encryption_key
       - metrics_token
@@ -192,6 +313,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
     # NO ports: published — api reachable only via clinic (nginx) on internal network
     # Docker's default stop timeout is 10s — far too short for the graceful
     # shutdown sequence (DRAIN_GRACE_MS=3s + SSE_DRAIN_MS=10s + pool drain).
@@ -242,10 +365,14 @@ services:
     command:
       - |
         set -eu
-        for s in postgres_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
+        for s in app_db_password session_secret field_encryption_key metrics_token jwt_private_key jwt_public_key redis_password; do
           test -s "/run/secrets/$$s" || { echo "FATAL: /run/secrets/$$s missing or empty" >&2; exit 1; }
         done
-        export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
+        # Connect as medicore_app (NOSUPERUSER NOBYPASSRLS) so RLS enforces.
+        # Route through PgBouncer — same pool as api but separate DB_POOL_MAX
+        # budget. statement_timeout / idle_in_transaction_session_timeout are
+        # role-level defaults (migration 0021), pooling-safe.
+        export DATABASE_URL="postgresql://medicore_app:$$(cat /run/secrets/app_db_password)@pgbouncer:6432/${POSTGRES_DB}"
         export SESSION_SECRET="$$(cat /run/secrets/session_secret)"
         export FIELD_ENCRYPTION_KEY="$$(cat /run/secrets/field_encryption_key)"
         export METRICS_TOKEN="$$(cat /run/secrets/metrics_token)"
@@ -254,7 +381,7 @@ services:
         export REDIS_URL="redis://:$$(cat /run/secrets/redis_password)@redis:6379"
         exec node --enable-source-maps dist/worker.mjs
     secrets:
-      - postgres_password
+      - app_db_password
       - session_secret
       - field_encryption_key
       - metrics_token
@@ -268,6 +395,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      pgbouncer:
+        condition: service_healthy
     stop_grace_period: 35s
     mem_limit: 1g
     cpus: 1.0
@@ -604,6 +733,11 @@ volumes:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  # Runtime app role password. api + worker connect as medicore_app using this
+  # secret (F-01 fix). Generate: openssl rand -base64 48 | tr -d '\n' > ./secrets/app_db_password
+  # The migrate container sets this password on the medicore_app role after migrations run.
+  app_db_password:
+    file: ./secrets/app_db_password
   redis_password:
     file: ./secrets/redis_password
   session_secret:

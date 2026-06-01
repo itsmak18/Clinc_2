@@ -344,7 +344,69 @@ function checkErasureBlackouts() {
   fail(`Restore drill aborted: ${rows.length} active erasure blackout(s) detected. See above for affected patients.`);
 }
 
-// ── Step 4c: Offsite upload ───────────────────────────────────────────────────
+// ── Step 4c: Audit integrity check post-restore ───────────────────────────────
+//
+// After restoring a backup, verify that the audit_integrity_checks table has no
+// recorded mismatches. A mismatch means the hash chain was broken before the
+// backup was taken — a signal of possible tampering or data corruption that the
+// operator must investigate before promoting the restore to production.
+//
+// This does NOT re-compute hashes from scratch (that requires calling
+// verifyIntegrity() from lib/audit-integrity.ts). Instead it checks whether any
+// stored integrity records are in the 'mismatch' status — a lighter SQL-only
+// check that is appropriate in the restore-drill context.
+
+function checkAuditIntegrity() {
+  if (!RESTORE_DATABASE_URL) return;
+  log("INFO", "Checking audit_integrity_checks for recorded mismatches in restored database...");
+
+  // Check for any stored mismatch status rows.
+  const mismatchResult = spawnSync(
+    "psql",
+    [
+      RESTORE_DATABASE_URL,
+      "--no-password",
+      "--tuples-only",
+      "--no-align",
+      "-c",
+      "SELECT COUNT(*)::int FROM audit_integrity_checks WHERE status = 'mismatch';",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 }
+  );
+  if (mismatchResult.status !== 0) {
+    fail(`Audit integrity query failed: ${mismatchResult.stderr?.toString()}`);
+  }
+  const mismatches = parseInt(mismatchResult.stdout?.toString().trim(), 10);
+  if (isNaN(mismatches)) {
+    // Table doesn't exist yet (pre-migration 0010 restore) — skip silently.
+    log("WARN", "audit_integrity_checks table not found in restored DB — integrity check skipped.");
+    return;
+  }
+  if (mismatches > 0) {
+    fail(
+      `Restore drill: ${mismatches} audit_integrity_checks row(s) have status='mismatch'. ` +
+      "The hash chain was broken before this backup was taken. Investigate before promoting."
+    );
+  }
+
+  // Also report how many OK/empty records exist as a sanity signal.
+  const okResult = spawnSync(
+    "psql",
+    [
+      RESTORE_DATABASE_URL,
+      "--no-password",
+      "--tuples-only",
+      "--no-align",
+      "-c",
+      "SELECT COUNT(*)::int FROM audit_integrity_checks WHERE status IN ('ok', 'empty');",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 }
+  );
+  const okCount = parseInt(okResult.stdout?.toString().trim(), 10);
+  log("INFO", `Post-restore audit integrity: ${okCount} checked date(s) verified OK, 0 mismatches.`);
+}
+
+// ── Step 4e: Offsite upload ───────────────────────────────────────────────────
 
 function runOffsiteUpload(filePath) {
   if (!OFFSITE_UPLOAD_COMMAND) {
@@ -403,6 +465,7 @@ async function main() {
   if (DO_RESTORE) {
     runRestoreTest(outPath);
     checkErasureBlackouts();
+    checkAuditIntegrity();
   }
 
   runOffsiteUpload(outPath);

@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   patientsTable, appointmentsTable, medicalRecordsTable, xrayRecordsTable,
   labTestsTable, invoicesTable, usersTable,
@@ -68,7 +71,7 @@ export async function listPatients(
   // Phase 2.2 rollout: both queries go through runInTenantContext so the DB
   // enforces clinic isolation. Also fixes a pre-existing leak in the count
   // query, which was missing the clinic filter (covered by the app-layer
-  // filter only — RLS now plugs it as a second line of defense).
+  // filter only â€” RLS now plugs it as a second line of defense).
   const { patients, count } = await runInTenantContext(req.user!, async (tx) => {
     const rows = await tx.select().from(patientsTable).where(whereClause).orderBy(desc(patientsTable.id)).limit(lim);
     const [c] = await tx.select({ count: sql<number>`count(*)` }).from(patientsTable)
@@ -193,7 +196,7 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
   await assertPatientInScope(req, patientId, "patient");
 
   // Phase 2.2 rollout: every query in the summary fan-out goes through the
-  // tenant context — RLS enforces clinic isolation on each of the six tables
+  // tenant context â€” RLS enforces clinic isolation on each of the six tables
   // (patients, appointments, medical_records, xray_records, lab_tests,
   // invoices). The summary previously trusted FK chains to keep secondary
   // tables clinic-correct; RLS makes that explicit.

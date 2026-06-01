@@ -1,5 +1,5 @@
 import cron, { type ScheduledTask } from "node-cron";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { appointmentsTable, auditLogsTable, patientsTable, erasureRequestsTable } from "@workspace/db";
 import { eq, and, lte, isNull, lt, sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
@@ -9,6 +9,7 @@ import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import { drainAuditOutbox } from "./lib/audit";
 import { recordDailyIntegrity } from "./lib/audit-integrity";
+import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
 // the DB pool is drained (H7). Without this, an in-flight cron callback could
@@ -87,6 +88,27 @@ export function startCronJobs() {
             openErasureRequests: openRequestCount,
           });
         }
+      }
+
+      // Audit partition headroom check — counts future monthly partitions so
+      // operators can extend the horizon before rows spill into the DEFAULT
+      // catch-all. Only meaningful after migration 0021 ships; no-ops on older
+      // schemas (pg_class query returns 0, which still sets the gauge).
+      try {
+        const headroom = await pool.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+           FROM pg_class c
+           JOIN pg_inherits i ON c.oid = i.inhrelid
+           JOIN pg_class p ON i.inhparent = p.oid
+           WHERE p.relname = 'audit_logs'
+             AND c.relname ~ '^audit_logs_part_[0-9]{4}_[0-9]{2}$'
+             AND c.relname >= concat('audit_logs_part_', to_char(now(), 'YYYY_MM'))`
+        );
+        const monthsRemaining = headroom.rows[0]?.count ?? 0;
+        auditPartitionMonthsRemainingGauge.set(monthsRemaining);
+        logger.info({ monthsRemaining }, "[Cron] Audit partition headroom");
+      } catch (partErr) {
+        logger.warn({ err: partErr }, "[Cron] Audit partition headroom check failed (non-fatal)");
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Data Retention Report failed");

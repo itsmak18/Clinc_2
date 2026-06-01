@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+﻿import { describe, it, expect, vi, afterEach } from "vitest";
 import request from "supertest";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
-// app → routes → services all import @workspace/db; module throws at load time
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// app â†’ routes â†’ services all import @workspace/db; module throws at load time
 // if DATABASE_URL is unset. This suite only exercises the /metrics endpoint, so
 // a full thenable-proxy mock is sufficient.
 vi.mock("@workspace/db", () => {
@@ -18,7 +18,7 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy([] as unknown[], handler);
   };
-  return {
+  const __m: any = {
     pool: { totalCount: 5, idleCount: 3, waitingCount: 0 },
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
@@ -44,11 +44,13 @@ vi.mock("@workspace/db", () => {
     desc: vi.fn(),
     or: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 import app from "../app";
 
-describe("GET /metrics — bearer-token protection", () => {
+describe("GET /metrics â€” bearer-token protection", () => {
   afterEach(() => {
     delete process.env.METRICS_TOKEN;
   });
@@ -78,7 +80,7 @@ describe("GET /metrics — bearer-token protection", () => {
   });
 });
 
-describe("GET /metrics — custom metric names present in output", () => {
+describe("GET /metrics â€” custom metric names present in output", () => {
   it("includes audit_log_write_failures_total (HIPAA audit loss counter)", async () => {
     const res = await request(app).get("/metrics");
     expect(res.text).toContain("audit_log_write_failures_total");

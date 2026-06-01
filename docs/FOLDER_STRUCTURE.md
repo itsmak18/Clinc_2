@@ -154,11 +154,17 @@ Clinic-Hub/
 │           │   ├── use-notifications-stream.ts  ← SSE client, withCredentials, 5s backoff reconnect
 │           │   ├── use-toast.ts
 │           │   └── useSessionTimeout.ts      ← warn 28 min, auto-logout 30 min
-│           └── lib/
-│               ├── api.ts                    ← customFetch mutator (attaches X-CSRF-Token, credentials: include)
-│               ├── print.ts                  ← print report utilities
-│               ├── route-access.ts           ← canAccessRoute(href, role), navItems — update when adding pages
-│               └── utils.ts
+│           ├── lib/
+│           │   ├── api.ts                    ← customFetch mutator (attaches X-CSRF-Token, credentials: include)
+│           │   ├── i18n.tsx                  ← (legacy stub — real i18n lives in hooks/i18n.tsx)
+│           │   ├── print.ts                  ← print report utilities
+│           │   ├── route-access.ts           ← canAccessRoute(href, role), getLandingRoute, navItems, navPinnedByRole — update when adding pages
+│           │   └── utils.ts
+│           └── test/                         ← Vitest + jsdom frontend test suite (added 2026-06-02, F-03)
+│               ├── setup.ts                  ← imports @testing-library/jest-dom; clears localStorage before each test
+│               ├── route-access.test.ts      ← 19 tests: super_admin bypass, 10-role access matrix, dashboard alias, prefix match, getLandingRoute, navPinnedByRole
+│               ├── i18n.test.ts              ← 2 tests: EN↔AR key set-equality (bilingual parity guard)
+│               └── Guard.test.tsx            ← 4 tests: denied/allowed render smoke, bilingual AccessDenied, super_admin bypass
 └── lib/
     ├── db/
     │   └── src/

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 
 type Language = "en" | "ar";
 
-const translations = {
+export const translations = {
   en: {
     // Nav
     dashboard: "Dashboard",
@@ -634,6 +634,39 @@ const translations = {
     noRecords: "No records",
     noXrays: "No X-rays",
     noAppointments: "No appointments",
+    // Arabic field labels
+    arabicFields: "Arabic / العربية",
+    diagnosisAr: "Diagnosis (Arabic)",
+    treatmentAr: "Treatment (Arabic)",
+    chiefComplaintAr: "Chief Complaint (Arabic)",
+    testNameAr: "Test Name (Arabic)",
+    notesAr: "Notes (Arabic)",
+    bodyPartAr: "Body Part (Arabic)",
+    findingsAr: "Findings (Arabic)",
+    impressionAr: "Impression (Arabic)",
+    // Analytics
+    analytics: "Analytics",
+    doctorPerformance: "Doctor Performance",
+    patientVolume: "Patient Volume",
+    noShowRate: "No-Show Rate",
+    avgConsultTime: "Avg. Consultation Time",
+    revenueGenerated: "Revenue Generated",
+    orderRate: "Order Rate",
+    vsClinicAvg: "vs. clinic avg",
+    monthlyTrend: "Monthly Trend",
+    leaderboard: "Leaderboard",
+    ordersPerVisit: "orders/visit",
+    minutes: "min",
+    noShows: "No Shows",
+    labOrders: "Lab Orders",
+    xrayOrders: "X-Ray Orders",
+    avgWaitMinutes: "Avg Wait",
+    completedAppointments: "Completed",
+    selectPeriod: "Select Period",
+    last30Days: "Last 30 Days",
+    noAnalyticsData: "No analytics data for this period",
+    clinicAverage: "Clinic Average",
+    you: "You",
   },
   ar: {
     dashboard: "لوحة التحكم",
@@ -1244,6 +1277,39 @@ const translations = {
     noRecords: "لا توجد سجلات",
     noXrays: "لا توجد أشعة",
     noAppointments: "لا توجد مواعيد",
+    // Arabic field labels
+    arabicFields: "العربية",
+    diagnosisAr: "التشخيص (عربي)",
+    treatmentAr: "العلاج (عربي)",
+    chiefComplaintAr: "الشكوى الرئيسية (عربي)",
+    testNameAr: "اسم الفحص (عربي)",
+    notesAr: "ملاحظات (عربي)",
+    bodyPartAr: "منطقة الجسم (عربي)",
+    findingsAr: "النتائج (عربي)",
+    impressionAr: "الاستنتاج (عربي)",
+    // Analytics
+    analytics: "التحليلات",
+    doctorPerformance: "أداء الطبيب",
+    patientVolume: "حجم المرضى",
+    noShowRate: "معدل الغياب",
+    avgConsultTime: "متوسط وقت الكشف",
+    revenueGenerated: "الإيرادات المحققة",
+    orderRate: "معدل الطلبات",
+    vsClinicAvg: "مقارنة بالعيادة",
+    monthlyTrend: "الاتجاه الشهري",
+    leaderboard: "قائمة التصنيف",
+    ordersPerVisit: "طلب/زيارة",
+    minutes: "دقيقة",
+    noShows: "لم يحضروا",
+    labOrders: "طلبات المختبر",
+    xrayOrders: "طلبات الأشعة",
+    avgWaitMinutes: "متوسط الانتظار",
+    completedAppointments: "مكتملة",
+    selectPeriod: "اختر الفترة",
+    last30Days: "آخر 30 يوم",
+    noAnalyticsData: "لا توجد بيانات تحليلية لهذه الفترة",
+    clinicAverage: "متوسط العيادة",
+    you: "أنت",
   },
 };
 

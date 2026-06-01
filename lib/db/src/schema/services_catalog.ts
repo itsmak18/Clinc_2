@@ -5,7 +5,9 @@ import { z } from "zod/v4";
 export const servicesCatalogTable = pgTable("services_catalog", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  nameAr: text("name_ar"),
   description: text("description"),
+  descriptionAr: text("description_ar"),
   defaultPrice: numeric("default_price", { precision: 10, scale: 2 }).notNull(),
   category: text("category"),
   active: boolean("active").notNull().default(true),

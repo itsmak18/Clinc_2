@@ -1,5 +1,132 @@
 # Changelog
 
+## Phase 3 — Scaling & Ops Hardening (2026-06-02)
+
+Closes F-05 (MED) from the 2026-06-01 principal audit (connection ceiling) and the open ops items from the risk register (unpartitioned audit_logs, unscheduled restore drill). All three sub-streams shipped in one PR.
+
+### 3a — PgBouncer connection pooler
+
+- **`pgbouncer` service** added to `docker-compose.prod.yml` (transaction pooling, `default_pool_size=20` → Postgres, `max_client_conn=200` ← app). Pinned by digest via `PGBOUNCER_IMAGE` env var. `pg_isready` healthcheck. Pool size tunable via `PGBOUNCER_DEFAULT_POOL_SIZE` / `PGBOUNCER_MAX_CLIENT_CONN` env vars.
+- **`pgbouncer/pgbouncer.ini`** — config template documenting pool math and correctness notes.
+- **api + worker** — `DATABASE_URL` host changed from `postgres:5432` to `pgbouncer:6432`. Both services add `pgbouncer: condition: service_healthy` to `depends_on`.
+- **`server_reset_query = DISCARD ALL`** — session state never bleeds across transaction-mode borrowers. SET LOCAL GUCs in `runInTenantContext` are transaction-scoped and already rollback-safe.
+- **`statement_timeout` moved to role level** — removed from `lib/db/src/index.ts` pool config (session-level SET leaks under PgBouncer transaction pooling). Migration 0021 adds `ALTER ROLE medicore_app SET statement_timeout = '30000ms'` and `idle_in_transaction_session_timeout = '60000ms'` — per-backend defaults that survive `DISCARD ALL / RESET ALL` correctly.
+- **RUNBOOK §11.6** — PgBouncer pool math, prepared-statement warning, second-replica procedure.
+
+### 3b — audit_logs monthly partitioning
+
+- **Migration `0021_audit_logs_partition.sql`** (hand-authored DDL, journaled at idx 21):
+  - Creates `audit_logs_part` as `PARTITION BY RANGE (created_at)` with composite PK `(id, created_at)`.
+  - Pre-creates 132 monthly partitions (2026-01 → 2036-12) + DEFAULT catch-all in a single DO block — no runtime DDL needed by `medicore_app`.
+  - Re-applies RLS `tenant_isolation` policy + FORCE ROW LEVEL SECURITY from migration 0015 (doesn't auto-inherit on rename).
+  - Re-applies `CHECK (clinic_id > 0)` from migration 0014.
+  - Re-grants `medicore_app` DML (grants don't follow a rename to a different relation).
+  - Copies all existing rows from `audit_logs`, advances sequence, renames tables + sequences atomically.
+  - Verifies row counts match before dropping the legacy table (fails the migration on mismatch).
+  - Sets `statement_timeout = '30000ms'` and `idle_in_transaction_session_timeout = '60000ms'` on `medicore_app` role.
+- **`audit_partition_months_remaining` Prometheus gauge** — added to `metrics.ts`; emitted by the monthly data-retention cron (folded into the existing `0 3 1 * *` schedule in `cron.ts`). Queries `pg_class` for future partition names; no-ops gracefully on pre-migration schemas.
+- **`AuditPartitionLow` Prometheus alert** — fires warning when headroom drops below 24 months; prompts an operator to land a follow-up migration before rows overflow into DEFAULT.
+- **ADR-009-audit-partitioning.md** — documents partition-now decision, monthly vs yearly trade-offs, composite PK rationale, F-01 non-superuser boundary preservation, hash-chain correctness, and verification checklist.
+
+### 3c — Restore drill enhancements
+
+- **`backup-verify.mjs --restore`** — `checkAuditIntegrity()` function added; called after `checkErasureBlackouts()`. Queries `audit_integrity_checks` for any `status='mismatch'` rows in the restored DB; fails the drill if found.
+- **RUNBOOK §12** — Full quarterly restore drill procedure: provision ephemeral DB, run `backup-verify.mjs --restore`, record measured RTO, spot-check patient/audit row counts, optional deep `verifyIntegrity()` call, teardown, ops log entry. §12.5 notes that partitioned `audit_logs` round-trips correctly through `pg_dump`/`psql`. §12.6 documents accepted RTO (4h) and RPO (24h) with upgrade paths.
+- **RUNBOOK §2.3** — Updated cadence table to reflect automated nightly backup (the backup service loop) and enhanced quarterly drill (now includes audit integrity check).
+
+**Test impact:** Typecheck clean. Lint clean. Backend 461/461 unaffected (no test-harness changes — 3a/3b/3c are infrastructure/ops). Migration-drift CI passes (0021 journaled at idx 21).
+
+---
+
+## Phase 2 Remediation — Frontend Test Harness (2026-06-02)
+
+Closes **F-03 (MEDIUM)** from the 2026-06-01 principal audit: frontend had zero tests across 117 TSX files.
+
+### What landed
+
+- **Test tooling** — added to `@workspace/clinic`: `vitest ^3.2.2`, `@testing-library/react ^16.3.0`, `@testing-library/dom ^10.4.0`, `@testing-library/jest-dom ^6.6.3`, `@testing-library/user-event ^14.5.2`, `jsdom ^26.1.0`. Vitest `test` block added directly to `vite.config.ts` (inherits `@` alias + React plugin — no duplicate config). `test` + `test:watch` scripts added to `package.json`.
+- **`src/test/setup.ts`** — imports `@testing-library/jest-dom` matchers; clears `localStorage` before each test to prevent state bleed.
+- **`src/test/route-access.test.ts`** (19 tests) — pure logic coverage of `canAccessRoute`, `getLandingRoute`, `navItems`, `navPinnedByRole`. Asserts: super_admin bypass invariant for every nav route; full 10-role × N-route access matrix matching `navItems.roles`; dashboard aliasing (`/` ≡ `/dashboard`); sub-route prefix matching (`/patients/123` inherits `/patients`); each role's landing route is the correct path AND is accessible to that role; every pinned key is a real `navItems.key` AND is accessible to the pinning role.
+- **`src/test/i18n.test.ts`** (2 tests) — key parity guard: fails immediately if any key exists in EN but not AR or vice versa. Bilingual is a hard product requirement; silent AR fallback to EN would previously ship with no error.
+- **`src/test/Guard.test.tsx`** (4 tests) — render smoke for the `Guard` pattern. Tests: denied role sees `data-testid="page-access-denied"`; denied in Arabic locale sees Arabic heading text; allowed role sees children; `super_admin` sees children on any route (bypass invariant).
+- **tsconfig.json** — removed `**/*.test.ts` from `exclude` so test files are included in typecheck; added `vitest/globals` and `@testing-library/jest-dom` to `types`.
+- **CI** — new blocking `frontend-test` job (job 9) added to `.github/workflows/ci.yml`; wired into `ci-gate`.
+- **`hooks/i18n.tsx`** — `translations` const exported so the parity test can import it directly.
+
+**Test result: 25/25 green. Typecheck clean. Backend 461/461 unaffected.**
+
+---
+
+## Security — Phase 1 Remediation: Real DB-Enforced Tenancy (2026-06-02)
+
+Closes **F-01 (HIGH)** from the 2026-06-01 principal audit: RLS was inert in production
+because api/worker connected as the Postgres bootstrap superuser (which unconditionally
+bypasses RLS). Migration 0015's `tenant_isolation` policies were valid SQL but effectively
+dead. Cross-tenant isolation rested only on hand-written `eq(clinicId)` filters.
+
+### What landed
+
+- **Migration 0020** (`0020_create_app_role.sql`) — creates `medicore_app` role as
+  `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE` and grants it DML on all current and
+  future tables via `GRANT ... ON ALL TABLES` + `ALTER DEFAULT PRIVILEGES`.
+- **Docker secret `app_db_password`** — new secret in `./secrets/app_db_password`. Generate:
+  `openssl rand -base64 48 | tr -d '\n' > ./secrets/app_db_password`.
+- **migrate container** — sets `medicore_app` password from the secret after db:migrate;
+  runs a smoke gate verifying the role is non-superuser and can SELECT on `patients`. A
+  failing smoke gate prevents api/worker from starting (clean fail instead of crash-loop).
+- **api + worker** — `DATABASE_URL` now uses `medicore_app:$(app_db_password)` instead of
+  the bootstrap superuser. `postgres_password` removed from api/worker secrets lists.
+- **`dbUnsafe` export** — added to `@workspace/db` as a named alias of `db`. Services with
+  legitimately non-tenant DB access (pre-auth paths, tables without `clinicId`) import
+  `dbUnsafe` with a one-line justification comment instead of the banned `db` export.
+- **`break-glass.service.ts`** — the one confirmed unwrapped clinic-bearing service is now
+  fully wrapped in `runInTenantContext()`. All clinic DB ops run inside a single
+  transaction per function. Belt-and-braces `eq(clinicId)` filters kept in place.
+- **ESLint guard (F-07)** — `eslint.config.mjs` extended with a `src/services/**` rule
+  that blocks the named `db` import from `@workspace/db`. New service authors get a lint
+  error with a message directing them to `runInTenantContext` or `dbUnsafe` + justification.
+  The ignores list no longer exempts `src/services/**`.
+- **Integration-db test harness** — `_helpers/realDb.ts` now creates `medicore_app` after
+  applying migrations and switches `DATABASE_URL` to the app role URI before `@workspace/db`
+  is dynamically imported. The STEP-0 PROBE assertion `rolsuper || rolbypassrls === false`
+  is now a real green test, not a documented but permanently-failing probe.
+- **ADR-008-app-db-role.md** — documents the owner-runs-migrations / app-runs-as-medicore_app
+  split, the rollback caveat for migration 0020, and the follow-up needed for `schedule.service.ts`.
+- **RUNBOOK §0** — DB role architecture, password rotation procedure, and verification command.
+- **`realDb.ts` comment corrected** (F-04) — stale "only tracks 0000-0009" claim removed;
+  journal now tracks 0000-0020.
+
+### What is still needed (F-02 ground-truth run)
+
+Run `pnpm --filter @workspace/api-server run test:integration-db` and confirm the STEP-0
+PROBE now reports `rolsuper=false, rolbypassrls=false`. The probe assertion was written to
+document the gap — it should be a green test after this landing.
+
+## Documentation (2026-05-31)
+
+- Added ADR-007 documenting jti replay-defense scope: single-use jti enforcement is scoped to `privileged` requests only, fails closed on store unavailability (error 1003), and is latent-but-ready pending a consuming one-shot token flow.
+
+## Phase 6 — Strategic Features (2026-05-31)
+
+Implements the two remaining Phase 6 strategic feature gaps. All 461/461 tests passing, monorepo typecheck clean.
+
+### Work Stream 1: Multi-Language Clinical Content
+
+- **Schema (migration 0019)** — Added `locale` + `timezone` to `clinics`; Arabic text columns to `medical_records` (`chiefComplaintAr`, `diagnosisAr`, `treatmentAr`), `prescriptions` (`notesAr`), `lab_tests` (`testNameAr`, `resultsAr`, `notesAr`), `xray_records` (`bodyPartAr`, `reportAr`, `notesAr`), `ultrasound_records` (`bodyPartAr`, `reportAr`, `notesAr`), `services_catalog` (`nameAr`, `descriptionAr`). All columns nullable — neither language is required.
+- **Backend services** — All five clinical services (`medical-records`, `prescriptions`, `lab`, `xray`, `ultrasound`) accept and return Arabic fields on create/update/list.
+- **Frontend forms** — `MedicalRecords.tsx`, `Lab.tsx`, `XRay.tsx`, `Ultrasound.tsx`, `Prescriptions.tsx` all include an expandable "Arabic / العربية" section (ع toggle button). Neither EN nor AR is required; the section is collapsed by default.
+- **Print templates** (`lib/print.ts`) — All four report types (`prescriptionHtml`, `labReportHtml`, `xrayReportHtml`, `ultrasoundReportHtml`) render Arabic text blocks (`dir=rtl`, `text-align:right`) when populated, alongside their English counterparts.
+- **i18n** — 34 new keys added (EN + AR) covering Arabic field labels + analytics.
+
+### Work Stream 2: Doctor Performance Analytics
+
+- **Backend** (`analytics.service.ts`, `routes/analytics.ts`, registered in `routes/index.ts`) — Already fully built with: per-doctor KPIs (patient volume, no-show rate, avg consult time, revenue, lab/X-ray order rate, cancellation rate), clinic-wide peer benchmarking (clinic average returned alongside each doctor's values), and 6-month monthly trend data.
+- **Frontend** — New `DoctorAnalytics.tsx` page with:
+  - **Doctor view**: 6 KPI metric cards with directional delta chips vs. clinic average; 6-month `LineChart` trend (completed appointments + no-shows).
+  - **Admin/super_admin view**: 4 clinic-aggregate KPI cards + ranked leaderboard with progress bars.
+  - Date range picker (defaults to last 30 days).
+- **Routing** — `/analytics` route added to `App.tsx` (lazy-loaded); nav item added to `route-access.ts` (roles: `super_admin`, `admin`, `doctor`); pinned to doctor quick-nav.
+
 ## Phase 4 — Operational Hardening (2026-05-31)
 
 Closes the four operational gaps that left the platform blind in production. All 461/461 tests passing post-landing, monorepo typecheck clean.

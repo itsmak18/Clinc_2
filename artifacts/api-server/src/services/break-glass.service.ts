@@ -1,4 +1,4 @@
-import { db } from "@workspace/db";
+import { runInTenantContext } from "@workspace/db";
 import { breakGlassSessionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, and, isNull, isNotNull, gt, or, desc } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
@@ -28,32 +28,36 @@ function graceFloor(now: Date = new Date()): Date {
 }
 
 // Returns the active break-glass session for (userId, patientId), or null.
-// Honors the approval gate: an unapproved session is only active during grace.
+// Wrapped in runInTenantContext so RLS enforces the clinic boundary.
 export async function getActiveSession(userId: number, patientId: number, clinicId: number) {
   const now = new Date();
-  const [session] = await db
-    .select()
-    .from(breakGlassSessionsTable)
-    .where(
-      and(
-        eq(breakGlassSessionsTable.clinicId, clinicId),
-        eq(breakGlassSessionsTable.userId, userId),
-        eq(breakGlassSessionsTable.patientId, patientId),
-        isNull(breakGlassSessionsTable.revokedAt),
-        or(
+  const rows = await runInTenantContext(
+    { userId, clinicId, role: "break_glass_read" },
+    async (tx) =>
+      tx
+        .select()
+        .from(breakGlassSessionsTable)
+        .where(
           and(
-            isNotNull(breakGlassSessionsTable.approvedAt),
-            gt(breakGlassSessionsTable.expiresAt, now),
+            eq(breakGlassSessionsTable.clinicId, clinicId),
+            eq(breakGlassSessionsTable.userId, userId),
+            eq(breakGlassSessionsTable.patientId, patientId),
+            isNull(breakGlassSessionsTable.revokedAt),
+            or(
+              and(
+                isNotNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.expiresAt, now),
+              ),
+              and(
+                isNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
+              ),
+            ),
           ),
-          and(
-            isNull(breakGlassSessionsTable.approvedAt),
-            gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
-          ),
-        ),
-      ),
-    )
-    .limit(1);
-  return session ?? null;
+        )
+        .limit(1),
+  );
+  return rows[0] ?? null;
 }
 
 // Activate a break-glass session. The session is unapproved at activation —
@@ -66,6 +70,8 @@ export async function activateBreakGlass(
   body: Record<string, unknown>,
 ) {
   const clinicId = req.user!.clinicId;
+  const userId = req.user!.userId;
+
   const justification = typeof body.justification === "string" ? body.justification.trim() : "";
   if (justification.length < MIN_JUSTIFICATION_LENGTH) {
     throw new ValidationError(`justification must be at least ${MIN_JUSTIFICATION_LENGTH} characters`);
@@ -77,46 +83,83 @@ export async function activateBreakGlass(
     );
   }
 
-  const [patient] = await db
-    .select({ id: patientsTable.id, fullName: patientsTable.fullName })
-    .from(patientsTable)
-    .where(and(eq(patientsTable.id, patientId), eq(patientsTable.clinicId, clinicId)));
-  if (!patient) throw new NotFoundError("patient", patientId);
+  // All clinic-bearing DB operations run inside a single tenant context so
+  // RLS enforces and the belt-and-braces eq(clinicId) filters stay in place.
+  const { session, complianceOfficers, graceExpiresAt } = await runInTenantContext(
+    req.user!,
+    async (tx) => {
+      const [patient] = await tx
+        .select({ id: patientsTable.id, fullName: patientsTable.fullName })
+        .from(patientsTable)
+        .where(and(eq(patientsTable.id, patientId), eq(patientsTable.clinicId, clinicId)));
+      if (!patient) throw new NotFoundError("patient", patientId);
 
-  const userId = req.user!.userId;
+      // Block duplicate active sessions (inline to avoid nested runInTenantContext).
+      const now = new Date();
+      const existingRows = await tx
+        .select()
+        .from(breakGlassSessionsTable)
+        .where(
+          and(
+            eq(breakGlassSessionsTable.clinicId, clinicId),
+            eq(breakGlassSessionsTable.userId, userId),
+            eq(breakGlassSessionsTable.patientId, patientId),
+            isNull(breakGlassSessionsTable.revokedAt),
+            or(
+              and(
+                isNotNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.expiresAt, now),
+              ),
+              and(
+                isNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
+              ),
+            ),
+          ),
+        )
+        .limit(1);
+      if (existingRows.length > 0) {
+        throw new ConflictError("An active break-glass session already exists for this patient");
+      }
 
-  // Block duplicate active sessions
-  const existing = await getActiveSession(userId, patientId, clinicId);
-  if (existing) throw new ConflictError("An active break-glass session already exists for this patient");
+      const activatedAt = new Date();
+      const expiresAt = new Date(activatedAt.getTime() + SESSION_TTL_MS);
 
-  const activatedAt = new Date();
-  const expiresAt = new Date(activatedAt.getTime() + SESSION_TTL_MS);
+      const [newSession] = await tx.insert(breakGlassSessionsTable).values({
+        clinicId,
+        userId,
+        patientId,
+        justification,
+        activatedAt,
+        expiresAt,
+      }).returning();
 
-  const [session] = await db.insert(breakGlassSessionsTable).values({
-    clinicId,
-    userId,
-    patientId,
-    justification,
-    activatedAt,
-    expiresAt,
-  }).returning();
+      const officers = await tx
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(and(eq(usersTable.clinicId, clinicId), eq(usersTable.role, "compliance_officer")));
 
-  // Alert all same-clinic compliance officers — IDs only in the SSE payload, no PHI.
-  // The payload now also carries `requiresApproval: true` so the compliance UI can
-  // surface a one-click approve/deny action instead of a passive notification.
-  const complianceOfficers = await db
-    .select({ id: usersTable.id })
-    .from(usersTable)
-    .where(and(eq(usersTable.clinicId, clinicId), eq(usersTable.role, "compliance_officer")));
+      const graceExp = new Date(activatedAt.getTime() + GRACE_MS);
 
-  const graceExpiresAt = new Date(activatedAt.getTime() + GRACE_MS);
+      await tx.update(breakGlassSessionsTable)
+        .set({ alertSentAt: new Date() })
+        .where(and(
+          eq(breakGlassSessionsTable.id, newSession.id),
+          eq(breakGlassSessionsTable.clinicId, clinicId),
+        ));
+
+      return { session: newSession, complianceOfficers: officers, graceExpiresAt: graceExp };
+    },
+  );
+
+  // SSE emission and audit writes happen outside the transaction.
   const alertPayload = {
     sessionId: session.id,
     activatedByUserId: userId,
     patientId,
     reasonCategory,
-    activatedAt: activatedAt.toISOString(),
-    expiresAt: expiresAt.toISOString(),
+    activatedAt: session.activatedAt.toISOString(),
+    expiresAt: session.expiresAt.toISOString(),
     graceExpiresAt: graceExpiresAt.toISOString(),
     requiresApproval: true,
   };
@@ -125,12 +168,8 @@ export async function activateBreakGlass(
     emitToUser(officer.id, "break_glass_activated", alertPayload);
   }
 
-  await db.update(breakGlassSessionsTable)
-    .set({ alertSentAt: new Date() })
-    .where(and(eq(breakGlassSessionsTable.id, session.id), eq(breakGlassSessionsTable.clinicId, clinicId)));
-
   await logAudit(req, "BREAK_GLASS_ACTIVATED", "break_glass_session", session.id, {
-    patientId, justification, reasonCategory, expiresAt: expiresAt.toISOString(),
+    patientId, justification, reasonCategory, expiresAt: session.expiresAt.toISOString(),
     graceExpiresAt: graceExpiresAt.toISOString(),
     alertedOfficers: complianceOfficers.length,
   });
@@ -151,30 +190,45 @@ export async function approveBreakGlass(req: AuthRequest, sessionId: number) {
     throw new ForbiddenError("Only compliance_officer, admin, or super_admin can approve a break-glass session");
   }
 
-  const [session] = await db
-    .select()
-    .from(breakGlassSessionsTable)
-    .where(and(eq(breakGlassSessionsTable.id, sessionId), eq(breakGlassSessionsTable.clinicId, clinicId)));
-  if (!session) throw new NotFoundError("break-glass session", sessionId);
-  if (session.revokedAt) throw new ConflictError("Session is revoked");
-  if (session.approvedAt) throw new ConflictError("Session is already approved");
-  if (session.userId === approverId) {
-    throw new ForbiddenError("You cannot approve your own break-glass session");
-  }
-  // Must approve within grace window — past grace the session is effectively
-  // dead, and re-extending would be the same as bypassing the gate.
-  if (session.activatedAt < graceFloor()) {
-    throw new ConflictError("Grace window expired — the activator must request a new session");
-  }
+  const { approved, patientId, activatedByUserId } = await runInTenantContext(
+    req.user!,
+    async (tx) => {
+      const [session] = await tx
+        .select()
+        .from(breakGlassSessionsTable)
+        .where(and(
+          eq(breakGlassSessionsTable.id, sessionId),
+          eq(breakGlassSessionsTable.clinicId, clinicId),
+        ));
+      if (!session) throw new NotFoundError("break-glass session", sessionId);
+      if (session.revokedAt) throw new ConflictError("Session is revoked");
+      if (session.approvedAt) throw new ConflictError("Session is already approved");
+      if (session.userId === approverId) {
+        throw new ForbiddenError("You cannot approve your own break-glass session");
+      }
+      if (session.activatedAt < graceFloor()) {
+        throw new ConflictError("Grace window expired — the activator must request a new session");
+      }
 
-  const [approved] = await db.update(breakGlassSessionsTable)
-    .set({ approvedAt: new Date(), approvedByUserId: approverId })
-    .where(and(eq(breakGlassSessionsTable.id, sessionId), eq(breakGlassSessionsTable.clinicId, clinicId)))
-    .returning();
+      const [approvedSession] = await tx.update(breakGlassSessionsTable)
+        .set({ approvedAt: new Date(), approvedByUserId: approverId })
+        .where(and(
+          eq(breakGlassSessionsTable.id, sessionId),
+          eq(breakGlassSessionsTable.clinicId, clinicId),
+        ))
+        .returning();
+
+      return {
+        approved: approvedSession,
+        patientId: session.patientId,
+        activatedByUserId: session.userId,
+      };
+    },
+  );
 
   await logAudit(req, "BREAK_GLASS_APPROVED", "break_glass_session", sessionId, {
-    patientId: session.patientId,
-    activatedByUserId: session.userId,
+    patientId,
+    activatedByUserId,
   });
   return approved;
 }
@@ -191,34 +245,55 @@ export async function logBreakGlassAccess(
 
 export async function revokeBreakGlass(req: AuthRequest, sessionId: number) {
   const clinicId = req.user!.clinicId;
-  const [session] = await db
-    .select()
-    .from(breakGlassSessionsTable)
-    .where(and(eq(breakGlassSessionsTable.id, sessionId), eq(breakGlassSessionsTable.clinicId, clinicId)));
-  if (!session) throw new NotFoundError("break-glass session", sessionId);
-  if (session.revokedAt) throw new ConflictError("Session is already revoked");
-
   const role = req.user!.role;
-  const isCompliance = ["super_admin", "admin", "compliance_officer"].includes(role);
-  const isOwner = session.userId === req.user!.userId;
-  if (!isCompliance && !isOwner) {
-    throw new ForbiddenError("Only the activating user, compliance officers, or admins can revoke a break-glass session");
-  }
+  const revokerId = req.user!.userId;
 
-  const [revoked] = await db.update(breakGlassSessionsTable)
-    .set({ revokedAt: new Date(), revokedByUserId: req.user!.userId })
-    .where(and(eq(breakGlassSessionsTable.id, sessionId), eq(breakGlassSessionsTable.clinicId, clinicId)))
-    .returning();
+  const { revoked, patientId, wasApproved, isCompliance, isOwner } = await runInTenantContext(
+    req.user!,
+    async (tx) => {
+      const [session] = await tx
+        .select()
+        .from(breakGlassSessionsTable)
+        .where(and(
+          eq(breakGlassSessionsTable.id, sessionId),
+          eq(breakGlassSessionsTable.clinicId, clinicId),
+        ));
+      if (!session) throw new NotFoundError("break-glass session", sessionId);
+      if (session.revokedAt) throw new ConflictError("Session is already revoked");
+
+      const compliance = ["super_admin", "admin", "compliance_officer"].includes(role);
+      const owner = session.userId === revokerId;
+      if (!compliance && !owner) {
+        throw new ForbiddenError(
+          "Only the activating user, compliance officers, or admins can revoke a break-glass session",
+        );
+      }
+
+      const [revokedSession] = await tx.update(breakGlassSessionsTable)
+        .set({ revokedAt: new Date(), revokedByUserId: revokerId })
+        .where(and(
+          eq(breakGlassSessionsTable.id, sessionId),
+          eq(breakGlassSessionsTable.clinicId, clinicId),
+        ))
+        .returning();
+
+      return {
+        revoked: revokedSession,
+        patientId: session.patientId,
+        wasApproved: !!session.approvedAt,
+        isCompliance: compliance,
+        isOwner: owner,
+      };
+    },
+  );
 
   // Phase 3.4: a compliance revoke of an unapproved session is the explicit
   // "deny" action. Audit it distinctly so reviewers can tell rejection apart
   // from end-of-session housekeeping.
-  const action = !session.approvedAt && isCompliance && !isOwner
+  const action = !wasApproved && isCompliance && !isOwner
     ? "BREAK_GLASS_DENIED"
     : "BREAK_GLASS_REVOKED";
-  await logAudit(req, action, "break_glass_session", sessionId, {
-    patientId: session.patientId,
-  });
+  await logAudit(req, action, "break_glass_session", sessionId, { patientId });
   return revoked;
 }
 
@@ -226,34 +301,40 @@ export async function listBreakGlassSessions(
   req: AuthRequest,
   params: { patientId?: string; active?: string },
 ) {
-  const conditions: any[] = [eq(breakGlassSessionsTable.clinicId, req.user!.clinicId)];
+  const clinicId = req.user!.clinicId;
 
-  if (params.patientId) {
-    const pid = parseInt(params.patientId);
-    if (!isNaN(pid)) conditions.push(eq(breakGlassSessionsTable.patientId, pid));
-  }
+  const rows = await runInTenantContext(
+    req.user!,
+    async (tx) => {
+      const conditions: any[] = [eq(breakGlassSessionsTable.clinicId, clinicId)];
 
-  if (params.active === "true") {
-    const now = new Date();
-    conditions.push(isNull(breakGlassSessionsTable.revokedAt));
-    // Mirrors getActiveSession's dual-validity check.
-    conditions.push(or(
-      and(
-        isNotNull(breakGlassSessionsTable.approvedAt),
-        gt(breakGlassSessionsTable.expiresAt, now),
-      ),
-      and(
-        isNull(breakGlassSessionsTable.approvedAt),
-        gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
-      ),
-    ));
-  }
+      if (params.patientId) {
+        const pid = parseInt(params.patientId);
+        if (!isNaN(pid)) conditions.push(eq(breakGlassSessionsTable.patientId, pid));
+      }
 
-  const rows = await db
-    .select()
-    .from(breakGlassSessionsTable)
-    .where(and(...conditions))
-    .orderBy(desc(breakGlassSessionsTable.activatedAt));
+      if (params.active === "true") {
+        const now = new Date();
+        conditions.push(isNull(breakGlassSessionsTable.revokedAt));
+        conditions.push(or(
+          and(
+            isNotNull(breakGlassSessionsTable.approvedAt),
+            gt(breakGlassSessionsTable.expiresAt, now),
+          ),
+          and(
+            isNull(breakGlassSessionsTable.approvedAt),
+            gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
+          ),
+        ));
+      }
+
+      return tx
+        .select()
+        .from(breakGlassSessionsTable)
+        .where(and(...conditions))
+        .orderBy(desc(breakGlassSessionsTable.activatedAt));
+    },
+  );
 
   void logAudit(req, "READ_LIST", "break_glass_session", undefined, { count: rows.length });
   return rows;

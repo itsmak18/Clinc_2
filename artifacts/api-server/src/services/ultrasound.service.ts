@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { ultrasoundRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -41,10 +44,13 @@ export async function listUltrasounds(
       performedById: ultrasoundRecordsTable.performedById,
       examType: ultrasoundRecordsTable.examType,
       bodyPart: ultrasoundRecordsTable.bodyPart,
+      bodyPartAr: ultrasoundRecordsTable.bodyPartAr,
       imageUrl: ultrasoundRecordsTable.imageUrl,
       report: ultrasoundRecordsTable.report,
+      reportAr: ultrasoundRecordsTable.reportAr,
       status: ultrasoundRecordsTable.status,
       notes: ultrasoundRecordsTable.notes,
+      notesAr: ultrasoundRecordsTable.notesAr,
       createdAt: ultrasoundRecordsTable.createdAt,
       patient: { id: patientsTable.id, fullName: patientsTable.fullName },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
@@ -63,7 +69,7 @@ export async function listUltrasounds(
 
 export async function createUltrasound(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; examType: string; bodyPart: string; notes?: string },
+  data: { patientId: number | string; requestedById: number | string; examType: string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string },
 ) {
   if (!data.patientId || !data.requestedById || !data.examType || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
@@ -71,7 +77,7 @@ export async function createUltrasound(
   const [record] = await db.insert(ultrasoundRecordsTable).values({
     clinicId: req.user!.clinicId,
     patientId: Number(data.patientId), requestedById: Number(data.requestedById),
-    examType: data.examType as any, bodyPart: data.bodyPart, notes: data.notes,
+    examType: data.examType as any, bodyPart: data.bodyPart, bodyPartAr: data.bodyPartAr, notes: data.notes, notesAr: data.notesAr,
   }).returning();
   await logAudit(req, "CREATE", "ultrasound", record.id);
   return record;
@@ -97,7 +103,7 @@ export async function getUltrasound(req: AuthRequest, id: number) {
 export async function updateUltrasound(
   req: AuthRequest,
   id: number,
-  data: { imageUrl?: string; imageFileName?: string; report?: string; status?: string; performedById?: number },
+  data: { imageUrl?: string; imageFileName?: string; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
 ) {
   const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
   const [record] = await db.update(ultrasoundRecordsTable)
@@ -110,7 +116,7 @@ export async function updateUltrasound(
     const notifData = {
       userId: record.requestedById,
       title: "Ultrasound Report Ready",
-      message: `Ultrasound report for ${record.examType} — ${record.bodyPart} is ready for review`,
+      message: `Ultrasound report for ${record.examType} â€” ${record.bodyPart} is ready for review`,
       type: "ultrasound_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);

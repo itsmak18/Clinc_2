@@ -3,7 +3,9 @@
 // swallowed (the browser doesn't care; we don't want a CSP-report endpoint
 // to ever 5xx).
 
-import { db, cspReportsTable } from "@workspace/db";
+// dbUnsafe: csp_reports has no clinicId column — CSP reports are browser-level
+// events with no tenant context (they arrive pre-auth on a public endpoint).
+import { dbUnsafe as db, cspReportsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 export interface CspReportInput {
