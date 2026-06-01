@@ -134,6 +134,27 @@
       "when": 1780193541064,
       "tag": "0018_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780228404092,
+      "tag": "0019_old_makkari",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1748736000000,
+      "tag": "0020_create_app_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1748822400000,
+      "tag": "0021_audit_logs_partition",
+      "breakpoints": true
     }
   ]
 }

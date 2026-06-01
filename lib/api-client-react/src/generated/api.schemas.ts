@@ -325,8 +325,11 @@ export interface MedicalRecord {
   patient?: Patient;
   doctor?: User;
   chiefComplaint: string;
+  chiefComplaintAr?: string | null;
   diagnosis: string;
+  diagnosisAr?: string | null;
   treatment: string;
+  treatmentAr?: string | null;
   notes?: string | null;
   vitals?: Vitals | null;
   createdAt: string;
@@ -349,11 +352,14 @@ export interface XrayRecord {
   patient?: Patient;
   requestedBy?: User;
   bodyPart: string;
+  bodyPartAr?: string | null;
   imageUrl?: string | null;
   imageFileName?: string | null;
   report?: string | null;
+  reportAr?: string | null;
   status: XrayRecordStatus;
   notes?: string | null;
+  notesAr?: string | null;
   createdAt: string;
 }
 
@@ -374,9 +380,12 @@ export interface LabTest {
   patient?: Patient;
   requestedBy?: User;
   testName: string;
+  testNameAr?: string | null;
   results?: string | null;
+  resultsAr?: string | null;
   status: LabTestStatus;
   notes?: string | null;
+  notesAr?: string | null;
   createdAt: string;
 }
 
@@ -479,6 +488,7 @@ export interface Prescription {
   doctor?: User;
   medications: Medication[];
   notes?: string | null;
+  notesAr?: string | null;
   createdAt: string;
 }
 
@@ -554,16 +564,22 @@ export interface CreateMedicalRecordBody {
   doctorId: number;
   appointmentId?: number;
   chiefComplaint: string;
+  chiefComplaintAr?: string;
   diagnosis: string;
+  diagnosisAr?: string;
   treatment: string;
+  treatmentAr?: string;
   notes?: string;
   vitals?: Vitals;
 }
 
 export interface UpdateMedicalRecordBody {
   chiefComplaint?: string;
+  chiefComplaintAr?: string;
   diagnosis?: string;
+  diagnosisAr?: string;
   treatment?: string;
+  treatmentAr?: string;
   notes?: string;
   vitals?: Vitals;
 }
@@ -574,13 +590,16 @@ export interface CreatePrescriptionBody {
   recordId?: number;
   medications: Medication[];
   notes?: string;
+  notesAr?: string;
 }
 
 export interface CreateXrayBody {
   patientId: number;
   requestedById: number;
   bodyPart: string;
+  bodyPartAr?: string;
   notes?: string;
+  notesAr?: string;
 }
 
 export type UpdateXrayBodyStatus =
@@ -597,8 +616,11 @@ export interface UpdateXrayBody {
   imageUrl?: string;
   imageFileName?: string;
   report?: string;
+  reportAr?: string;
   status?: UpdateXrayBodyStatus;
   notes?: string;
+  notesAr?: string;
+  bodyPartAr?: string;
 }
 
 export type UltrasoundRecordStatus =
@@ -619,11 +641,14 @@ export interface UltrasoundRecord {
   requestedBy?: User;
   examType: string;
   bodyPart: string;
+  bodyPartAr?: string | null;
   imageUrl?: string | null;
   imageFileName?: string | null;
   report?: string | null;
+  reportAr?: string | null;
   status: UltrasoundRecordStatus;
   notes?: string | null;
+  notesAr?: string | null;
   createdAt: string;
 }
 
@@ -632,7 +657,9 @@ export interface CreateUltrasoundBody {
   requestedById: number;
   examType: string;
   bodyPart: string;
+  bodyPartAr?: string;
   notes?: string;
+  notesAr?: string;
 }
 
 export type UpdateUltrasoundBodyStatus =
@@ -649,15 +676,20 @@ export interface UpdateUltrasoundBody {
   imageUrl?: string;
   imageFileName?: string;
   report?: string;
+  reportAr?: string;
   status?: UpdateUltrasoundBodyStatus;
   notes?: string;
+  notesAr?: string;
+  bodyPartAr?: string;
 }
 
 export interface CreateLabTestBody {
   patientId: number;
   requestedById: number;
   testName: string;
+  testNameAr?: string;
   notes?: string;
+  notesAr?: string;
 }
 
 export type UpdateLabTestBodyStatus =
@@ -673,8 +705,10 @@ export const UpdateLabTestBodyStatus = {
 export interface UpdateLabTestBody {
   performedById?: number;
   results?: string;
+  resultsAr?: string;
   status?: UpdateLabTestBodyStatus;
   notes?: string;
+  notesAr?: string;
 }
 
 export interface CreateInvoiceBody {
@@ -1220,6 +1254,36 @@ export interface CreateClinicNoticeBody {
   reason: string;
 }
 
+export interface DoctorKPIs {
+  totalAppointments: number;
+  completedAppointments: number;
+  noShowCount: number;
+  noShowRate: number;
+  cancelledCount: number;
+  cancellationRate: number;
+  avgConsultMinutes: number;
+  avgWaitMinutes: number;
+  revenueGenerated: number;
+  labOrders: number;
+  xrayOrders: number;
+  orderRate: number;
+}
+
+export interface DoctorAnalyticsRow {
+  doctorId: number;
+  doctorName: string;
+  kpis: DoctorKPIs;
+}
+
+export interface DoctorTrendPoint {
+  /** ISO month string e.g. "2026-04" */
+  month: string;
+  totalAppointments: number;
+  completedAppointments: number;
+  noShowCount: number;
+  revenueGenerated: number;
+}
+
 export type ListUsersParams = {
   role?: ListUsersRole;
   isActive?: boolean;
@@ -1461,6 +1525,27 @@ export const RevokeDevice200Status = {
 
 export type RevokeDevice200 = {
   status: RevokeDevice200Status;
+};
+
+export type ListDoctorAnalyticsParams = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type ListDoctorAnalytics200 = {
+  doctors: DoctorAnalyticsRow[];
+  clinicAverage: DoctorKPIs;
+};
+
+export type GetDoctorAnalyticsParams = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type GetDoctorAnalytics200 = {
+  doctor: DoctorKPIs;
+  clinicAverage: DoctorKPIs;
+  trend: DoctorTrendPoint[];
 };
 
 export type SubmitCspReportBodyOne = { [key: string]: unknown };

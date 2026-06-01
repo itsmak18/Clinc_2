@@ -12,7 +12,9 @@
 //    the last 60s, reuse it instead of emailing twice (two-tabs case).
 
 import crypto from "crypto";
-import { db } from "@workspace/db";
+// dbUnsafe: device_verification_tokens has no clinicId; consumed pre-auth
+// before the user's clinic context is available.
+import { dbUnsafe as db } from "@workspace/db";
 import {
   deviceVerificationTokensTable,
   type DeviceVerificationToken,

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * routes.envelope.integration.test.ts
  *
  * PR-A2 regression guard. For each of the 12 route files migrated from raw
@@ -9,7 +9,7 @@
  * (all 7 fields present, correct error_code for DOMAIN_VALIDATION). A future
  * change that reintroduces a raw shape in any of these routes will fail here.
  *
- * inventory.ts and prescriptions.ts are NOT covered — PR-B1 extracts those
+ * inventory.ts and prescriptions.ts are NOT covered â€” PR-B1 extracts those
  * routes to services and re-routes their validation through asyncHandler.
  * auth.ts has two intentional non-envelope shapes (429 + 401 with custom
  * fields); the migrated 400 path is exercised via the login-empty-body case.
@@ -36,7 +36,7 @@ vi.mock("@workspace/db", () => {
     update: vi.fn(() => chainable()),
     delete: vi.fn(() => chainable()),
   };
-  return {
+  const __m: any = {
     db: mockDb,
     runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     usersTable: { id: "id", username: "username", deletedAt: "deletedAt", isActive: "isActive" },
@@ -48,6 +48,8 @@ vi.mock("@workspace/db", () => {
     inArray: vi.fn(),
     sql: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 import app from "../app";
@@ -81,7 +83,7 @@ function expectValidationEnvelope(body: unknown) {
 
 /**
  * Each entry: [routeFile, HTTP verb, path with bad ID, userId for cookie].
- * "abc" as the :id segment trips `safeParseInt` → ValidationError.
+ * "abc" as the :id segment trips `safeParseInt` â†’ ValidationError.
  */
 const cases: Array<[string, "get" | "post" | "patch" | "delete", string, number]> = [
   ["notifications.ts", "post", "/api/notifications/abc/read", 7001],
@@ -99,10 +101,10 @@ const cases: Array<[string, "get" | "post" | "patch" | "delete", string, number]
 
 describe("PR-A2: route-level canonical envelope", () => {
   for (const [routeFile, verb, path, userId] of cases) {
-    it(`${routeFile} — ${verb.toUpperCase()} ${path} with bad ID → DOMAIN_VALIDATION envelope`, async () => {
+    it(`${routeFile} â€” ${verb.toUpperCase()} ${path} with bad ID â†’ DOMAIN_VALIDATION envelope`, async () => {
       const cookie = await authCookie(userId);
       // GET doesn't trip CSRF; mutations would need _csrf cookie + X-CSRF-Token header
-      // (POST /notifications/:id/read is the only mutation here — handled below).
+      // (POST /notifications/:id/read is the only mutation here â€” handled below).
       let req = request(app)[verb](path).set("Cookie", [cookie]);
       if (verb !== "get") {
         const csrf = `csrf-${userId}-deadbeef0123456789`;
@@ -116,7 +118,7 @@ describe("PR-A2: route-level canonical envelope", () => {
     });
   }
 
-  it("auth.ts — POST /api/auth/login with empty body → DOMAIN_VALIDATION envelope (Zod failure)", async () => {
+  it("auth.ts â€” POST /api/auth/login with empty body â†’ DOMAIN_VALIDATION envelope (Zod failure)", async () => {
     // Login is CSRF-exempt. Empty body fails the loginSchema parse.
     const res = await request(app).post("/api/auth/login").send({});
     expect(res.status).toBe(E.DOMAIN_VALIDATION.status);

@@ -43,12 +43,16 @@ export default function Ultrasound() {
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState({ patientId: "", requestedById: "", examType: "", bodyPart: "", notes: "" });
+  const [showArCreate, setShowArCreate] = useState(false);
+  const [showArReport, setShowArReport] = useState(false);
+  const [form, setForm] = useState({ patientId: "", requestedById: "", examType: "", bodyPart: "", bodyPartAr: "", notes: "" });
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [imageUrl, setImageUrl] = useState("");
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
+  const [findingsAr, setFindingsAr] = useState("");
+  const [impressionAr, setImpressionAr] = useState("");
   const [reportStatus, setReportStatus] = useState("uploaded");
 
   const filterParams = { status: filterStatus as any || undefined };
@@ -61,7 +65,7 @@ export default function Ultrasound() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListUltrasoundRecordsQueryKey() });
         setShowCreate(false);
-        setForm({ patientId: "", requestedById: "", examType: "", bodyPart: "", notes: "" });
+        setForm({ patientId: "", requestedById: "", examType: "", bodyPart: "", bodyPartAr: "", notes: "" });
         toast({ title: t("ultrasoundRecordCreated") });
       },
       onError: () => toast({ title: t("failed"), variant: "destructive" }),
@@ -87,8 +91,11 @@ export default function Ultrasound() {
     const parsed = parseReport(record.report);
     setFindings(parsed.findings);
     setImpression(parsed.impression);
+    setFindingsAr((record as any).findingsAr || "");
+    setImpressionAr((record as any).impressionAr || "");
     setImageUrl(record.imageUrl || "");
     setReportStatus(record.status);
+    setShowArReport(false);
     setExpandedId(record.id);
   }
 
@@ -96,7 +103,7 @@ export default function Ultrasound() {
     const record = allRecords.find(r => r.id === expandedId);
     if (!record) return;
     openPrintWindow(
-      ultrasoundReportHtml({ createdAt: record.createdAt, examType: record.examType, bodyPart: record.bodyPart, patient: record.patient as any, requestedBy: record.requestedBy as any, findings, impression, imageUrl }),
+      ultrasoundReportHtml({ createdAt: record.createdAt, examType: record.examType, bodyPart: record.bodyPart, bodyPartAr: (record as any).bodyPartAr, patient: record.patient as any, requestedBy: record.requestedBy as any, findings, impression, findingsAr: findingsAr || undefined, impressionAr: impressionAr || undefined, imageUrl }),
       `Ultrasound Report - ${record.examType}`
     );
   }
@@ -173,6 +180,25 @@ export default function Ultrasound() {
                 <Label className="text-xs">{t("impressionConclusion")}</Label>
                 <Textarea value={impression} onChange={e => setImpression(e.target.value)} rows={2} placeholder={t("impressionPlaceholder")} data-testid="input-impression" />
               </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm h-7 text-xs gap-1.5 text-[var(--ink-muted)] w-full justify-start px-0"
+                onClick={() => setShowArReport(v => !v)}
+              >
+                <span className="text-base leading-none">ع</span> {t("arabicFields")}
+              </button>
+              {showArReport && (
+                <div className="space-y-3 border border-[var(--line)] rounded-lg p-3 bg-[var(--surface-2)]" dir="rtl">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("findingsAr")}</Label>
+                    <Textarea value={findingsAr} onChange={e => setFindingsAr(e.target.value)} rows={2} className="text-right" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("impressionAr")}</Label>
+                    <Textarea value={impressionAr} onChange={e => setImpressionAr(e.target.value)} rows={2} className="text-right" />
+                  </div>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs">{t("status")}</Label>
                 <Select value={reportStatus} onValueChange={setReportStatus}>
@@ -192,7 +218,7 @@ export default function Ultrasound() {
                   <button className="btn btn-outline btn-sm" onClick={() => setExpandedId(null)}>{t("cancel")}</button>
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={() => expandedId && updateMutation.mutate({ ultrasoundId: expandedId, data: { report: serializeReport(findings, impression), imageUrl: imageUrl || undefined, status: reportStatus as any } })}
+                    onClick={() => expandedId && updateMutation.mutate({ ultrasoundId: expandedId, data: { report: serializeReport(findings, impression), imageUrl: imageUrl || undefined, status: reportStatus as any, findingsAr: findingsAr || undefined, impressionAr: impressionAr || undefined } as any })}
                     disabled={updateMutation.isPending}
                     data-testid="button-save-report"
                   >
@@ -285,11 +311,24 @@ export default function Ultrasound() {
               <Label className="text-xs">{t("notes")}</Label>
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm h-7 text-xs gap-1.5 text-[var(--ink-muted)] w-full justify-start px-0"
+              onClick={() => setShowArCreate(v => !v)}
+            >
+              <span className="text-base leading-none">ع</span> {t("arabicFields")}
+            </button>
+            {showArCreate && (
+              <div className="space-y-1 border border-[var(--line)] rounded-lg p-3 bg-[var(--surface-2)]" dir="rtl">
+                <Label className="text-xs">{t("bodyPartAr")}</Label>
+                <Input value={form.bodyPartAr} onChange={e => setForm(f => ({ ...f, bodyPartAr: e.target.value }))} className="text-right" />
+              </div>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), examType: form.examType, bodyPart: form.bodyPart, notes: form.notes || undefined } as any })}
+                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), examType: form.examType, bodyPart: form.bodyPart, bodyPartAr: form.bodyPartAr || undefined, notes: form.notes || undefined } as any })}
                 disabled={createMutation.isPending || !form.patientId || !form.requestedById || !form.examType || !form.bodyPart}
                 data-testid="button-save-ultrasound"
               >

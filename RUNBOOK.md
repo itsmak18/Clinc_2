@@ -2,6 +2,39 @@
 
 This document defines the standard operating procedures for the MediCore Clinic-Hub platform. It is intended for on-call engineers, system administrators, and technical leadership.
 
+---
+
+## §0. Database Role Architecture
+
+Two Postgres roles serve distinct purposes. Never swap them.
+
+| Role | Purpose | Privileges |
+|---|---|---|
+| `${POSTGRES_USER}` (bootstrap superuser) | Runs migrations (DDL: CREATE TABLE, ALTER, INDEX). Used by the `migrate` container only. | SUPERUSER — bypasses all RLS. Never give this to api/worker. |
+| `medicore_app` (NOSUPERUSER NOBYPASSRLS) | Runtime api + worker. All DML (SELECT/INSERT/UPDATE/DELETE). | Non-superuser → RLS enforces inside `runInTenantContext`. |
+
+**Connection split (docker-compose.prod.yml):**
+- `migrate` → `DATABASE_URL = postgresql://${POSTGRES_USER}:$(postgres_password)@postgres:5432/${POSTGRES_DB}`
+- `api` / `worker` → `DATABASE_URL = postgresql://medicore_app:$(app_db_password)@postgres:5432/${POSTGRES_DB}`
+
+**Password rotation (app_db_password):**
+1. Generate a new value: `openssl rand -base64 48 | tr -d '\n' > ./secrets/app_db_password`
+2. Restart the stack: `docker compose -f docker-compose.prod.yml up -d` — the `migrate` container sets the new password via `ALTER ROLE medicore_app LOGIN PASSWORD '...'` and the smoke gate verifies the connection before api/worker start.
+
+**Rollback caveat (migration 0020):** Rolling back past migration 0020 removes the
+`CREATE ROLE medicore_app` statement but leaves the role in the DB. If you need a full
+role cleanup: `DROP ROLE medicore_app;` (run as superuser). The api/worker DATABASE_URL
+must be switched back to the bootstrap superuser before the role is dropped, or they
+will fail to connect. Treat any rollback past 0020 as a SEV-1 data-access event.
+
+**Verification (after a deploy):**
+```sh
+docker compose exec api sh -c 'node -e "const{Pool}=require(\"pg\");const p=new Pool({connectionString:process.env.DATABASE_URL});p.query(\"SELECT current_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user\").then(r=>console.log(r.rows[0])).then(()=>p.end())"'
+```
+Expected: `{ current_user: 'medicore_app', rolsuper: false, rolbypassrls: false }`
+
+---
+
 ## 1. Incident Severity Definitions
 
 *   **SEV-1 (Critical):** Complete system outage, data loss, or confirmed PHI breach. Immediate paging of all stakeholders.
@@ -105,9 +138,9 @@ for the keypair, escrow envelopes, and drill procedure.
 
 | Cadence | What runs | How |
 |---|---|---|
-| **Nightly (02:00 UTC)** | `backup-verify.mjs` — dump, encrypt, local decrypt-and-inspect, offsite upload, retention sweep | cron entry: `0 2 * * * cd /opt/medicore && node scripts/backup-verify.mjs` |
-| **Quarterly (1st day of Q1/Q2/Q3/Q4)** | `backup-verify.mjs --restore` against an ephemeral DB on the offline restore workstation — proves the full `gpg --decrypt \| gunzip \| psql` chain end-to-end | manual; record outcome in the ops log |
-| **Annual** | GPG keypair rotation per [BACKUP_KEY_MANAGEMENT.md](docs/BACKUP_KEY_MANAGEMENT.md) §"Rotation policy" | manual; coordinate with the on-call rotation |
+| **Nightly (02:00 UTC)** | `backup-verify.mjs` — dump, encrypt, local decrypt-and-inspect, offsite upload, retention sweep | Automated via the `backup` service loop in `docker-compose.prod.yml` |
+| **Quarterly (1st day of Q1/Q2/Q3/Q4)** | `backup-verify.mjs --restore` — full chain (decrypt + psql replay), patient row-count sanity, erasure-blackout check, audit integrity check, measured RTO | Manual — see §12 for the full drill procedure |
+| **Annual** | GPG keypair rotation per [BACKUP_KEY_MANAGEMENT.md](docs/BACKUP_KEY_MANAGEMENT.md) §"Rotation policy" | Manual; coordinate with the on-call rotation |
 
 A failed nightly run must page on-call within 1 hour. A failed quarterly drill
 is itself a SEV-2 — the backups are not proven recoverable.
@@ -308,4 +341,100 @@ docker compose -f docker-compose.prod.yml exec backup \
 
 This runs the full dump → encrypt → verify → rsync chain synchronously and writes a
 fresh `backup_last_success_timestamp_seconds` after success, clearing the alert.
+
+### 11.6 PgBouncer pool math
+
+PgBouncer sits between api/worker and Postgres. Under transaction pooling each app
+transaction borrows a server connection for its duration only.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PGBOUNCER_DEFAULT_POOL_SIZE` | 20 | Connections PgBouncer opens to Postgres per database |
+| `PGBOUNCER_MAX_CLIENT_CONN` | 200 | Connections app (api+worker) may open to PgBouncer |
+| `DB_POOL_MAX` (per process) | 40 | node-pg connections from one api or worker process to PgBouncer |
+
+**Headroom budget (single replica):**
+- api: 40 + worker: 40 = 80 client connections to PgBouncer → PgBouncer: 20 to Postgres.
+- Postgres total: 20 (app) + 2 (migrate at deploy) + 1 (backup) ≈ 23 → well under `max_connections=100`.
+
+**Adding a 2nd api replica:** increase `PGBOUNCER_DEFAULT_POOL_SIZE` (not `DB_POOL_MAX`). Two replicas = 80 + 80 = 160 client connections; PgBouncer still multiplexes down to `default_pool_size` server connections. Verify Postgres headroom before increasing.
+
+**Prepared statements:** PgBouncer transaction pooling breaks named prepared statements. node-pg uses unnamed statements by default — safe. If `.prepare()` is ever added to a Drizzle query, either set `max_prepared_statements > 0` in pgbouncer.ini (PgBouncer ≥ 1.21) or keep statements unnamed.
+
+---
+
+## 12. Quarterly Restore Drill Procedure
+
+Run on the 1st calendar day of each quarter (Jan, Apr, Jul, Oct) on a non-clinical day.
+A failed drill is a SEV-2 — the recovery path is unproven until re-run clean.
+
+### 12.1 Prepare
+
+1. Provision an ephemeral throwaway Postgres instance (local Docker or a disposable managed-PG):
+   ```bash
+   docker run -d --name medicore-restore-drill \
+     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=drillpass \
+     -e POSTGRES_DB=medicore_restore \
+     -p 15432:5432 postgres:16-alpine
+   ```
+2. Set `RESTORE_DATABASE_URL` in your local shell:
+   ```bash
+   export RESTORE_DATABASE_URL="postgresql://postgres:drillpass@localhost:15432/medicore_restore"
+   ```
+3. Record the start time: `date -u` → note it as `DRILL_START`.
+
+### 12.2 Run the drill
+
+```bash
+docker compose -f docker-compose.prod.yml exec -e RESTORE_DATABASE_URL="$RESTORE_DATABASE_URL" backup \
+  node scripts/backup-verify.mjs --restore
+```
+
+The script will:
+1. Restore the latest backup (`gpg --decrypt | gunzip | psql`).
+2. Row-count sanity check (`patients` table).
+3. Erasure-blackout check — fails if pre-erasure PHI would be revived (see §2.2).
+4. Audit integrity check — fails if any `audit_integrity_checks.status = 'mismatch'`.
+
+### 12.3 Verify and record RTO
+
+After `backup-verify.mjs --restore` exits 0:
+1. Record end time: `date -u` → compute `RTO = DRILL_END - DRILL_START`.
+2. Spot-check a few recent rows:
+   ```bash
+   psql "$RESTORE_DATABASE_URL" -c "SELECT MAX(created_at) FROM patients;"
+   psql "$RESTORE_DATABASE_URL" -c "SELECT COUNT(*) FROM audit_logs;"
+   psql "$RESTORE_DATABASE_URL" -c "SELECT COUNT(*) FROM audit_integrity_checks WHERE status='ok';"
+   ```
+3. Verify the audit hash chain (optional deep check):
+   ```bash
+   # In the api-server working directory with DATABASE_URL pointing at the restore DB:
+   DATABASE_URL="$RESTORE_DATABASE_URL" node -e "
+     const { verifyIntegrity } = require('./dist/lib/audit-integrity');
+     const d = new Date(); d.setUTCDate(d.getUTCDate() - 1);
+     verifyIntegrity(d).then(r => console.log(r)).catch(console.error);
+   "
+   ```
+4. Record in the ops log: `date | drill outcome (pass/fail) | measured RTO | who ran it | any deviations`.
+
+### 12.4 Teardown
+
+```bash
+docker rm -f medicore-restore-drill
+```
+
+### 12.5 Note on partitioned audit_logs
+
+Since migration 0021, `audit_logs` is a monthly partitioned table. A plain `pg_dump` + `psql` restore round-trips partitioned tables correctly — Postgres replays the DDL (CREATE TABLE audit_logs PARTITION BY RANGE ...) and the partition definitions in the dump, then re-inserts rows. No special restore steps are needed.
+
+The `backup-verify.mjs` patient row-count check and audit integrity check both work identically on the restored partitioned table.
+
+### 12.6 Accepted RTO/RPO (current architecture)
+
+| Metric | Target | Notes |
+|---|---|---|
+| RTO | 4 hours | Single-VM compose, no warm standby. Re-provision + restore from backup is the only recovery path. |
+| RPO | 24 hours | Nightly `pg_dump` at 02:00 UTC; worst-case outage at 01:59 loses ~24h writes. |
+
+SLO re-validation: if the quarterly drill consistently beats 4h RTO, update §6. If it exceeds 4h, escalate to capacity planning and consider managed Postgres with PITR (plan item D2/D3).
 

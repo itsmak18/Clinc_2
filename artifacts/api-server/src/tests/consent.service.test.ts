@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@workspace/db", () => {
   const mockDb = { select: vi.fn(), insert: vi.fn(), update: vi.fn() };
-  return {
+  const __m: any = {
     db: mockDb,
     runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     patientConsentsTable: {
@@ -11,6 +11,8 @@ vi.mock("@workspace/db", () => {
     },
     patientsTable: { id: "id" },
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 vi.mock("../lib/audit", () => ({
@@ -29,7 +31,7 @@ function mockReq(role = "admin", userId = 1): AuthRequest {
   } as unknown as AuthRequest;
 }
 
-// select().from().where().limit() → resolves to rows
+// select().from().where().limit() â†’ resolves to rows
 function mockSelectWithLimit(rows: unknown[]) {
   const limit = vi.fn().mockResolvedValue(rows);
   const where = vi.fn().mockReturnValue({ limit });
@@ -37,21 +39,21 @@ function mockSelectWithLimit(rows: unknown[]) {
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
-// select().from().where() → resolves to rows (no .limit())
+// select().from().where() â†’ resolves to rows (no .limit())
 function mockSelectDirect(rows: unknown[]) {
   const where = vi.fn().mockResolvedValue(rows);
   const from = vi.fn().mockReturnValue({ where });
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
-// update().set().where() → resolves (no .returning())
+// update().set().where() â†’ resolves (no .returning())
 function mockUpdateChain(rows: unknown[] = []) {
   const where = vi.fn().mockResolvedValue(rows);
   const set = vi.fn().mockReturnValue({ where });
   (db.update as ReturnType<typeof vi.fn>).mockReturnValue({ set });
 }
 
-// update().set().where().returning() → resolves to rows
+// update().set().where().returning() â†’ resolves to rows
 function mockUpdateReturning(rows: unknown[]) {
   const returning = vi.fn().mockResolvedValue(rows);
   const where = vi.fn().mockReturnValue({ returning });
@@ -59,7 +61,7 @@ function mockUpdateReturning(rows: unknown[]) {
   (db.update as ReturnType<typeof vi.fn>).mockReturnValue({ set });
 }
 
-// insert().values().returning() → resolves to [row]
+// insert().values().returning() â†’ resolves to [row]
 function mockInsertChain(row: unknown) {
   const returning = vi.fn().mockResolvedValue([row]);
   const values = vi.fn().mockReturnValue({ returning });
@@ -103,7 +105,7 @@ describe("grantConsent", () => {
       grantedAt: new Date(), revokedAt: null,
     };
 
-    // grantConsent does: select (patient check, no limit) → update (revoke existing) → insert
+    // grantConsent does: select (patient check, no limit) â†’ update (revoke existing) â†’ insert
     mockSelectDirect([{ id: 5 }]);
     mockUpdateChain([]);
     mockInsertChain(consent);

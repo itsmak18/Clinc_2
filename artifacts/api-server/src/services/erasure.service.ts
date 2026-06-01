@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   erasureRequestsTable, patientsTable, medicalRecordsTable,
   prescriptionsTable,
@@ -147,7 +150,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
 
       // Mark erasure request as executed.
       // erasureBlackoutUntil marks the window during which backups still contain
-      // this patient's pre-erasure PHI — see RUNBOOK §2.2 for restore procedure.
+      // this patient's pre-erasure PHI â€” see RUNBOOK Â§2.2 for restore procedure.
       await nestedTx.update(erasureRequestsTable).set({
         status: "executed",
         executedByUserId: req.user!.userId,
@@ -157,7 +160,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
       }).where(and(eq(erasureRequestsTable.id, requestId), eq(erasureRequestsTable.clinicId, clinicId)));
     });
 
-    // Immutable audit entry outside the transaction — must survive even if something goes wrong post-tx
+    // Immutable audit entry outside the transaction â€” must survive even if something goes wrong post-tx
     await logAudit(req, "ERASURE_EXECUTED", "erasure_request", requestId, {
       patientId,
       erasedEntities: ["patient", "medical_records", "prescriptions"],

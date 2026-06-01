@@ -1,4 +1,4 @@
-/**
+﻿/**
  * route-access.contract.test.ts
  *
  * Cross-tier authorization drift guard.
@@ -6,7 +6,7 @@
  * The frontend declares per-page role visibility in `artifacts/clinic/src/lib/route-access.ts`
  * via the `navItems` array. The backend enforces per-route role lists via
  * `requireRole(...)` / `authGate(scope, [roles])`. These are maintained
- * independently — there is no codegen between them.
+ * independently â€” there is no codegen between them.
  *
  * Drift symptom #1 (what this test catches):
  *   Frontend exposes a nav link to role X, but backend denies role X on the
@@ -16,7 +16,7 @@
  * Drift symptom #2 (this test does NOT flag):
  *   Backend allows roles BEYOND what the frontend nav lists. Common for
  *   utility endpoints (e.g. GET /users is called from Appointments.tsx,
- *   XRay.tsx, etc. — many roles legitimately call it even though only
+ *   XRay.tsx, etc. â€” many roles legitimately call it even though only
  *   super_admin/admin see the /users nav link). Flagging this direction
  *   produces false positives; leave it out.
  *
@@ -28,7 +28,7 @@
  *   3. For each role in that list, signs a JWT and hits the backend endpoint
  *      via supertest. Asserts status !== 403.
  *
- * The DB is mocked (mirrors auth-flow.integration.test.ts) — the response
+ * The DB is mocked (mirrors auth-flow.integration.test.ts) â€” the response
  * status from list endpoints may be 200/500/etc., but the AUTH boundary
  * decision is what we care about. 403 specifically means `requireRole` /
  * `authGate` denied; anything else means authz passed.
@@ -40,7 +40,7 @@
  * Pages without a single canonical GET endpoint (action pages like /checkin,
  * /vitals, doctor sub-routes /today /consult /orders /inbox, dashboards,
  * reports, settings, /triage) are not in CONTRACTS. Those pages compose
- * multiple endpoints — drift in those would surface in any subsequent
+ * multiple endpoints â€” drift in those would surface in any subsequent
  * page-level test.
  */
 
@@ -49,11 +49,11 @@ import request from "supertest";
 import fs from "node:fs";
 import path from "node:path";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
-// Same pattern as auth-flow.integration.test.ts — routes import @workspace/db
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Same pattern as auth-flow.integration.test.ts â€” routes import @workspace/db
 // which throws if DATABASE_URL is unset. The proxy lets `db.select()...limit(n)`
 // chain return *something* without crashing at import time. List endpoints
-// may 500 at runtime when they try to iterate the proxy — that's fine: we are
+// may 500 at runtime when they try to iterate the proxy â€” that's fine: we are
 // only asserting NOT 403.
 vi.mock("@workspace/db", () => {
   const chainable = () => {
@@ -73,7 +73,7 @@ vi.mock("@workspace/db", () => {
     delete: vi.fn(() => chainable()),
     execute: vi.fn().mockResolvedValue([]),
   };
-  return {
+  const __m: any = {
     db: mockDb,
     runInTenantContext: vi.fn().mockImplementation((user, fn) => fn(mockDb)),
     patientsTable: {}, appointmentsTable: {}, medicalRecordsTable: {},
@@ -89,13 +89,15 @@ vi.mock("@workspace/db", () => {
     or: vi.fn(), desc: vi.fn(), asc: vi.fn(), lt: vi.fn(), gt: vi.fn(),
     gte: vi.fn(), lte: vi.fn(), sql: vi.fn(), count: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 // Import app AFTER the mock is registered.
 import app from "../app";
 import { signToken } from "../lib/auth";
 
-// ── Frontend nav parser ──────────────────────────────────────────────────────
+// â”€â”€ Frontend nav parser â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 const ROUTE_ACCESS_PATH = path.join(REPO_ROOT, "artifacts/clinic/src/lib/route-access.ts");
@@ -135,7 +137,7 @@ function parseNavItems(): FrontendRoles {
   return map;
 }
 
-// ── Contracts: frontend page href → backend primary GET endpoint ─────────────
+// â”€â”€ Contracts: frontend page href â†’ backend primary GET endpoint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Each entry pins which backend endpoint a page hits on first load. The roles
 // the frontend allows for the page MUST not get 403 from that endpoint.
 //
@@ -157,9 +159,9 @@ const CONTRACTS: Array<{ page: string; endpoint: string }> = [
   { page: "/users",           endpoint: "/api/users" },
 ];
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+// â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("Route access drift — frontend roles must reach backend without 403", () => {
+describe("Route access drift â€” frontend roles must reach backend without 403", () => {
   const frontendRoles = parseNavItems();
 
   for (const { page, endpoint } of CONTRACTS) {

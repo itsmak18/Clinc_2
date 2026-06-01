@@ -13,7 +13,9 @@
 // When the master kill-switch is OFF, every login resolves to "trusted" with
 // no DB writes and no emails — byte-identical to Phase 1 behavior.
 
-import { db } from "@workspace/db";
+// dbUnsafe: user_devices and device_verification_tokens have no clinicId column
+// and are keyed by userId; device trust runs cross-clinic pre-auth.
+import { dbUnsafe as db } from "@workspace/db";
 import {
   userDevicesTable,
   usersTable,

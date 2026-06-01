@@ -48,6 +48,8 @@ tags:
     description: CSP violation reporting
   - name: clinic-notices
     description: Clinic-wide advisory notices
+  - name: analytics
+    description: Doctor performance KPIs and benchmarking
 
 paths:
   /healthz:
@@ -2119,6 +2121,77 @@ paths:
                     enum: [revoked]
                 required: [status]
 
+  /analytics/doctors:
+    get:
+      operationId: listDoctorAnalytics
+      tags: [analytics]
+      summary: All-doctors performance leaderboard (admin only)
+      parameters:
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-doctor KPI rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  doctors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DoctorAnalyticsRow"
+                  clinicAverage:
+                    $ref: "#/components/schemas/DoctorKPIs"
+                required: [doctors, clinicAverage]
+
+  /analytics/doctors/{doctorId}:
+    get:
+      operationId: getDoctorAnalytics
+      tags: [analytics]
+      summary: KPIs for a single doctor (own only for doctor role; any for admin)
+      parameters:
+        - name: doctorId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Doctor KPIs + clinic average + 6-month trend
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  doctor:
+                    $ref: "#/components/schemas/DoctorKPIs"
+                  clinicAverage:
+                    $ref: "#/components/schemas/DoctorKPIs"
+                  trend:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DoctorTrendPoint"
+                required: [doctor, clinicAverage, trend]
+
   /csp-report:
     post:
       operationId: submitCspReport
@@ -2677,10 +2750,19 @@ components:
           $ref: "#/components/schemas/User"
         chiefComplaint:
           type: string
+        chiefComplaintAr:
+          type: string
+          nullable: true
         diagnosis:
           type: string
+        diagnosisAr:
+          type: string
+          nullable: true
         treatment:
           type: string
+        treatmentAr:
+          type: string
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -2725,9 +2807,15 @@ components:
           type: integer
         chiefComplaint:
           type: string
+        chiefComplaintAr:
+          type: string
         diagnosis:
           type: string
+        diagnosisAr:
+          type: string
         treatment:
+          type: string
+        treatmentAr:
           type: string
         notes:
           type: string
@@ -2740,9 +2828,15 @@ components:
       properties:
         chiefComplaint:
           type: string
+        chiefComplaintAr:
+          type: string
         diagnosis:
           type: string
+        diagnosisAr:
+          type: string
         treatment:
+          type: string
+        treatmentAr:
           type: string
         notes:
           type: string
@@ -2770,6 +2864,9 @@ components:
           items:
             $ref: "#/components/schemas/Medication"
         notes:
+          type: string
+          nullable: true
+        notesAr:
           type: string
           nullable: true
         createdAt:
@@ -2808,6 +2905,8 @@ components:
             $ref: "#/components/schemas/Medication"
         notes:
           type: string
+        notesAr:
+          type: string
       required: [patientId, doctorId, medications]
 
     XrayRecord:
@@ -2828,6 +2927,9 @@ components:
           $ref: "#/components/schemas/User"
         bodyPart:
           type: string
+        bodyPartAr:
+          type: string
+          nullable: true
         imageUrl:
           type: string
           nullable: true
@@ -2837,10 +2939,16 @@ components:
         report:
           type: string
           nullable: true
+        reportAr:
+          type: string
+          nullable: true
         status:
           type: string
           enum: [pending, uploaded, reviewed]
         notes:
+          type: string
+          nullable: true
+        notesAr:
           type: string
           nullable: true
         createdAt:
@@ -2857,7 +2965,11 @@ components:
           type: integer
         bodyPart:
           type: string
+        bodyPartAr:
+          type: string
         notes:
+          type: string
+        notesAr:
           type: string
       required: [patientId, requestedById, bodyPart]
 
@@ -2872,10 +2984,16 @@ components:
           type: string
         report:
           type: string
+        reportAr:
+          type: string
         status:
           type: string
           enum: [pending, uploaded, reviewed]
         notes:
+          type: string
+        notesAr:
+          type: string
+        bodyPartAr:
           type: string
 
     UltrasoundRecord:
@@ -2898,6 +3016,9 @@ components:
           type: string
         bodyPart:
           type: string
+        bodyPartAr:
+          type: string
+          nullable: true
         imageUrl:
           type: string
           nullable: true
@@ -2907,10 +3028,16 @@ components:
         report:
           type: string
           nullable: true
+        reportAr:
+          type: string
+          nullable: true
         status:
           type: string
           enum: [pending, uploaded, reviewed]
         notes:
+          type: string
+          nullable: true
+        notesAr:
           type: string
           nullable: true
         createdAt:
@@ -2929,7 +3056,11 @@ components:
           type: string
         bodyPart:
           type: string
+        bodyPartAr:
+          type: string
         notes:
+          type: string
+        notesAr:
           type: string
       required: [patientId, requestedById, examType, bodyPart]
 
@@ -2944,10 +3075,16 @@ components:
           type: string
         report:
           type: string
+        reportAr:
+          type: string
         status:
           type: string
           enum: [pending, uploaded, reviewed]
         notes:
+          type: string
+        notesAr:
+          type: string
+        bodyPartAr:
           type: string
 
     LabTest:
@@ -2968,13 +3105,22 @@ components:
           $ref: "#/components/schemas/User"
         testName:
           type: string
+        testNameAr:
+          type: string
+          nullable: true
         results:
+          type: string
+          nullable: true
+        resultsAr:
           type: string
           nullable: true
         status:
           type: string
           enum: [requested, in_progress, completed, cancelled]
         notes:
+          type: string
+          nullable: true
+        notesAr:
           type: string
           nullable: true
         createdAt:
@@ -2991,7 +3137,11 @@ components:
           type: integer
         testName:
           type: string
+        testNameAr:
+          type: string
         notes:
+          type: string
+        notesAr:
           type: string
       required: [patientId, requestedById, testName]
 
@@ -3002,10 +3152,14 @@ components:
           type: integer
         results:
           type: string
+        resultsAr:
+          type: string
         status:
           type: string
           enum: [requested, in_progress, completed, cancelled]
         notes:
+          type: string
+        notesAr:
           type: string
 
     Invoice:
@@ -3975,3 +4129,71 @@ components:
           type: string
           minLength: 20
       required: [title, content, reason]
+
+    DoctorKPIs:
+      type: object
+      properties:
+        totalAppointments:
+          type: integer
+        completedAppointments:
+          type: integer
+        noShowCount:
+          type: integer
+        noShowRate:
+          type: number
+        cancelledCount:
+          type: integer
+        cancellationRate:
+          type: number
+        avgConsultMinutes:
+          type: number
+        avgWaitMinutes:
+          type: number
+        revenueGenerated:
+          type: number
+        labOrders:
+          type: integer
+        xrayOrders:
+          type: integer
+        orderRate:
+          type: number
+      required:
+        - totalAppointments
+        - completedAppointments
+        - noShowCount
+        - noShowRate
+        - cancelledCount
+        - cancellationRate
+        - avgConsultMinutes
+        - avgWaitMinutes
+        - revenueGenerated
+        - labOrders
+        - xrayOrders
+        - orderRate
+
+    DoctorAnalyticsRow:
+      type: object
+      properties:
+        doctorId:
+          type: integer
+        doctorName:
+          type: string
+        kpis:
+          $ref: "#/components/schemas/DoctorKPIs"
+      required: [doctorId, doctorName, kpis]
+
+    DoctorTrendPoint:
+      type: object
+      properties:
+        month:
+          type: string
+          description: ISO month string e.g. "2026-04"
+        totalAppointments:
+          type: integer
+        completedAppointments:
+          type: integer
+        noShowCount:
+          type: integer
+        revenueGenerated:
+          type: number
+      required: [month, totalAppointments, completedAppointments, noShowCount, revenueGenerated]

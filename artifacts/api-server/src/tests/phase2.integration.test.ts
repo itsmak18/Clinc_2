@@ -1,15 +1,15 @@
-/**
+﻿/**
  * phase2.integration.test.ts
  *
  * Security-invariant tests for Phase 2 routes:
- *   POST /auth/forgot-password      — enumeration prevention
- *   POST /auth/reset-password       — token validation, weak password rejection
- *   POST /auth/admin-reset/:userId  — requires privileged auth
- *   POST /auth/verify-device        — 503 when Phase 2 flag is OFF
- *   POST /auth/wasnt-me             — 503 when Phase 2 flag is OFF
- *   GET  /account/devices           — requires auth
- *   DELETE /account/devices/:id     — UUID validation, requires auth
- *   POST /api/csp-report            — 204 when flag is OFF; correct path
+ *   POST /auth/forgot-password      â€” enumeration prevention
+ *   POST /auth/reset-password       â€” token validation, weak password rejection
+ *   POST /auth/admin-reset/:userId  â€” requires privileged auth
+ *   POST /auth/verify-device        â€” 503 when Phase 2 flag is OFF
+ *   POST /auth/wasnt-me             â€” 503 when Phase 2 flag is OFF
+ *   GET  /account/devices           â€” requires auth
+ *   DELETE /account/devices/:id     â€” UUID validation, requires auth
+ *   POST /api/csp-report            â€” 204 when flag is OFF; correct path
  *
  * These tests run with PHASE2_DEVICE_TRUST_ENABLED=false (default).
  * They verify that:
@@ -27,11 +27,11 @@
 import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 vi.mock("@workspace/db", () => {
   // chainable: Drizzle-style chains that resolve to [] (empty array).
-  // `const [row] = await db.select()...` → row=undefined (no record found).
-  // `rows.map(...)` on [] → [] (devices list returns empty array).
+  // `const [row] = await db.select()...` â†’ row=undefined (no record found).
+  // `rows.map(...)` on [] â†’ [] (devices list returns empty array).
   const chainable = () => {
     const handler: ProxyHandler<unknown[]> = {
       get: (_t, prop) => {
@@ -44,7 +44,7 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy([] as unknown[], handler);
   };
-  return {
+  const __m: any = {
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
       select: vi.fn(() => chainable()),
@@ -69,19 +69,21 @@ vi.mock("@workspace/db", () => {
     desc: vi.fn(),
     or: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 import app from "../app";
 import { signToken } from "../lib/auth";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/forgot-password — enumeration prevention", () => {
+describe("POST /auth/forgot-password â€” enumeration prevention", () => {
   it("returns the generic pending_verification message regardless of input shape", async () => {
     const res = await request(app)
       .post("/api/auth/forgot-password")
       .send({ username: "definitely_nonexistent_user_xyz" });
-    // Always 200 — never reveals whether account exists
+    // Always 200 â€” never reveals whether account exists
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("pending_verification");
     expect(typeof res.body.message).toBe("string");
@@ -106,9 +108,9 @@ describe("POST /auth/forgot-password — enumeration prevention", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/reset-password — token validation", () => {
+describe("POST /auth/reset-password â€” token validation", () => {
   it("returns 400 with INVALID_RESET_TOKEN when token is missing", async () => {
     const res = await request(app)
       .post("/api/auth/reset-password")
@@ -119,7 +121,7 @@ describe("POST /auth/reset-password — token validation", () => {
   });
 
   it("returns 400 with INVALID_RESET_TOKEN when token is provided but invalid", async () => {
-    // The DB mock resolves selects to [] → token not found → consumePasswordReset fails
+    // The DB mock resolves selects to [] â†’ token not found â†’ consumePasswordReset fails
     const res = await request(app)
       .post("/api/auth/reset-password")
       .send({ token: "a".repeat(32), newPassword: "newpassword123" });
@@ -128,9 +130,9 @@ describe("POST /auth/reset-password — token validation", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/admin-reset/:userId — privileged auth required", () => {
+describe("POST /auth/admin-reset/:userId â€” privileged auth required", () => {
   it("returns 401 without authentication (CSRF provided to bypass CSRF gate)", async () => {
     // evaluate() checks CSRF before token presence. Provide CSRF to reach 401.
     const csrf = "phase2-test-csrf-admin-reset-noauth";
@@ -167,15 +169,15 @@ describe("POST /auth/admin-reset/:userId — privileged auth required", () => {
       .set("Cookie", `clinic_token=${token}; _csrf=${csrf}`)
       .set("X-CSRF-Token", csrf)
       .send({});
-    // Auth passes (admin), but userId validation fails → 400
+    // Auth passes (admin), but userId validation fails â†’ 400
     expect(res.status).not.toBe(401);
     expect(res.status).not.toBe(403);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/verify-device — Phase 2 disabled", () => {
+describe("POST /auth/verify-device â€” Phase 2 disabled", () => {
   it("returns 503 when PHASE2_DEVICE_TRUST_ENABLED is false (default)", async () => {
     const res = await request(app)
       .post("/api/auth/verify-device")
@@ -192,9 +194,9 @@ describe("POST /auth/verify-device — Phase 2 disabled", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /auth/wasnt-me — Phase 2 disabled", () => {
+describe("POST /auth/wasnt-me â€” Phase 2 disabled", () => {
   it("returns 503 when PHASE2_DEVICE_TRUST_ENABLED is false (default)", async () => {
     const res = await request(app)
       .post("/api/auth/wasnt-me")
@@ -204,9 +206,9 @@ describe("POST /auth/wasnt-me — Phase 2 disabled", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("GET /account/devices — auth required", () => {
+describe("GET /account/devices â€” auth required", () => {
   it("returns 401 without a session cookie", async () => {
     const res = await request(app).get("/api/account/devices");
     expect(res.status).toBe(401);
@@ -220,15 +222,15 @@ describe("GET /account/devices — auth required", () => {
     const res = await request(app)
       .get("/api/account/devices")
       .set("Cookie", `clinic_token=${token}`);
-    // DB mock resolves selects to [] → listDevicesForUser returns []
+    // DB mock resolves selects to [] â†’ listDevicesForUser returns []
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.devices)).toBe(true);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("DELETE /account/devices/:deviceId — UUID validation", () => {
+describe("DELETE /account/devices/:deviceId â€” UUID validation", () => {
   it("returns 401 without auth (CSRF provided to bypass CSRF gate)", async () => {
     // evaluate() checks CSRF before token presence. Provide CSRF to reach 401.
     const csrf = "phase2-test-csrf-delete-noauth";
@@ -266,10 +268,10 @@ describe("DELETE /account/devices/:deviceId — UUID validation", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("POST /api/csp-report — correct path, 204 when flag OFF", () => {
-  it("returns 204 at /api/csp-report (flag OFF → silently accepted)", async () => {
+describe("POST /api/csp-report â€” correct path, 204 when flag OFF", () => {
+  it("returns 204 at /api/csp-report (flag OFF â†’ silently accepted)", async () => {
     const res = await request(app)
       .post("/api/csp-report")
       .set("Content-Type", "application/csp-report")
@@ -282,7 +284,7 @@ describe("POST /api/csp-report — correct path, 204 when flag OFF", () => {
     const res = await request(app)
       .post("/api/api/csp-report")
       .send({});
-    // Double-prefixed path has no matching route — must not silently accept CSP reports.
+    // Double-prefixed path has no matching route â€” must not silently accept CSP reports.
     // Returns 403 (CSRF gate from global requireAuth) or 404, never 204.
     expect(res.status).not.toBe(204);
   });

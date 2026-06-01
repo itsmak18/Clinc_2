@@ -1,30 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ── Mock @workspace/db ──────────────────────────────────────────────────────
+// â”€â”€ Mock @workspace/db â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 vi.mock("@workspace/db", () => {
   const select = vi.fn();
   const insert = vi.fn();
   const update = vi.fn();
 
-  return {
+  const __m: any = {
     db: { select, insert, update },
     auditLogsTable: { id: "id", userId: "userId", clinicId: "clinicId", action: "action", entityType: "entityType", entityId: "entityId", createdAt: "createdAt" },
     auditIntegrityChecksTable: { checkedDate: "checkedDate", rootHash: "rootHash", prevHash: "prevHash", rowCount: "rowCount", status: "status", verifiedAt: "verifiedAt" },
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
-// ── Mock metrics ────────────────────────────────────────────────────────────
+// â”€â”€ Mock metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const mockIncrement = vi.hoisted(() => vi.fn());
 vi.mock("../lib/metrics", () => ({
   auditIntegrityMismatchTotal: { inc: mockIncrement },
 }));
 
-// ── Mock logger ─────────────────────────────────────────────────────────────
+// â”€â”€ Mock logger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 vi.mock("../lib/logger", () => ({
   logger: { info: vi.fn(), error: vi.fn() },
 }));
 
-// ── Mock drizzle-orm operators ───────────────────────────────────────────────
+// â”€â”€ Mock drizzle-orm operators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col: unknown, val: unknown) => ({ op: "eq", col, val })),
   gte: vi.fn((col: unknown, val: unknown) => ({ op: "gte", col, val })),
@@ -37,7 +39,7 @@ vi.mock("drizzle-orm", () => ({
 import { computeHashFromRows, recordDailyIntegrity, verifyIntegrity } from "../lib/audit-integrity";
 import { db } from "@workspace/db";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function makeRow(overrides: Partial<{
   id: number; userId: number | null; clinicId: number | null;
@@ -87,7 +89,7 @@ function setupUpdateChain() {
   return { set, where };
 }
 
-// ── computeHashFromRows ──────────────────────────────────────────────────────
+// â”€â”€ computeHashFromRows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("computeHashFromRows", () => {
   it("returns a deterministic 64-char hex string for an empty row set", () => {
@@ -104,7 +106,7 @@ describe("computeHashFromRows", () => {
     expect(h1).not.toBe(h2);
   });
 
-  it("is order-sensitive — same rows in different order yield different hashes", () => {
+  it("is order-sensitive â€” same rows in different order yield different hashes", () => {
     const r1 = makeRow({ id: 1 });
     const r2 = makeRow({ id: 2 });
     const h1 = computeHashFromRows([r1, r2], "genesis");
@@ -125,7 +127,7 @@ describe("computeHashFromRows", () => {
   });
 });
 
-// ── recordDailyIntegrity ─────────────────────────────────────────────────────
+// â”€â”€ recordDailyIntegrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("recordDailyIntegrity", () => {
   beforeEach(() => { vi.clearAllMocks(); });
@@ -200,7 +202,7 @@ describe("recordDailyIntegrity", () => {
   });
 });
 
-// ── verifyIntegrity ──────────────────────────────────────────────────────────
+// â”€â”€ verifyIntegrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("verifyIntegrity", () => {
   beforeEach(() => { vi.clearAllMocks(); });

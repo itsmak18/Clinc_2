@@ -1,4 +1,4 @@
-/**
+﻿/**
  * trust-proxy.test.ts
  *
  * Regression guard for Express `trust proxy` configuration.
@@ -6,7 +6,7 @@
  * MediCore sits behind Caddy on the docker `frontend` bridge network. Caddy
  * forwards the real client IP via X-Forwarded-For. Without `trust proxy` set,
  * Express resolves `req.ip` to the upstream container IP and every rate-limit
- * bucket / login-shield key / audit IP field collapses to one identity — the
+ * bucket / login-shield key / audit IP field collapses to one identity â€” the
  * proxy's. The fix is `app.set("trust proxy", "loopback, linklocal, uniquelocal")`
  * in `src/app.ts`. This file pins that decision in place.
  *
@@ -14,15 +14,15 @@
  *   - The setting is configured (not the default `false`).
  *   - Loopback addresses are trusted (proxy + api on same host).
  *   - Unique-local docker bridge addresses are trusted (10/8, 172.16/12, 192.168/16).
- *   - Public-internet addresses are NOT trusted — a malicious client cannot
+ *   - Public-internet addresses are NOT trusted â€” a malicious client cannot
  *     spoof X-Forwarded-For and have it honored.
  */
 
 import { describe, it, expect, vi } from "vitest";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes import @workspace/db which throws if DATABASE_URL is unset. Same
-// pattern as auth-flow.integration.test.ts — this suite only inspects the
+// pattern as auth-flow.integration.test.ts â€” this suite only inspects the
 // trust-proxy setting on the Express app, so a minimal proxy mock is enough.
 vi.mock("@workspace/db", () => {
   const chainable = () => {
@@ -35,7 +35,7 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy(obj, handler);
   };
-  return {
+  const __m: any = {
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
       select: vi.fn(() => chainable()),
@@ -51,6 +51,8 @@ vi.mock("@workspace/db", () => {
     inArray: vi.fn(),
     sql: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 // Import app AFTER the mock is registered (vitest hoists vi.mock above this).
@@ -58,7 +60,7 @@ import app from "../app";
 
 type TrustProxyFn = (addr: string, hop: number) => boolean;
 
-describe("Express trust proxy — regression guard", () => {
+describe("Express trust proxy â€” regression guard", () => {
   it("is configured (not the default false)", () => {
     expect(app.get("trust proxy")).not.toBe(false);
     expect(app.get("trust proxy")).not.toBeUndefined();

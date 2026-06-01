@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { clinicNoticesTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -22,7 +25,7 @@ export async function listClinicNotices(
     eq(clinicNoticesTable.clinicId, req.user!.clinicId),
   ];
 
-  // cursor is a UUID string — lexicographic order equals chronological for UUIDv7
+  // cursor is a UUID string â€” lexicographic order equals chronological for UUIDv7
   if (params.cursor) {
     conditions.push(lt(clinicNoticesTable.id, params.cursor) as any);
   }
@@ -44,7 +47,7 @@ export async function listClinicNotices(
 export async function createClinicNotice(req: AuthRequest, body: unknown) {
   const parsed = createNoticeSchema.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError("title (5–200 chars), content (10+ chars), reason (20+ chars) required");
+    throw new ValidationError("title (5â€“200 chars), content (10+ chars), reason (20+ chars) required");
   }
 
   return runInTenantContext(req.user!, async (tx) => {

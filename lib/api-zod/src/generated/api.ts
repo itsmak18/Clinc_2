@@ -540,8 +540,11 @@ export const GetPatientSummaryResponse = zod.object({
         })
         .optional(),
       chiefComplaint: zod.string(),
+      chiefComplaintAr: zod.string().nullish(),
       diagnosis: zod.string(),
+      diagnosisAr: zod.string().nullish(),
       treatment: zod.string(),
+      treatmentAr: zod.string().nullish(),
       notes: zod.string().nullish(),
       vitals: zod
         .object({
@@ -602,11 +605,14 @@ export const GetPatientSummaryResponse = zod.object({
         })
         .optional(),
       bodyPart: zod.string(),
+      bodyPartAr: zod.string().nullish(),
       imageUrl: zod.string().nullish(),
       imageFileName: zod.string().nullish(),
       report: zod.string().nullish(),
+      reportAr: zod.string().nullish(),
       status: zod.enum(["pending", "uploaded", "reviewed"]),
       notes: zod.string().nullish(),
+      notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -656,9 +662,12 @@ export const GetPatientSummaryResponse = zod.object({
         })
         .optional(),
       testName: zod.string(),
+      testNameAr: zod.string().nullish(),
       results: zod.string().nullish(),
+      resultsAr: zod.string().nullish(),
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
       notes: zod.string().nullish(),
+      notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -1176,8 +1185,11 @@ export const GetAppointmentDischargeResponse = zod.object({
         })
         .optional(),
       chiefComplaint: zod.string(),
+      chiefComplaintAr: zod.string().nullish(),
       diagnosis: zod.string(),
+      diagnosisAr: zod.string().nullish(),
       treatment: zod.string(),
+      treatmentAr: zod.string().nullish(),
       notes: zod.string().nullish(),
       vitals: zod
         .object({
@@ -1247,6 +1259,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         }),
       ),
       notes: zod.string().nullish(),
+      notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -1296,9 +1309,12 @@ export const GetAppointmentDischargeResponse = zod.object({
         })
         .optional(),
       testName: zod.string(),
+      testNameAr: zod.string().nullish(),
       results: zod.string().nullish(),
+      resultsAr: zod.string().nullish(),
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
       notes: zod.string().nullish(),
+      notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -1348,11 +1364,14 @@ export const GetAppointmentDischargeResponse = zod.object({
         })
         .optional(),
       bodyPart: zod.string(),
+      bodyPartAr: zod.string().nullish(),
       imageUrl: zod.string().nullish(),
       imageFileName: zod.string().nullish(),
       report: zod.string().nullish(),
+      reportAr: zod.string().nullish(),
       status: zod.enum(["pending", "uploaded", "reviewed"]),
       notes: zod.string().nullish(),
+      notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -2006,8 +2025,11 @@ export const ListMedicalRecordsResponseItem = zod.object({
     })
     .optional(),
   chiefComplaint: zod.string(),
+  chiefComplaintAr: zod.string().nullish(),
   diagnosis: zod.string(),
+  diagnosisAr: zod.string().nullish(),
   treatment: zod.string(),
+  treatmentAr: zod.string().nullish(),
   notes: zod.string().nullish(),
   vitals: zod
     .object({
@@ -2033,8 +2055,11 @@ export const CreateMedicalRecordBody = zod.object({
   doctorId: zod.number(),
   appointmentId: zod.number().optional(),
   chiefComplaint: zod.string(),
+  chiefComplaintAr: zod.string().optional(),
   diagnosis: zod.string(),
+  diagnosisAr: zod.string().optional(),
   treatment: zod.string(),
+  treatmentAr: zod.string().optional(),
   notes: zod.string().optional(),
   vitals: zod
     .object({
@@ -2100,8 +2125,11 @@ export const GetMedicalRecordResponse = zod.object({
     })
     .optional(),
   chiefComplaint: zod.string(),
+  chiefComplaintAr: zod.string().nullish(),
   diagnosis: zod.string(),
+  diagnosisAr: zod.string().nullish(),
   treatment: zod.string(),
+  treatmentAr: zod.string().nullish(),
   notes: zod.string().nullish(),
   vitals: zod
     .object({
@@ -2125,8 +2153,11 @@ export const UpdateMedicalRecordParams = zod.object({
 
 export const UpdateMedicalRecordBody = zod.object({
   chiefComplaint: zod.string().optional(),
+  chiefComplaintAr: zod.string().optional(),
   diagnosis: zod.string().optional(),
+  diagnosisAr: zod.string().optional(),
   treatment: zod.string().optional(),
+  treatmentAr: zod.string().optional(),
   notes: zod.string().optional(),
   vitals: zod
     .object({
@@ -2185,8 +2216,11 @@ export const UpdateMedicalRecordResponse = zod.object({
     })
     .optional(),
   chiefComplaint: zod.string(),
+  chiefComplaintAr: zod.string().nullish(),
   diagnosis: zod.string(),
+  diagnosisAr: zod.string().nullish(),
   treatment: zod.string(),
+  treatmentAr: zod.string().nullish(),
   notes: zod.string().nullish(),
   vitals: zod
     .object({
@@ -2314,6 +2348,7 @@ export const ListPrescriptionsResponseItem = zod.object({
     }),
   ),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListPrescriptionsResponse = zod.array(
@@ -2337,6 +2372,7 @@ export const CreatePrescriptionBody = zod.object({
     }),
   ),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
 });
 
 /**
@@ -2400,6 +2436,7 @@ export const GetPrescriptionResponse = zod.object({
     }),
   ),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2456,11 +2493,14 @@ export const ListXrayImagesResponseItem = zod.object({
     })
     .optional(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListXrayImagesResponse = zod.array(ListXrayImagesResponseItem);
@@ -2472,7 +2512,9 @@ export const CreateXrayRecordBody = zod.object({
   patientId: zod.number(),
   requestedById: zod.number(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
 });
 
 /**
@@ -2527,11 +2569,14 @@ export const GetXrayRecordResponse = zod.object({
     })
     .optional(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2547,8 +2592,11 @@ export const UpdateXrayRecordBody = zod.object({
   imageUrl: zod.string().optional(),
   imageFileName: zod.string().optional(),
   report: zod.string().optional(),
+  reportAr: zod.string().optional(),
   status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
+  bodyPartAr: zod.string().optional(),
 });
 
 export const UpdateXrayRecordResponse = zod.object({
@@ -2596,11 +2644,14 @@ export const UpdateXrayRecordResponse = zod.object({
     })
     .optional(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2658,11 +2709,14 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
     .optional(),
   examType: zod.string(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListUltrasoundRecordsResponse = zod.array(
@@ -2677,7 +2731,9 @@ export const CreateUltrasoundRecordBody = zod.object({
   requestedById: zod.number(),
   examType: zod.string(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
 });
 
 /**
@@ -2733,11 +2789,14 @@ export const GetUltrasoundRecordResponse = zod.object({
     .optional(),
   examType: zod.string(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2753,8 +2812,11 @@ export const UpdateUltrasoundRecordBody = zod.object({
   imageUrl: zod.string().optional(),
   imageFileName: zod.string().optional(),
   report: zod.string().optional(),
+  reportAr: zod.string().optional(),
   status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
+  bodyPartAr: zod.string().optional(),
 });
 
 export const UpdateUltrasoundRecordResponse = zod.object({
@@ -2803,11 +2865,14 @@ export const UpdateUltrasoundRecordResponse = zod.object({
     .optional(),
   examType: zod.string(),
   bodyPart: zod.string(),
+  bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
   report: zod.string().nullish(),
+  reportAr: zod.string().nullish(),
   status: zod.enum(["pending", "uploaded", "reviewed"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2866,9 +2931,12 @@ export const ListLabTestsResponseItem = zod.object({
     })
     .optional(),
   testName: zod.string(),
+  testNameAr: zod.string().nullish(),
   results: zod.string().nullish(),
+  resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListLabTestsResponse = zod.array(ListLabTestsResponseItem);
@@ -2880,7 +2948,9 @@ export const CreateLabTestBody = zod.object({
   patientId: zod.number(),
   requestedById: zod.number(),
   testName: zod.string(),
+  testNameAr: zod.string().optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
 });
 
 /**
@@ -2935,9 +3005,12 @@ export const GetLabTestResponse = zod.object({
     })
     .optional(),
   testName: zod.string(),
+  testNameAr: zod.string().nullish(),
   results: zod.string().nullish(),
+  resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -2951,10 +3024,12 @@ export const UpdateLabTestParams = zod.object({
 export const UpdateLabTestBody = zod.object({
   performedById: zod.number().optional(),
   results: zod.string().optional(),
+  resultsAr: zod.string().optional(),
   status: zod
     .enum(["requested", "in_progress", "completed", "cancelled"])
     .optional(),
   notes: zod.string().optional(),
+  notesAr: zod.string().optional(),
 });
 
 export const UpdateLabTestResponse = zod.object({
@@ -3002,9 +3077,12 @@ export const UpdateLabTestResponse = zod.object({
     })
     .optional(),
   testName: zod.string(),
+  testNameAr: zod.string().nullish(),
   results: zod.string().nullish(),
+  resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -4362,6 +4440,103 @@ export const RevokeDeviceParams = zod.object({
 
 export const RevokeDeviceResponse = zod.object({
   status: zod.enum(["revoked"]),
+});
+
+/**
+ * @summary All-doctors performance leaderboard (admin only)
+ */
+export const ListDoctorAnalyticsQueryParams = zod.object({
+  dateFrom: zod.date().optional(),
+  dateTo: zod.date().optional(),
+});
+
+export const ListDoctorAnalyticsResponse = zod.object({
+  doctors: zod.array(
+    zod.object({
+      doctorId: zod.number(),
+      doctorName: zod.string(),
+      kpis: zod.object({
+        totalAppointments: zod.number(),
+        completedAppointments: zod.number(),
+        noShowCount: zod.number(),
+        noShowRate: zod.number(),
+        cancelledCount: zod.number(),
+        cancellationRate: zod.number(),
+        avgConsultMinutes: zod.number(),
+        avgWaitMinutes: zod.number(),
+        revenueGenerated: zod.number(),
+        labOrders: zod.number(),
+        xrayOrders: zod.number(),
+        orderRate: zod.number(),
+      }),
+    }),
+  ),
+  clinicAverage: zod.object({
+    totalAppointments: zod.number(),
+    completedAppointments: zod.number(),
+    noShowCount: zod.number(),
+    noShowRate: zod.number(),
+    cancelledCount: zod.number(),
+    cancellationRate: zod.number(),
+    avgConsultMinutes: zod.number(),
+    avgWaitMinutes: zod.number(),
+    revenueGenerated: zod.number(),
+    labOrders: zod.number(),
+    xrayOrders: zod.number(),
+    orderRate: zod.number(),
+  }),
+});
+
+/**
+ * @summary KPIs for a single doctor (own only for doctor role; any for admin)
+ */
+export const GetDoctorAnalyticsParams = zod.object({
+  doctorId: zod.coerce.number(),
+});
+
+export const GetDoctorAnalyticsQueryParams = zod.object({
+  dateFrom: zod.date().optional(),
+  dateTo: zod.date().optional(),
+});
+
+export const GetDoctorAnalyticsResponse = zod.object({
+  doctor: zod.object({
+    totalAppointments: zod.number(),
+    completedAppointments: zod.number(),
+    noShowCount: zod.number(),
+    noShowRate: zod.number(),
+    cancelledCount: zod.number(),
+    cancellationRate: zod.number(),
+    avgConsultMinutes: zod.number(),
+    avgWaitMinutes: zod.number(),
+    revenueGenerated: zod.number(),
+    labOrders: zod.number(),
+    xrayOrders: zod.number(),
+    orderRate: zod.number(),
+  }),
+  clinicAverage: zod.object({
+    totalAppointments: zod.number(),
+    completedAppointments: zod.number(),
+    noShowCount: zod.number(),
+    noShowRate: zod.number(),
+    cancelledCount: zod.number(),
+    cancellationRate: zod.number(),
+    avgConsultMinutes: zod.number(),
+    avgWaitMinutes: zod.number(),
+    revenueGenerated: zod.number(),
+    labOrders: zod.number(),
+    xrayOrders: zod.number(),
+    orderRate: zod.number(),
+  }),
+  trend: zod.array(
+    zod.object({
+      month: zod.string().describe('ISO month string e.g. \"2026-04\"'),
+      totalAppointments: zod.number(),
+      completedAppointments: zod.number(),
+      noShowCount: zod.number(),
+      revenueGenerated: zod.number(),
+    }),
+  ),
 });
 
 /**

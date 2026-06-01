@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { E } from "../errors";
 
 export interface AuthRequest extends Request {
-  user?: { userId: number; username: string; role: string; clinicId: number; jwtExpUnix: number };
+  user?: { userId: number; username: string; role: string; clinicId: number; jwtExpUnix: number; timezone?: string };
 }
 
 export function authGate(scope: Scope, allowedRoles?: string[]): RequestHandler {

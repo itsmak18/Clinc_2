@@ -26,6 +26,7 @@ import devicesRouter from "./devices";
 import passwordResetRouter from "./password-reset";
 import cspReportRouter from "./csp-report";
 import jwksRouter from "./jwks";
+import analyticsRouter from "./analytics";
 
 const router: IRouter = Router();
 
@@ -59,5 +60,6 @@ router.use(scheduleRouter);
 router.use(consentRouter);
 router.use(breakGlassRouter);
 router.use(erasureRouter);
+router.use(analyticsRouter);
 
 export default router;

@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { appointmentsTable, invoicesTable, usersTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte } from "drizzle-orm";
 import { logRead } from "../lib/audit";

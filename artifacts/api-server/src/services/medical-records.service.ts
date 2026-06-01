@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -54,8 +57,11 @@ export async function listMedicalRecords(
       doctorId: medicalRecordsTable.doctorId,
       appointmentId: medicalRecordsTable.appointmentId,
       chiefComplaint: medicalRecordsTable.chiefComplaint,
+      chiefComplaintAr: medicalRecordsTable.chiefComplaintAr,
       diagnosis: medicalRecordsTable.diagnosis,
+      diagnosisAr: medicalRecordsTable.diagnosisAr,
       treatment: medicalRecordsTable.treatment,
+      treatmentAr: medicalRecordsTable.treatmentAr,
       notes: medicalRecordsTable.notes,
       vitals: medicalRecordsTable.vitals,
       createdAt: medicalRecordsTable.createdAt,
@@ -81,8 +87,11 @@ export async function createMedicalRecord(
     doctorId: unknown;
     appointmentId?: string;
     chiefComplaint: string;
+    chiefComplaintAr?: string;
     diagnosis: string;
+    diagnosisAr?: string;
     treatment: string;
+    treatmentAr?: string;
     notes?: string;
     vitals?: unknown;
   },
@@ -110,8 +119,10 @@ export async function createMedicalRecord(
     clinicId: req.user!.clinicId,
     patientId: pid, doctorId: did, appointmentId: data.appointmentId !== undefined ? Number(data.appointmentId) : undefined,
     chiefComplaint: data.chiefComplaint,
+    chiefComplaintAr: data.chiefComplaintAr,
     diagnosis: encrypt(data.diagnosis),
-    treatment: data.treatment, notes: data.notes,
+    diagnosisAr: data.diagnosisAr,
+    treatment: data.treatment, treatmentAr: data.treatmentAr, notes: data.notes,
     vitals: encryptJsonNullable(parsedVitals.data ?? null),
   }).returning();
 
@@ -181,8 +192,10 @@ export async function updateMedicalRecord(
   const [record] = await db.update(medicalRecordsTable)
     .set({
       chiefComplaint: body.chiefComplaint,
+      chiefComplaintAr: body.chiefComplaintAr,
       diagnosis: encrypt(body.diagnosis),
-      treatment: body.treatment, notes: body.notes,
+      diagnosisAr: body.diagnosisAr,
+      treatment: body.treatment, treatmentAr: body.treatmentAr, notes: body.notes,
       vitals: encryptJsonNullable(parsedVitals.data ?? null),
       updatedAt: new Date(),
     })

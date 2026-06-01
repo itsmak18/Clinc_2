@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ── Mocks (hoisted before all imports) ───────────────────────────────────────
+// â”€â”€ Mocks (hoisted before all imports) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Database mock — prevents DATABASE_URL require at module load.
+// Database mock â€” prevents DATABASE_URL require at module load.
 vi.mock("@workspace/db", () => {
   const chainable = () => {
     const handler: ProxyHandler<object> = {
@@ -13,7 +13,7 @@ vi.mock("@workspace/db", () => {
     };
     return new Proxy({}, handler);
   };
-  return {
+  const __m: any = {
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
       select: vi.fn(() => chainable()),
@@ -33,16 +33,18 @@ vi.mock("@workspace/db", () => {
     or: vi.fn(),
     sql: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
-// Lifecycle mock — allows toggling isShuttingDown() per test.
+// Lifecycle mock â€” allows toggling isShuttingDown() per test.
 const mockIsShuttingDown = vi.fn(() => false);
 vi.mock("../lib/lifecycle", () => ({
   isShuttingDown: () => mockIsShuttingDown(),
   beginShutdown: vi.fn(),
 }));
 
-// Auth middleware mock — injects a test user so the SSE endpoint's requireAuth
+// Auth middleware mock â€” injects a test user so the SSE endpoint's requireAuth
 // passes without needing a real JWT.
 vi.mock("../middlewares/auth", () => ({
   requireAuth: (req: Record<string, unknown>, _res: unknown, next: () => void) => {
@@ -55,12 +57,12 @@ vi.mock("../middlewares/auth", () => ({
   },
 }));
 
-// Logger mock — suppress output during tests.
+// Logger mock â€” suppress output during tests.
 vi.mock("../lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-// ── Imports (after mocks) ─────────────────────────────────────────────────────
+// â”€â”€ Imports (after mocks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import { closeAllSSEClients, addSSEClient } from "../lib/sse";
 import express from "express";
@@ -69,7 +71,7 @@ import request from "supertest";
 // Lazy-import the notifications router AFTER mocks are in place.
 const { default: notificationsRouter } = await import("../routes/notifications");
 
-// ── Minimal mock Response for unit tests ──────────────────────────────────────
+// â”€â”€ Minimal mock Response for unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function mockRes() {
   const r = {
@@ -89,7 +91,7 @@ function buildTestApp() {
   return app;
 }
 
-// ── closeAllSSEClients() unit tests ───────────────────────────────────────────
+// â”€â”€ closeAllSSEClients() unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("closeAllSSEClients()", () => {
   beforeEach(() => {
@@ -100,7 +102,7 @@ describe("closeAllSSEClients()", () => {
     expect(closeAllSSEClients()).toBe(0);
   });
 
-  it("sends a reconnect event — not the old shutdown event — to each client", () => {
+  it("sends a reconnect event â€” not the old shutdown event â€” to each client", () => {
     const res1 = mockRes();
     const res2 = mockRes();
     addSSEClient(1, res1);
@@ -141,7 +143,7 @@ describe("closeAllSSEClients()", () => {
     expect(retryFieldMatch![1]).toBe(dataMatch![1]);
   });
 
-  it("assigns jitter in the 5 000–15 000 ms range", () => {
+  it("assigns jitter in the 5 000â€“15 000 ms range", () => {
     const res = mockRes();
     addSSEClient(30, res);
     closeAllSSEClients();
@@ -177,7 +179,7 @@ describe("closeAllSSEClients()", () => {
 
   it("tolerates a connection whose write() throws (already gone)", () => {
     const badRes = mockRes();
-    // Override write to throw — simulates an already-closed connection.
+    // Override write to throw â€” simulates an already-closed connection.
     (badRes as unknown as { write: () => void }).write = () => {
       throw new Error("connection gone");
     };
@@ -194,9 +196,9 @@ describe("closeAllSSEClients()", () => {
   });
 });
 
-// ── SSE endpoint drain-guard tests ───────────────────────────────────────────
+// â”€â”€ SSE endpoint drain-guard tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("GET /api/notifications/stream — drain guard", () => {
+describe("GET /api/notifications/stream â€” drain guard", () => {
   const testApp = buildTestApp();
 
   afterEach(() => {

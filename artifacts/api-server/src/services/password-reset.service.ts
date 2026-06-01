@@ -7,7 +7,9 @@
 //   consumePasswordReset({ rawToken, newPassword }) — atomic single-use.
 
 import crypto from "crypto";
-import { db } from "@workspace/db";
+// dbUnsafe: password_reset_tokens has no clinicId; issued and consumed on
+// anonymous endpoints before the user context is established.
+import { dbUnsafe as db } from "@workspace/db";
 import {
   usersTable,
   passwordResetTokensTable,

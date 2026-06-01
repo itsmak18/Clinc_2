@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { xrayRecordsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -37,10 +40,13 @@ export async function listXrays(
       requestedById: xrayRecordsTable.requestedById,
       performedById: xrayRecordsTable.performedById,
       bodyPart: xrayRecordsTable.bodyPart,
+      bodyPartAr: xrayRecordsTable.bodyPartAr,
       imageUrl: xrayRecordsTable.imageUrl,
       report: xrayRecordsTable.report,
+      reportAr: xrayRecordsTable.reportAr,
       status: xrayRecordsTable.status,
       notes: xrayRecordsTable.notes,
+      notesAr: xrayRecordsTable.notesAr,
       createdAt: xrayRecordsTable.createdAt,
       patient: { id: patientsTable.id, fullName: patientsTable.fullName },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
@@ -59,7 +65,7 @@ export async function listXrays(
 
 export async function createXray(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; bodyPart: string; notes?: string; appointmentId?: number | string },
+  data: { patientId: number | string; requestedById: number | string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string },
 ) {
   if (!data.patientId || !data.requestedById || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
@@ -67,7 +73,9 @@ export async function createXray(
   const [xray] = await db.insert(xrayRecordsTable).values({
     clinicId: req.user!.clinicId,
     patientId: Number(data.patientId), requestedById: Number(data.requestedById), bodyPart: data.bodyPart,
-    notes: data.notes, appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
+    bodyPartAr: data.bodyPartAr,
+    notes: data.notes, notesAr: data.notesAr,
+    appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
   }).returning();
   await logAudit(req, "CREATE", "xray", xray.id);
   return xray;
@@ -93,7 +101,7 @@ export async function getXray(req: AuthRequest, xrayId: number) {
 export async function updateXray(
   req: AuthRequest,
   xrayId: number,
-  data: { imageUrl?: string; imageFileName?: string; report?: string; status?: string; performedById?: number },
+  data: { imageUrl?: string; imageFileName?: string; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
 ) {
   const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
   const [xray] = await db.update(xrayRecordsTable)

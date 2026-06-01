@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, CalendarDays, FileText, Pill, Scan, FlaskConical,
   Receipt, Scissors, Package, BarChart3, Bell, Shield, Settings,
-  Activity, UserCog, Waves, CalendarRange, Stethoscope, ClipboardList, UserCheck, Inbox
+  Activity, UserCog, Waves, CalendarRange, Stethoscope, ClipboardList, UserCheck, Inbox, TrendingUp
 } from "lucide-react";
 import type { UserRole } from "@/hooks/auth";
 
@@ -174,6 +174,13 @@ export const navItems: NavItem[] = [
     roles: ["super_admin", "compliance_officer"],
   },
   {
+    key: "analytics",
+    href: "/analytics",
+    icon: TrendingUp,
+    labelKey: "analytics",
+    roles: ["super_admin", "admin", "doctor"],
+  },
+  {
     key: "settings",
     href: "/settings",
     icon: Settings,
@@ -204,7 +211,7 @@ export const navPinnedByRole: Partial<Record<UserRole, string[]>> = {
   compliance_officer: ["audit"],
   billing_manager:    ["billing"],
   pharmacist:         ["prescriptions"],
-  doctor:             ["today", "schedule", "patients", "consult", "orders", "inbox"],
+  doctor:             ["today", "schedule", "patients", "consult", "orders", "inbox", "analytics"],
 };
 
 export function canAccessRoute(href: string, role: UserRole): boolean {

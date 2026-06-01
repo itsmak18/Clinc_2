@@ -11,6 +11,7 @@ const STYLES = `
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:Arial,Helvetica,sans-serif;padding:30px 40px;color:#111;font-size:13px;line-height:1.5}
+    .ar-block{font-family:'Segoe UI','Arial',sans-serif;direction:rtl;text-align:right;color:#555;font-size:12px;margin-top:4px;border-top:1px dashed #e5e7eb;padding-top:4px}
     .header{text-align:center;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}
     .clinic-name{font-size:20px;font-weight:bold;letter-spacing:-.5px}
     .doc-type{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:2px;margin-top:3px}
@@ -55,6 +56,8 @@ interface PrescriptionData {
   patient?: { fullName?: string | null; mrn?: string | null; dateOfBirth?: string | null; gender?: string | null; bloodType?: string | null; allergies?: string | null } | null;
   doctor?: { fullName?: string | null } | null;
   medications?: Array<{ name: string; dosage: string; frequency: string; duration: string; instructions?: string }>;
+  notes?: string | null;
+  notesAr?: string | null;
 }
 
 export function prescriptionHtml(rx: PrescriptionData): string {
@@ -103,6 +106,8 @@ export function prescriptionHtml(rx: PrescriptionData): string {
 
     <div class="section-title">Medications</div>
     ${medsHtml}
+    ${rx.notes ? `<div class="section-title">Notes</div><p style="font-size:13px;white-space:pre-wrap">${rx.notes}</p>` : ""}
+    ${rx.notesAr ? `<div class="section-title" style="direction:rtl;text-align:right">ملاحظات</div><p class="ar-block" style="white-space:pre-wrap">${rx.notesAr}</p>` : ""}
 
     <div class="footer">
       <div class="sig">
@@ -116,10 +121,12 @@ export interface LabParam { name: string; value: string; unit: string; refRange:
 interface LabReportData {
   createdAt: string | Date;
   testName?: string | null;
+  testNameAr?: string | null;
   patient?: { fullName?: string | null; mrn?: string | null; dateOfBirth?: string | null; gender?: string | null } | null;
   requestedBy?: { fullName?: string | null } | null;
   params: LabParam[];
   notes?: string | null;
+  notesAr?: string | null;
 }
 
 export function labReportHtml(d: LabReportData): string {
@@ -158,7 +165,7 @@ export function labReportHtml(d: LabReportData): string {
       <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(d.patient?.dateOfBirth)}</div></div>
       <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${d.patient?.gender ?? "-"}</div></div>
     </div>
-    <div class="section-title">Test: ${d.testName ?? "Unknown"}</div>
+    <div class="section-title">Test: ${d.testName ?? "Unknown"}${d.testNameAr ? ` / ${d.testNameAr}` : ""}</div>
     <table>
       <thead><tr>
         <th>Parameter</th>
@@ -170,6 +177,7 @@ export function labReportHtml(d: LabReportData): string {
       <tbody>${rows}</tbody>
     </table>
     ${d.notes ? `<div class="section-title">Notes / Interpretation</div><p style="font-size:13px;white-space:pre-wrap">${d.notes}</p>` : ""}
+    ${d.notesAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-top:6px">${d.notesAr}</p>` : ""}
     <div style="margin-top:32px;font-size:11px;color:#888">H = High &nbsp;|&nbsp; L = Low &nbsp;|&nbsp; N = Normal</div>
     <div class="footer">
       <div class="sig"><div class="sig-line">Laboratory Technician</div></div>
@@ -179,10 +187,13 @@ export function labReportHtml(d: LabReportData): string {
 interface XrayReportData {
   createdAt: string | Date;
   bodyPart?: string | null;
+  bodyPartAr?: string | null;
   patient?: { fullName?: string | null; mrn?: string | null } | null;
   requestedBy?: { fullName?: string | null } | null;
   findings: string;
   impression: string;
+  findingsAr?: string | null;
+  impressionAr?: string | null;
   imageUrl?: string | null;
 }
 
@@ -202,12 +213,15 @@ export function xrayReportHtml(d: XrayReportData): string {
       <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
     </div>
     <div class="section-title">Examination</div>
-    <p style="font-size:14px;font-weight:600;margin-bottom:12px">${d.bodyPart ?? "Unknown area"}</p>
+    <p style="font-size:14px;font-weight:600;margin-bottom:4px">${d.bodyPart ?? "Unknown area"}</p>
+    ${d.bodyPartAr ? `<p class="ar-block" style="font-size:13px;margin-bottom:12px">${d.bodyPartAr}</p>` : "<p style='margin-bottom:12px'></p>"}
     ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
     <div class="section-title">Findings</div>
-    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:12px">${d.findings || "—"}</p>
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${d.findings || "—"}</p>
+    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${d.findingsAr}</p>` : "<p style='margin-bottom:12px'></p>"}
     <div class="section-title">Impression / Conclusion</div>
-    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:16px">${d.impression || "—"}</p>
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${d.impression || "—"}</p>
+    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${d.impressionAr}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
       <div class="sig"><div class="sig-line">Radiologist Signature</div></div>
     </div>`;
@@ -217,10 +231,13 @@ interface UltrasoundReportData {
   createdAt: string | Date;
   examType?: string | null;
   bodyPart?: string | null;
+  bodyPartAr?: string | null;
   patient?: { fullName?: string | null; mrn?: string | null } | null;
   requestedBy?: { fullName?: string | null } | null;
   findings: string;
   impression: string;
+  findingsAr?: string | null;
+  impressionAr?: string | null;
   imageUrl?: string | null;
 }
 
@@ -242,13 +259,19 @@ export function ultrasoundReportHtml(d: UltrasoundReportData): string {
     <div class="section-title">Examination</div>
     <div class="grid2" style="margin-bottom:12px">
       <div><div class="lbl">Exam Type</div><div class="val">${d.examType ?? "-"}</div></div>
-      <div><div class="lbl">Body Part</div><div class="val">${d.bodyPart ?? "-"}</div></div>
+      <div>
+        <div class="lbl">Body Part</div>
+        <div class="val">${d.bodyPart ?? "-"}</div>
+        ${d.bodyPartAr ? `<div class="ar-block">${d.bodyPartAr}</div>` : ""}
+      </div>
     </div>
     ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
     <div class="section-title">Findings</div>
-    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:12px">${d.findings || "—"}</p>
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${d.findings || "—"}</p>
+    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${d.findingsAr}</p>` : "<p style='margin-bottom:12px'></p>"}
     <div class="section-title">Impression / Conclusion</div>
-    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:16px">${d.impression || "—"}</p>
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${d.impression || "—"}</p>
+    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${d.impressionAr}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
       <div class="sig"><div class="sig-line">Sonographer / Radiologist Signature</div></div>
     </div>`;

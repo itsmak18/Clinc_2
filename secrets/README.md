@@ -10,6 +10,7 @@ Docker Compose mounts files from this directory into containers as
 | File | Permissions | How to generate |
 |---|---|---|
 | `postgres_password` | `chmod 600`, owned by deploy user | `openssl rand -base64 48 \| tr -d '\n' > ./secrets/postgres_password` |
+| `app_db_password` | `chmod 600`, owned by deploy user | `openssl rand -base64 48 \| tr -d '\n' > ./secrets/app_db_password` |
 | `redis_password` | `chmod 600`, owned by deploy user | `openssl rand -base64 48 \| tr -d '\n' > ./secrets/redis_password` |
 | `session_secret` | `chmod 600`, owned by deploy user | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/session_secret` |
 | `field_encryption_key` | `chmod 600`, owned by deploy user | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" > ./secrets/field_encryption_key` |
@@ -42,8 +43,13 @@ at `/run/secrets/*` are only readable by the container's user and never appear
 in `docker inspect`.
 
 The A10 follow-up (file-mount `SESSION_SECRET` / `FIELD_ENCRYPTION_KEY` / `METRICS_TOKEN`)
-landed 2026-05-27. `REDIS_PASSWORD` file-mounted 2026-05-29. The api entrypoint
-(`docker-compose.prod.yml` → api service `command:`) now reads `/run/secrets/*`
-into env vars at container start, after a pre-flight check that fails fast if any
-required file is missing or empty. `REDIS_URL` is assembled from the secret file
-inside the entrypoint — it no longer appears in `docker inspect` output.
+landed 2026-05-27. `REDIS_PASSWORD` file-mounted 2026-05-29. `app_db_password`
+added 2026-06-02 (F-01 fix: api/worker now connect as medicore_app, NOSUPERUSER
+NOBYPASSRLS, so RLS actually enforces in production). The migrate container sets
+the medicore_app role password from this file after db:migrate completes.
+
+The api entrypoint (`docker-compose.prod.yml` → api service `command:`) now reads
+`/run/secrets/*` into env vars at container start, after a pre-flight check that
+fails fast if any required file is missing or empty. `DATABASE_URL` now uses
+`medicore_app` (not `POSTGRES_USER`) and `REDIS_URL` is assembled from the secret
+file — neither appears in `docker inspect` output.

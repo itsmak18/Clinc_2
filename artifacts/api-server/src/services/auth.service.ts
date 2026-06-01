@@ -1,4 +1,7 @@
-import { db } from "@workspace/db";
+// dbUnsafe: auth runs before a user context exists (login, rate-limit, legacy
+// hash migration). usersTable and auditLogsTable are queried without a clinic
+// context because the authenticating user's clinicId is not yet known.
+import { dbUnsafe as db } from "@workspace/db";
 import { usersTable, auditLogsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { signToken, revokeAllTokensForUser } from "../lib/auth";

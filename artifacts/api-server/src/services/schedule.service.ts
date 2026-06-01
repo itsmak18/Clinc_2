@@ -1,4 +1,9 @@
-import { db } from "@workspace/db";
+// dbUnsafe: doctor_schedules and schedule_overrides are keyed by doctorId with
+// no clinicId column — doctor-scoping provides isolation (only the doctor's own
+// slots are accessible via isDoctorScoped). usersTable/appointmentsTable queries
+// filter by doctorId rather than clinicId; a follow-up PR will add runInTenantContext
+// wrapping once the schedule tables have clinicId columns (see ROADMAP).
+import { dbUnsafe as db } from "@workspace/db";
 import {
   doctorSchedulesTable,
   scheduleOverridesTable,

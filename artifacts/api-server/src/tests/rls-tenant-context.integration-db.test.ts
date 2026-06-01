@@ -37,6 +37,59 @@ let clinicsTable: any;
 let clinicAId: number;
 let clinicBId: number;
 
+// ── STEP 0 PROBE ─────────────────────────────────────────────────────────────
+// Temporary diagnostic: discover whether the integration-db connecting role is
+// a superuser. If rolsuper || rolbypassrls is true, the RLS policy is bypassed
+// unconditionally and the tenant-isolation tests below prove nothing.
+// Run: pnpm --filter @workspace/api-server run test:integration-db
+// Remove this block once Phase 1 (medicore_app role) is implemented.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("STEP-0 PROBE — connecting role identity", () => {
+  let probeHarness: RealDbHarness;
+
+  beforeAll(async () => {
+    probeHarness = await startRealDb();
+  }, 180_000);
+
+  afterAll(async () => {
+    if (probeHarness) await probeHarness.stop();
+  });
+
+  it("prints current_user, rolsuper, rolbypassrls and row count visibility", async () => {
+    const { rows } = await probeHarness.pool.query<{
+      current_user: string;
+      rolsuper: boolean;
+      rolbypassrls: boolean;
+    }>(
+      `SELECT current_user,
+              r.rolsuper,
+              r.rolbypassrls
+       FROM pg_roles r
+       WHERE r.rolname = current_user`,
+    );
+    const role = rows[0];
+    console.log("\n━━━ STEP-0 PROBE RESULT ━━━");
+    console.log(`  current_user  : ${role.current_user}`);
+    console.log(`  rolsuper      : ${role.rolsuper}`);
+    console.log(`  rolbypassrls  : ${role.rolbypassrls}`);
+    console.log(
+      `  RLS enforced? : ${!role.rolsuper && !role.rolbypassrls ? "YES ✅ (non-superuser)" : "NO ❌ (superuser/bypassrls — RLS is inert)"}`,
+    );
+    console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    // This assertion is the guard we want permanently. For now it documents the
+    // finding: if it FAILS, the connecting role is a superuser and the tenant-
+    // isolation tests below prove nothing in prod terms.
+    expect(
+      role.rolsuper || role.rolbypassrls,
+      `Connecting role '${role.current_user}' is a superuser or has BYPASSRLS. ` +
+        `RLS is unconditionally bypassed — the isolation tests below do NOT prove prod safety. ` +
+        `Phase 1 (medicore_app role) must be completed before this guard passes.`,
+    ).toBe(false);
+  });
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 beforeAll(async () => {
   harness = await startRealDb();
 

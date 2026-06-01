@@ -22,6 +22,8 @@ export interface AuthUser {
   username: string;
   role: string;
   clinicId: number;
+  /** Per-clinic IANA timezone, optional until JWT mint populates it. */
+  timezone?: string;
 }
 
 export interface AuthMeta {
@@ -243,8 +245,11 @@ export async function evaluate(
   }
   step("tenancy", true);
 
+  // TODO(phase6): include `timezone` from the JWT payload once `auth.service.ts`
+  // login mints it (looked up from `clinics.timezone`). Until then,
+  // `getClinicTimezone(req)` in `lib/dateUtils.ts` falls back to env CLINIC_TZ.
   return pass(
-    { userId: payload.userId, username: payload.username, role, clinicId },
+    { userId: payload.userId, username: payload.username, role, clinicId, timezone: (payload as any).timezone },
     { sessionTtl: extractTokenTtl(rawToken) },
   );
 }

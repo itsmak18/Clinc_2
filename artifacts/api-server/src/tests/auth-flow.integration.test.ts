@@ -1,4 +1,4 @@
-/**
+﻿/**
  * auth-flow.integration.test.ts
  *
  * HTTP-level integration tests for the auth + CSRF boundary.
@@ -10,17 +10,17 @@
  *   - These tests catch mount-point / middleware-ordering bugs that unit tests
  *     can't (e.g. Express stripping "/api" before csrfProtect sees req.path).
  *
- * DB is mocked via vi.mock — auth/CSRF decisions happen before any DB queries;
+ * DB is mocked via vi.mock â€” auth/CSRF decisions happen before any DB queries;
  * the audit-log insert in the logout handler is wrapped in try/catch anyway.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 
-// ── DB mock (hoisted before app import) ──────────────────────────────────────
+// â”€â”€ DB mock (hoisted before app import) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Routes import @workspace/db which throws if DATABASE_URL is unset.
 // We mock the entire module; the tests only exercise middleware and JWT/revocation
-// paths — no real DB operations are needed or expected.
+// paths â€” no real DB operations are needed or expected.
 vi.mock("@workspace/db", () => {
   const chainable = () => {
     const obj: Record<string, unknown> = {};
@@ -33,7 +33,7 @@ vi.mock("@workspace/db", () => {
     return new Proxy(obj, handler);
   };
 
-  return {
+  const __m: any = {
     db: {
       insert: vi.fn(() => ({ values: vi.fn().mockResolvedValue(undefined) })),
       select: vi.fn(() => chainable()),
@@ -50,31 +50,33 @@ vi.mock("@workspace/db", () => {
     inArray: vi.fn(),
     sql: vi.fn(),
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 // Import app AFTER mock is registered (vitest hoists vi.mock above this)
 import app from "../app";
 import { signToken } from "../lib/auth";
 
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-describe("CSRF boundary — login exemption", () => {
+describe("CSRF boundary â€” login exemption", () => {
   it("POST /api/auth/login without X-CSRF-Token is NOT blocked by CSRF (returns 400, not 403)", async () => {
-    // Empty body → login handler returns 400 before any DB call.
+    // Empty body â†’ login handler returns 400 before any DB call.
     // If CSRF were not exempt, the response would be 403.
     const res = await request(app)
       .post("/api/auth/login")
       .send({});
     expect(res.status).toBe(400);
     // PR-A2: error shape migrated to canonical envelope. The 400 from a Zod
-    // failure now flows through asyncHandler → ValidationError → envelope.
+    // failure now flows through asyncHandler â†’ ValidationError â†’ envelope.
     expect(res.body.message).toMatch(/required/i);
     expect(res.body.error_code).toBe(3003); // DOMAIN_VALIDATION
   });
 });
 
-describe("CSRF boundary — logout enforcement", () => {
-  it("POST /api/auth/logout without X-CSRF-Token → 403", async () => {
+describe("CSRF boundary â€” logout enforcement", () => {
+  it("POST /api/auth/logout without X-CSRF-Token â†’ 403", async () => {
     const token = await signToken({ userId: 8001, username: "testuser", role: "admin", clinicId: 1 });
     const res = await request(app)
       .post("/api/auth/logout")
@@ -82,7 +84,7 @@ describe("CSRF boundary — logout enforcement", () => {
     expect(res.status).toBe(403);
   });
 
-  it("POST /api/auth/logout with mismatched CSRF token → 403", async () => {
+  it("POST /api/auth/logout with mismatched CSRF token â†’ 403", async () => {
     const token = await signToken({ userId: 8002, username: "testuser", role: "admin", clinicId: 1 });
     const res = await request(app)
       .post("/api/auth/logout")
@@ -92,7 +94,7 @@ describe("CSRF boundary — logout enforcement", () => {
   });
 });
 
-describe("Logout authority — cookie clearance and JWT revocation", () => {
+describe("Logout authority â€” cookie clearance and JWT revocation", () => {
   // Each test uses a distinct userId to avoid cross-test revocation contamination
   // in the shared in-memory revocation store.
   let csrfValue: string;
@@ -128,8 +130,8 @@ describe("Logout authority — cookie clearance and JWT revocation", () => {
       .set("X-CSRF-Token", csrfValue);
     expect(logoutRes.status).toBe(200);
 
-    // Step 2: reuse the same JWT cookie — must be rejected (token was revoked)
-    // requireAuth → verifyToken → getRevokedAt(9002) → iat <= revokedAt → 401.
+    // Step 2: reuse the same JWT cookie â€” must be rejected (token was revoked)
+    // requireAuth â†’ verifyToken â†’ getRevokedAt(9002) â†’ iat <= revokedAt â†’ 401.
     // This happens before any DB query, so the mocked DB is irrelevant here.
     const meRes = await request(app)
       .get("/api/auth/me")
@@ -137,12 +139,12 @@ describe("Logout authority — cookie clearance and JWT revocation", () => {
     expect(meRes.status).toBe(401);
   });
 
-  it("logout is idempotent — no cookie returns 401 (requireAuth fails), not a crash", async () => {
+  it("logout is idempotent â€” no cookie returns 401 (requireAuth fails), not a crash", async () => {
     const res = await request(app)
       .post("/api/auth/logout")
       .set("Cookie", [`_csrf=${csrfValue}`])
       .set("X-CSRF-Token", csrfValue);
-    // No clinic_token cookie → requireAuth → 401 before revocation is attempted
+    // No clinic_token cookie â†’ requireAuth â†’ 401 before revocation is attempted
     expect(res.status).toBe(401);
   });
 });

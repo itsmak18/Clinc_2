@@ -1,7 +1,10 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { usersTable, appointmentsTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte } from "drizzle-orm";
-import { todayBoundary } from "../lib/dateUtils";
+import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
 import { hashPassword, validatePasswordStrength } from "../lib/password";
 import { revokeAllTokensForUser } from "../lib/auth";
 import { logAudit, logRead } from "../lib/audit";
@@ -199,7 +202,7 @@ export async function toggleShift(req: AuthRequest, userId: number) {
 
     let shiftSummary: Record<string, number> | undefined;
     if (!newShiftState && current.role === "doctor") {
-      const { start, end } = todayBoundary();
+      const { start, end } = todayBoundary(getClinicTimezone(req));
       const appointments = await tx
         .select({ status: appointmentsTable.status })
         .from(appointmentsTable)

@@ -18,9 +18,21 @@ export const pool = new Pool({
   idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT ?? "30000", 10),
   connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECT_TIMEOUT ?? "5000", 10),
   allowExitOnIdle: true,
-  statement_timeout: parseInt(process.env.DB_STATEMENT_TIMEOUT ?? "30000", 10),
+  // statement_timeout is NOT set here. Under PgBouncer transaction pooling a
+  // session-level SET leaks to the next connection borrower after DISCARD ALL
+  // resets it unpredictably. Instead, it is enforced via ALTER ROLE medicore_app
+  // SET statement_timeout = '30000ms' (migration 0021) which is a per-backend
+  // role default that RESET ALL restores correctly — pooling-safe.
 });
 export const db = drizzle(pool, { schema });
+
+// dbUnsafe is an alias of db for service paths that legitimately bypass tenant
+// context: pre-auth (login/reset/device), audit trail reads, and tables with no
+// clinicId (doctor_schedules, schedule_overrides, csp_reports, etc.).
+// Each import site MUST carry a one-line justification comment explaining why
+// the raw client is appropriate. The eslint rule in api-server blocks `db`
+// imports in services/** — use this named export instead.
+export const dbUnsafe = db;
 
 export * from "./schema";
 export { sql } from "drizzle-orm";

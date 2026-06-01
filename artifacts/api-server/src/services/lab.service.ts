@@ -1,4 +1,7 @@
-import { db, runInTenantContext } from "@workspace/db";
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
+// dbUnsafe acknowledges the intentional bypass for those specific call sites.
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
@@ -37,9 +40,12 @@ export async function listLabTests(
       requestedById: labTestsTable.requestedById,
       performedById: labTestsTable.performedById,
       testName: labTestsTable.testName,
+      testNameAr: labTestsTable.testNameAr,
       results: labTestsTable.results,
+      resultsAr: labTestsTable.resultsAr,
       status: labTestsTable.status,
       notes: labTestsTable.notes,
+      notesAr: labTestsTable.notesAr,
       createdAt: labTestsTable.createdAt,
       patient: { id: patientsTable.id, fullName: patientsTable.fullName },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
@@ -58,7 +64,7 @@ export async function listLabTests(
 
 export async function createLabTest(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; testName: string; notes?: string; appointmentId?: number | string },
+  data: { patientId: number | string; requestedById: number | string; testName: string; testNameAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string },
 ) {
   if (!data.patientId || !data.requestedById || !data.testName) {
     throw new ValidationError("Missing required fields");
@@ -66,7 +72,9 @@ export async function createLabTest(
   const [test] = await db.insert(labTestsTable).values({
     clinicId: req.user!.clinicId,
     patientId: Number(data.patientId), requestedById: Number(data.requestedById), testName: data.testName,
-    notes: data.notes, appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
+    testNameAr: data.testNameAr,
+    notes: data.notes, notesAr: data.notesAr,
+    appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
   }).returning();
   await logAudit(req, "CREATE", "lab_test", test.id);
   return test;
@@ -92,11 +100,11 @@ export async function getLabTest(req: AuthRequest, testId: number) {
 export async function updateLabTest(
   req: AuthRequest,
   testId: number,
-  data: { results?: string; status?: string; performedById?: number },
+  data: { results?: string; resultsAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string },
 ) {
   const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
   const [test] = await db.update(labTestsTable)
-    .set({ results: data.results, status: data.status as any, performedById: data.performedById, updatedAt: new Date() })
+    .set({ results: data.results, resultsAr: data.resultsAr, status: data.status as any, performedById: data.performedById, notes: data.notes, notesAr: data.notesAr, updatedAt: new Date() })
     .where(and(...conditions))
     .returning();
   if (!test) throw new NotFoundError("lab test", testId);

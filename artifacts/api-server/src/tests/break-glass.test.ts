@@ -1,14 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@workspace/db", () => ({
-  db: { select: vi.fn(), insert: vi.fn(), update: vi.fn() },
-  breakGlassSessionsTable: {
-    id: "id", userId: "userId", patientId: "patientId", clinicId: "clinicId",
-    revokedAt: "revokedAt", expiresAt: "expiresAt",
-  },
-  patientsTable: { id: "id", fullName: "fullName", clinicId: "clinicId" },
-  usersTable: { id: "id", role: "role", clinicId: "clinicId" },
-}));
+// Mock @workspace/db — runInTenantContext is mocked to directly invoke the
+// callback with `db` as the transaction client, so existing mock helpers work.
+vi.mock("@workspace/db", () => {
+  const db: any = { select: vi.fn(), insert: vi.fn(), update: vi.fn() };
+  return {
+    db,
+    dbUnsafe: db,
+    runInTenantContext: vi.fn().mockImplementation((_user: any, fn: (tx: any) => any) => fn(db)),
+    breakGlassSessionsTable: {
+      id: "id", userId: "userId", patientId: "patientId", clinicId: "clinicId",
+      revokedAt: "revokedAt", expiresAt: "expiresAt", activatedAt: "activatedAt",
+      approvedAt: "approvedAt",
+    },
+    patientsTable: { id: "id", fullName: "fullName", clinicId: "clinicId" },
+    usersTable: { id: "id", role: "role", clinicId: "clinicId" },
+    eq: vi.fn(),
+    and: vi.fn(),
+    or: vi.fn(),
+    isNull: vi.fn(),
+    isNotNull: vi.fn(),
+    gt: vi.fn(),
+    desc: vi.fn(),
+  };
+});
 
 vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
@@ -29,14 +44,14 @@ function req(userId = 3, role = "doctor"): AuthRequest {
 const VALID_JUSTIFICATION = "Emergency — patient unconscious, need to review history immediately";
 const VALID_BODY = { justification: VALID_JUSTIFICATION, reasonCategory: "patient_unconscious" };
 
-// select().from().where() → resolves directly (no limit)
+// select().from().where() — resolves directly (no limit)
 function mockSelectDirect(rows: unknown[]) {
   const where = vi.fn().mockResolvedValue(rows);
   const from = vi.fn().mockReturnValue({ where });
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
-// select().from().where().limit() → resolves to rows
+// select().from().where().limit() — resolves to rows
 function mockSelectWithLimit(rows: unknown[]) {
   const limit = vi.fn().mockResolvedValue(rows);
   const where = vi.fn().mockReturnValue({ limit });
@@ -44,7 +59,7 @@ function mockSelectWithLimit(rows: unknown[]) {
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
 }
 
-// update().set().where().returning() → resolves to rows
+// update().set().where().returning() — resolves to rows
 function mockUpdateReturning(rows: unknown[]) {
   const returning = vi.fn().mockResolvedValue(rows);
   const where = vi.fn().mockReturnValue({ returning });
@@ -74,7 +89,7 @@ describe("activateBreakGlass", () => {
 
   it("throws NotFoundError when patient does not exist", async () => {
     const { NotFoundError } = await import("../services/errors");
-    // activateBreakGlass: db.select({id,fullName}).from(patients).where() — no .limit()
+    // First select: patient lookup — returns no patient
     mockSelectDirect([]);
     await expect(
       activateBreakGlass(req(), 99, VALID_BODY),
@@ -84,20 +99,20 @@ describe("activateBreakGlass", () => {
   it("throws ConflictError when an active session already exists", async () => {
     const { ConflictError } = await import("../services/errors");
 
-    // activateBreakGlass calls:
-    //   1. db.select({id,fullName}).from(patients).where()           — no .limit() (direct)
-    //   2. getActiveSession → db.select().from(sessions).where().limit(1)
+    // activateBreakGlass now uses a single runInTenantContext callback with:
+    //   1. patient select (returns patient)
+    //   2. existing session select (returns existing session)
     let callCount = 0;
     (db.select as ReturnType<typeof vi.fn>).mockImplementation(() => {
       callCount++;
       const currentCall = callCount;
       if (currentCall === 1) {
-        // Patient check: .where() resolves directly
+        // Patient check: .where() resolves to a patient
         const where = vi.fn().mockResolvedValue([{ id: 10, fullName: "John" }]);
         const from = vi.fn().mockReturnValue({ where });
         return { from };
       }
-      // getActiveSession: .where().limit()
+      // Existing session check: .where().limit(1) — returns existing session
       const limit = vi.fn().mockResolvedValue([
         { id: 5, userId: 3, patientId: 10, expiresAt: new Date(Date.now() + 60_000) },
       ]);
@@ -128,7 +143,6 @@ describe("getActiveSession", () => {
 describe("revokeBreakGlass", () => {
   it("throws NotFoundError when session does not exist", async () => {
     const { NotFoundError } = await import("../services/errors");
-    // revokeBreakGlass: db.select().from().where() — no .limit()
     mockSelectDirect([]);
     await expect(revokeBreakGlass(req(), 99)).rejects.toBeInstanceOf(NotFoundError);
   });

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * rateLimiter.test.ts
  *
  * Tests for the rate limiter middleware and functions.
@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Request, Response, NextFunction } from "express";
 import { ipRateLimit, getRemainingAttempts, checkAllowed, recordSuccess } from "../../src/middlewares/rateLimiter";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function makeReq(ip: string = "127.0.0.1"): Request {
   return { ip } as Request;
@@ -21,7 +21,7 @@ function makeRes() {
   return res as unknown as Response;
 }
 
-// ── Mock DB ──────────────────────────────────────────────────────────────────
+// â”€â”€ Mock DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const { mockWhere, mockDeleteWhere } = vi.hoisted(() => ({
   mockWhere: vi.fn(),
   mockDeleteWhere: vi.fn(),
@@ -38,15 +38,17 @@ vi.mock("@workspace/db", () => {
   // To support db.delete(table).where(...)
   dbMock.delete.mockReturnValue({ where: mockDeleteWhere });
 
-  return {
+  const __m: any = {
     db: dbMock,
     loginAttemptsTable: { key: "key" },
   };
+  __m.dbUnsafe = __m.db;
+  return __m;
 });
 
 // Removed ipRateLimit test suite because it now delegates to express-rate-limit and rate-limit-redis
 
-// ── DB-backed rate limiter functions ──────────────────────────────────────────
+// â”€â”€ DB-backed rate limiter functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe("DB-backed rate limiter functions", () => {
   beforeEach(() => {
