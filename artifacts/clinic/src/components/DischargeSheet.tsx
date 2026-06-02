@@ -67,7 +67,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head>
       <meta charset="utf-8"/>
-      <title>Visit Summary — ${data?.patient.fullName ?? ""}</title>
+      <title>Visit Summary</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #111; padding: 24px; }
@@ -97,6 +97,10 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
       </style>
     </head><body>${el.innerHTML}</body></html>`);
     win.document.close();
+    // Set the patient name via the DOM API rather than interpolating it into the
+    // written HTML string — assigning to .title treats the value as text, so it
+    // cannot break out of the <title> element and inject markup.
+    if (data?.patient.fullName) win.document.title = `Visit Summary — ${data.patient.fullName}`;
     setTimeout(() => { win.focus(); win.print(); }, 400);
   };
 

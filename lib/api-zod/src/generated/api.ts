@@ -3704,6 +3704,7 @@ export const listAuditLogsQueryOffsetDefault = 0;
 export const ListAuditLogsQueryParams = zod.object({
   userId: zod.coerce.number().optional(),
   action: zod.coerce.string().optional(),
+  entityType: zod.coerce.string().optional(),
   dateFrom: zod.date().optional(),
   dateTo: zod.date().optional(),
   limit: zod.coerce.number().default(listAuditLogsQueryLimitDefault),
@@ -3737,12 +3738,273 @@ export const ListAuditLogsResponseItem = zod.object({
     .optional(),
   action: zod.string(),
   entityType: zod.string(),
-  entityId: zod.number().nullish(),
+  entityId: zod.string().nullish(),
   ipAddress: zod.string(),
   details: zod.object({}).passthrough().nullish(),
+  beforeState: zod.object({}).passthrough().nullish(),
+  afterState: zod.object({}).passthrough().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListAuditLogsResponse = zod.array(ListAuditLogsResponseItem);
+
+/**
+ * @summary Change history (who/when/before→after) for a single record
+ */
+export const GetAuditLogsByEntityParams = zod.object({
+  entityType: zod.coerce.string(),
+  entityId: zod.coerce.string(),
+});
+
+export const GetAuditLogsByEntityResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  user: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  action: zod.string(),
+  entityType: zod.string(),
+  entityId: zod.string().nullish(),
+  ipAddress: zod.string(),
+  details: zod.object({}).passthrough().nullish(),
+  beforeState: zod.object({}).passthrough().nullish(),
+  afterState: zod.object({}).passthrough().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const GetAuditLogsByEntityResponse = zod.array(
+  GetAuditLogsByEntityResponseItem,
+);
+
+/**
+ * @summary List a patient's consents
+ */
+export const ListPatientConsentsParams = zod.object({
+  patientId: zod.coerce.number(),
+});
+
+export const ListPatientConsentsResponseItem = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  consentType: zod.enum(["treatment", "data_sharing", "research", "marketing"]),
+  grantedAt: zod.coerce.date(),
+  revokedAt: zod.coerce.date().nullish(),
+  grantedByUserId: zod.number(),
+  documentVersion: zod.string(),
+  notes: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListPatientConsentsResponse = zod.array(
+  ListPatientConsentsResponseItem,
+);
+
+/**
+ * @summary Grant a consent for a patient
+ */
+export const GrantPatientConsentParams = zod.object({
+  patientId: zod.coerce.number(),
+});
+
+export const GrantPatientConsentBody = zod.object({
+  consentType: zod.enum(["treatment", "data_sharing", "research", "marketing"]),
+  documentVersion: zod.string(),
+  notes: zod.string().nullish(),
+});
+
+/**
+ * @summary Revoke a patient consent
+ */
+export const RevokePatientConsentParams = zod.object({
+  patientId: zod.coerce.number(),
+  consentId: zod.coerce.number(),
+});
+
+export const RevokePatientConsentResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  consentType: zod.enum(["treatment", "data_sharing", "research", "marketing"]),
+  grantedAt: zod.coerce.date(),
+  revokedAt: zod.coerce.date().nullish(),
+  grantedByUserId: zod.number(),
+  documentVersion: zod.string(),
+  notes: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Activate emergency break-glass access for a patient
+ */
+export const ActivateBreakGlassParams = zod.object({
+  patientId: zod.coerce.number(),
+});
+
+export const activateBreakGlassBodyJustificationMin = 30;
+
+export const ActivateBreakGlassBody = zod.object({
+  justification: zod.string().min(activateBreakGlassBodyJustificationMin),
+  reasonCategory: zod.enum([
+    "life_threatening_emergency",
+    "patient_unconscious",
+    "code_blue_response",
+    "covering_attending_unavailable",
+    "regulatory_audit_request",
+  ]),
+});
+
+/**
+ * @summary List break-glass sessions
+ */
+export const ListBreakGlassSessionsQueryParams = zod.object({
+  patientId: zod.coerce.number().optional(),
+  active: zod.coerce.string().optional(),
+});
+
+export const ListBreakGlassSessionsResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  patientId: zod.number(),
+  justification: zod.string(),
+  activatedAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  approvedAt: zod.coerce.date().nullish(),
+  approvedByUserId: zod.number().nullish(),
+  revokedAt: zod.coerce.date().nullish(),
+  revokedByUserId: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListBreakGlassSessionsResponse = zod.array(
+  ListBreakGlassSessionsResponseItem,
+);
+
+/**
+ * @summary Approve a break-glass session (extend to full TTL)
+ */
+export const ApproveBreakGlassParams = zod.object({
+  sessionId: zod.coerce.number(),
+});
+
+export const ApproveBreakGlassResponse = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  patientId: zod.number(),
+  justification: zod.string(),
+  activatedAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  approvedAt: zod.coerce.date().nullish(),
+  approvedByUserId: zod.number().nullish(),
+  revokedAt: zod.coerce.date().nullish(),
+  revokedByUserId: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Revoke a break-glass session
+ */
+export const RevokeBreakGlassParams = zod.object({
+  sessionId: zod.coerce.number(),
+});
+
+export const RevokeBreakGlassResponse = zod.object({
+  id: zod.number(),
+  userId: zod.number(),
+  patientId: zod.number(),
+  justification: zod.string(),
+  activatedAt: zod.coerce.date(),
+  expiresAt: zod.coerce.date(),
+  approvedAt: zod.coerce.date().nullish(),
+  approvedByUserId: zod.number().nullish(),
+  revokedAt: zod.coerce.date().nullish(),
+  revokedByUserId: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary List right-to-erasure requests
+ */
+export const ListErasureRequestsResponseItem = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  requestedByUserId: zod.number(),
+  requestedAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum(["pending", "approved", "rejected", "executed"]),
+  reviewedByUserId: zod.number().nullish(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewNotes: zod.string().nullish(),
+  executedByUserId: zod.number().nullish(),
+  executedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListErasureRequestsResponse = zod.array(
+  ListErasureRequestsResponseItem,
+);
+
+/**
+ * @summary Create a right-to-erasure request
+ */
+export const createErasureRequestBodyReasonMin = 10;
+
+export const CreateErasureRequestBody = zod.object({
+  patientId: zod.number(),
+  reason: zod.string().min(createErasureRequestBodyReasonMin),
+});
+
+/**
+ * @summary Approve or reject an erasure request
+ */
+export const ReviewErasureRequestParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ReviewErasureRequestBody = zod.object({
+  action: zod.enum(["approve", "reject"]),
+  notes: zod.string().nullish(),
+});
+
+export const ReviewErasureRequestResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  requestedByUserId: zod.number(),
+  requestedAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum(["pending", "approved", "rejected", "executed"]),
+  reviewedByUserId: zod.number().nullish(),
+  reviewedAt: zod.coerce.date().nullish(),
+  reviewNotes: zod.string().nullish(),
+  executedByUserId: zod.number().nullish(),
+  executedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Execute an approved erasure request (irreversible, super_admin only)
+ */
+export const ExecuteErasureParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ExecuteErasureResponse = zod.object({
+  ok: zod.boolean().optional(),
+  requestId: zod.number().optional(),
+  patientId: zod.number().optional(),
+});
 
 /**
  * @summary Get dashboard summary stats

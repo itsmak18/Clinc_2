@@ -6,6 +6,9 @@ import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import StatusBadge from "@/components/StatusBadge";
 import PatientTimeline from "@/components/PatientTimeline";
+import ChangeHistoryCard from "@/components/ChangeHistory";
+import PatientConsentCard from "@/components/PatientConsentCard";
+import BreakGlassButton from "@/components/BreakGlassButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -118,6 +121,7 @@ export default function PatientDetail() {
           <p className="text-[12px] text-[var(--ink-muted)] font-mono">MRN: {patient.mrn}</p>
         </div>
         <div className="flex gap-2 shrink-0">
+          <BreakGlassButton patientId={patientId} />
           {canEdit && (
             <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowEdit(true)} data-testid="button-edit-patient">
               <Edit2 className="w-3.5 h-3.5" /> {t("edit")}
@@ -387,6 +391,22 @@ export default function PatientDetail() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Patient consent management (grant/view/revoke). The card internally
+          gates list vs grant vs revoke by role. */}
+      {patientId > 0 && (
+        <div className="mt-4">
+          <PatientConsentCard patientId={patientId} />
+        </div>
+      )}
+
+      {/* Compliance change-history (who/when/before→after). The backing route is
+          gated to super_admin + compliance_officer, so only render for them. */}
+      {patientId > 0 && ["super_admin", "compliance_officer"].includes(user?.role || "") && (
+        <div className="mt-4">
+          <ChangeHistoryCard entityType="patient" entityId={patientId} />
+        </div>
+      )}
     </div>
   );
 }

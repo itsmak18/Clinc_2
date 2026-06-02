@@ -1,7 +1,31 @@
+// Escape every dynamic value before it is interpolated into a document.write()
+// HTML string. The print window is same-origin, so an unescaped staff-entered
+// PHI field (patient name, findings, etc.) would otherwise execute as markup.
+export function escapeHtml(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  return String(v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Allow only http/https URLs in href context; everything else (javascript:,
+// data:, etc.) collapses to empty. Returned value is HTML-attribute-escaped.
+function safeUrl(u: string | null | undefined): string {
+  if (!u) return "";
+  try {
+    const parsed = new URL(u, window.location.origin);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return escapeHtml(u);
+  } catch { /* malformed URL → drop */ }
+  return "";
+}
+
 export function openPrintWindow(html: string, title: string) {
   const win = window.open("", "_blank", "width=860,height=720");
   if (!win) { alert("Pop-up blocked — please allow pop-ups for this site."); return; }
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body>${html}</body></html>`);
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${html}</body></html>`);
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 400);
@@ -77,12 +101,12 @@ export function prescriptionHtml(rx: PrescriptionData): string {
   const medsHtml = meds.length
     ? meds.map((m, i) => `
         <div class="med-card">
-          <div class="med-name">${i + 1}. ${m.name}</div>
+          <div class="med-name">${i + 1}. ${escapeHtml(m.name)}</div>
           <div class="med-detail">
-            Dose: <strong>${m.dosage}</strong> &nbsp;|&nbsp;
-            Frequency: <strong>${m.frequency}</strong> &nbsp;|&nbsp;
-            Duration: <strong>${m.duration}</strong>
-            ${m.instructions ? `<br>Instructions: ${m.instructions}` : ""}
+            Dose: <strong>${escapeHtml(m.dosage)}</strong> &nbsp;|&nbsp;
+            Frequency: <strong>${escapeHtml(m.frequency)}</strong> &nbsp;|&nbsp;
+            Duration: <strong>${escapeHtml(m.duration)}</strong>
+            ${m.instructions ? `<br>Instructions: ${escapeHtml(m.instructions)}` : ""}
           </div>
         </div>`).join("")
     : `<div style="color:#888;font-size:12px;padding:8px">No medications listed</div>`;
@@ -96,22 +120,22 @@ export function prescriptionHtml(rx: PrescriptionData): string {
 
     <div class="section-title">Patient Information</div>
     <div class="grid2">
-      <div><div class="lbl">Name</div><div class="val">${p?.fullName ?? "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${p?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Name</div><div class="val">${escapeHtml(p?.fullName) || "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(p?.mrn) || "-"}</div></div>
       <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(p?.dateOfBirth)}${ageStr}</div></div>
-      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${p?.gender ?? "-"}</div></div>
-      <div><div class="lbl">Blood Type</div><div class="val">${p?.bloodType ?? "-"}</div></div>
+      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${escapeHtml(p?.gender) || "-"}</div></div>
+      <div><div class="lbl">Blood Type</div><div class="val">${escapeHtml(p?.bloodType) || "-"}</div></div>
     </div>
-    ${p?.allergies ? `<div class="allergy-box">⚠ Allergies: ${p.allergies}</div>` : ""}
+    ${p?.allergies ? `<div class="allergy-box">⚠ Allergies: ${escapeHtml(p.allergies)}</div>` : ""}
 
     <div class="section-title">Medications</div>
     ${medsHtml}
-    ${rx.notes ? `<div class="section-title">Notes</div><p style="font-size:13px;white-space:pre-wrap">${rx.notes}</p>` : ""}
-    ${rx.notesAr ? `<div class="section-title" style="direction:rtl;text-align:right">ملاحظات</div><p class="ar-block" style="white-space:pre-wrap">${rx.notesAr}</p>` : ""}
+    ${rx.notes ? `<div class="section-title">Notes</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(rx.notes)}</p>` : ""}
+    ${rx.notesAr ? `<div class="section-title" style="direction:rtl;text-align:right">ملاحظات</div><p class="ar-block" style="white-space:pre-wrap">${escapeHtml(rx.notesAr)}</p>` : ""}
 
     <div class="footer">
       <div class="sig">
-        <div class="sig-line">${rx.doctor?.fullName ?? "Physician"}<br>Prescribing Physician</div>
+        <div class="sig-line">${escapeHtml(rx.doctor?.fullName) || "Physician"}<br>Prescribing Physician</div>
       </div>
     </div>`;
 }
@@ -137,11 +161,11 @@ export function labReportHtml(d: LabReportData): string {
   const rows = d.params.length
     ? d.params.map(p => `
       <tr style="${rowStyle(p.flag)}">
-        <td>${p.name}</td>
-        <td style="text-align:center"><strong>${p.value || "-"}</strong></td>
-        <td style="text-align:center">${p.unit || "-"}</td>
-        <td style="text-align:center">${p.refRange || "-"}</td>
-        <td style="text-align:center;font-weight:700">${p.flag || "N"}</td>
+        <td>${escapeHtml(p.name)}</td>
+        <td style="text-align:center"><strong>${escapeHtml(p.value) || "-"}</strong></td>
+        <td style="text-align:center">${escapeHtml(p.unit) || "-"}</td>
+        <td style="text-align:center">${escapeHtml(p.refRange) || "-"}</td>
+        <td style="text-align:center;font-weight:700">${escapeHtml(p.flag) || "N"}</td>
       </tr>`).join("")
     : `<tr><td colspan="5" style="color:#888;text-align:center">No parameters entered</td></tr>`;
 
@@ -156,16 +180,16 @@ export function labReportHtml(d: LabReportData): string {
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
       <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
     <div class="section-title">Patient Information</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
       <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(d.patient?.dateOfBirth)}</div></div>
-      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${d.patient?.gender ?? "-"}</div></div>
+      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${escapeHtml(d.patient?.gender) || "-"}</div></div>
     </div>
-    <div class="section-title">Test: ${d.testName ?? "Unknown"}${d.testNameAr ? ` / ${d.testNameAr}` : ""}</div>
+    <div class="section-title">Test: ${escapeHtml(d.testName) || "Unknown"}${d.testNameAr ? ` / ${escapeHtml(d.testNameAr)}` : ""}</div>
     <table>
       <thead><tr>
         <th>Parameter</th>
@@ -176,8 +200,8 @@ export function labReportHtml(d: LabReportData): string {
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${d.notes ? `<div class="section-title">Notes / Interpretation</div><p style="font-size:13px;white-space:pre-wrap">${d.notes}</p>` : ""}
-    ${d.notesAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-top:6px">${d.notesAr}</p>` : ""}
+    ${d.notes ? `<div class="section-title">Notes / Interpretation</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(d.notes)}</p>` : ""}
+    ${d.notesAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-top:6px">${escapeHtml(d.notesAr)}</p>` : ""}
     <div style="margin-top:32px;font-size:11px;color:#888">H = High &nbsp;|&nbsp; L = Low &nbsp;|&nbsp; N = Normal</div>
     <div class="footer">
       <div class="sig"><div class="sig-line">Laboratory Technician</div></div>
@@ -205,23 +229,23 @@ export function xrayReportHtml(d: XrayReportData): string {
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
       <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
     <div class="section-title">Patient Information</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
     </div>
     <div class="section-title">Examination</div>
-    <p style="font-size:14px;font-weight:600;margin-bottom:4px">${d.bodyPart ?? "Unknown area"}</p>
-    ${d.bodyPartAr ? `<p class="ar-block" style="font-size:13px;margin-bottom:12px">${d.bodyPartAr}</p>` : "<p style='margin-bottom:12px'></p>"}
-    ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
+    <p style="font-size:14px;font-weight:600;margin-bottom:4px">${escapeHtml(d.bodyPart) || "Unknown area"}</p>
+    ${d.bodyPartAr ? `<p class="ar-block" style="font-size:13px;margin-bottom:12px">${escapeHtml(d.bodyPartAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
+    ${safeUrl(d.imageUrl) ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${safeUrl(d.imageUrl)}">${safeUrl(d.imageUrl)}</a></p>` : ""}
     <div class="section-title">Findings</div>
-    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${d.findings || "—"}</p>
-    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${d.findingsAr}</p>` : "<p style='margin-bottom:12px'></p>"}
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
+    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
     <div class="section-title">Impression / Conclusion</div>
-    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${d.impression || "—"}</p>
-    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${d.impressionAr}</p>` : "<p style='margin-bottom:16px'></p>"}
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${escapeHtml(d.impression) || "—"}</p>
+    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${escapeHtml(d.impressionAr)}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
       <div class="sig"><div class="sig-line">Radiologist Signature</div></div>
     </div>`;
@@ -249,29 +273,29 @@ export function ultrasoundReportHtml(d: UltrasoundReportData): string {
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
       <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${d.requestedBy?.fullName ?? "-"}</span>
+      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
     <div class="section-title">Patient Information</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${d.patient?.fullName ?? "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${d.patient?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
     </div>
     <div class="section-title">Examination</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Exam Type</div><div class="val">${d.examType ?? "-"}</div></div>
+      <div><div class="lbl">Exam Type</div><div class="val">${escapeHtml(d.examType) || "-"}</div></div>
       <div>
         <div class="lbl">Body Part</div>
-        <div class="val">${d.bodyPart ?? "-"}</div>
-        ${d.bodyPartAr ? `<div class="ar-block">${d.bodyPartAr}</div>` : ""}
+        <div class="val">${escapeHtml(d.bodyPart) || "-"}</div>
+        ${d.bodyPartAr ? `<div class="ar-block">${escapeHtml(d.bodyPartAr)}</div>` : ""}
       </div>
     </div>
-    ${d.imageUrl ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${d.imageUrl}">${d.imageUrl}</a></p>` : ""}
+    ${safeUrl(d.imageUrl) ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${safeUrl(d.imageUrl)}">${safeUrl(d.imageUrl)}</a></p>` : ""}
     <div class="section-title">Findings</div>
-    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${d.findings || "—"}</p>
-    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${d.findingsAr}</p>` : "<p style='margin-bottom:12px'></p>"}
+    <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
+    ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
     <div class="section-title">Impression / Conclusion</div>
-    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${d.impression || "—"}</p>
-    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${d.impressionAr}</p>` : "<p style='margin-bottom:16px'></p>"}
+    <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${escapeHtml(d.impression) || "—"}</p>
+    ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${escapeHtml(d.impressionAr)}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
       <div class="sig"><div class="sig-line">Sonographer / Radiologist Signature</div></div>
     </div>`;
@@ -303,7 +327,7 @@ export function invoiceHtml(inv: InvoiceData): string {
         <tbody>
           ${items.map(it => `
             <tr>
-              <td>${it.description}</td>
+              <td>${escapeHtml(it.description)}</td>
               <td class="text-right">${it.quantity}</td>
               <td class="text-right">$${fmtCur(it.unitPrice)}</td>
               <td class="text-right">$${fmtCur(it.total)}</td>
@@ -322,16 +346,16 @@ export function invoiceHtml(inv: InvoiceData): string {
     </div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
       <div>
-        <div style="font-size:18px;font-weight:bold;font-family:monospace">${inv.invoiceNumber ?? "-"}</div>
+        <div style="font-size:18px;font-weight:bold;font-family:monospace">${escapeHtml(inv.invoiceNumber) || "-"}</div>
         <div style="font-size:12px;color:#666;margin-top:2px">Date: ${fmtDate(inv.createdAt)}</div>
       </div>
-      <div><span class="status-badge ${statusClass}">${inv.status.toUpperCase()}</span></div>
+      <div><span class="status-badge ${statusClass}">${escapeHtml(inv.status.toUpperCase())}</span></div>
     </div>
 
     <div class="section-title">Billed To</div>
     <div class="grid2" style="margin-bottom:16px">
-      <div><div class="lbl">Patient</div><div class="val">${inv.patient?.fullName ?? "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${inv.patient?.mrn ?? "-"}</div></div>
+      <div><div class="lbl">Patient</div><div class="val">${escapeHtml(inv.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(inv.patient?.mrn) || "-"}</div></div>
     </div>
 
     <div class="section-title">Items</div>

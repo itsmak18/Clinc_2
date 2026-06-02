@@ -4,7 +4,7 @@
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
-import { logAudit, logRead } from "../lib/audit";
+import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertMedicalRecordInScope } from "../lib/scope";
 import { vitalsSchema } from "../lib/jsonb-schemas";
 import { encrypt, decrypt, encryptJsonNullable, decryptJsonNullable } from "../lib/field-encryption";
@@ -203,7 +203,9 @@ export async function updateMedicalRecord(
     .returning();
 
   if (!record) throw new NotFoundError("medical record", recordId);
-  await logAudit(req, "UPDATE", "medical_record", record.id, null, existing, record);
+  // auditSnapshot redacts encrypted PHI (diagnosis, vitals) and avoids dumping
+  // rotating-IV ciphertext into before/after.
+  await logAudit(req, "UPDATE", "medical_record", record.id, null, auditSnapshot(existing), auditSnapshot(record));
   return decryptRecord(record);
 }
 

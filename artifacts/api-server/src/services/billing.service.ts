@@ -5,7 +5,7 @@ import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { invoicesTable, patientsTable, invoiceItemsTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
-import { logAudit, logRead } from "../lib/audit";
+import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { itemsSchema } from "../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
@@ -141,7 +141,7 @@ export async function updateInvoice(req: AuthRequest, invoiceId: number, data: {
     .set({ notes: data.notes, updatedAt: new Date() })
     .where(and(...conditions))
     .returning();
-  await logAudit(req, "UPDATE", "invoice", invoiceId, { fields: ["notes"] });
+  await logAudit(req, "UPDATE", "invoice", invoiceId, { fields: ["notes"] }, auditSnapshot(existing), auditSnapshot(invoice));
   const items = await fetchInvoiceItems(invoiceId);
   return { ...invoice, items };
 }

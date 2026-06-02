@@ -83,6 +83,19 @@ const ALLOWED_ORIGINS_SET: string[] = (() => {
   return [...fromEnv, ...replit];
 })();
 
+// ── Revocation-store availability (F-03 — bounded fail-open / ADR-010) ───────
+// On a revocation-store (Redis) error we must decide whether a `read` may
+// proceed without the revocation check. Pure fail-open lets an already-revoked
+// session keep reading PHI for the full token TTL (≤4h) during an outage; pure
+// fail-closed turns a brief Redis blip into a clinic-wide read outage (a
+// patient-safety cost). We bound the exposure: reads degrade (fail-open) ONLY
+// while the store was last seen healthy within REVOCATION_READ_GRACE_MS; a
+// sustained outage past that window fails closed. `write`/`privileged` always
+// fail closed. Operators can raise the grace during a declared incident if
+// availability must win (mirrors the FINGERPRINT_BINDING lever). See ADR-010.
+const DEFAULT_REVOCATION_READ_GRACE_MS = 30_000;
+let lastRevocationStoreOkAt = 0;
+
 function originAllowed(origin: string): boolean {
   try {
     const { protocol, hostname, port } = new URL(origin);
@@ -170,20 +183,30 @@ export async function evaluate(
     }
   }
 
-  // 5b. Revocation check (policy determined by scope)
+  // 5b. Revocation check (bounded fail-open for reads — F-03 / ADR-010)
   try {
     const revokedAt = await runtime.revocationStore.getRevokedAt(payload.userId);
     if (revokedAt !== null && payload.iat <= revokedAt) {
       step("revocation", false, "iat<=revokedAt");
       return fail(E.AUTH_REVOKED, "revoked");
     }
+    lastRevocationStoreOkAt = Date.now();
     step("revocation", true);
   } catch {
-    if (scope === "read") {
-      step("revocation", true, "store-unavailable:degrade");
-      logger.warn({ request_id: req.id, op: "revocation", detail: "degrade" });
+    // Empty string / unset / garbage → default. Explicit "0" → no tolerance.
+    const rawGrace = process.env.REVOCATION_READ_GRACE_MS;
+    const parsedGrace = rawGrace === undefined || rawGrace.trim() === "" ? NaN : Number(rawGrace);
+    const graceMs = Number.isFinite(parsedGrace) ? parsedGrace : DEFAULT_REVOCATION_READ_GRACE_MS;
+    const withinGrace = graceMs > 0 && Date.now() - lastRevocationStoreOkAt <= graceMs;
+    if (scope === "read" && withinGrace) {
+      // Transient blip — store was healthy moments ago. Degrade this read only.
+      step("revocation", true, "store-unavailable:degrade-within-grace");
+      logger.warn({ request_id: req.id, op: "revocation", detail: "degrade-within-grace" });
     } else {
-      step("revocation", false, "store-unavailable:closed");
+      // Sustained outage (grace exceeded) or a mutating scope → fail closed.
+      const detail = scope === "read" ? "store-unavailable:grace-exceeded" : "store-unavailable:closed";
+      step("revocation", false, detail);
+      logger.error({ request_id: req.id, op: "revocation", detail });
       return fail(E.AUTH_REVOKED, "revoked");
     }
   }

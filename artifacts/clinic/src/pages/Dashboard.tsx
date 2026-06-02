@@ -30,6 +30,8 @@ import { formatCurrency } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import BreakGlassQueue from "@/components/BreakGlassQueue";
+import ErasurePanel from "@/components/ErasurePanel";
 import {
   Users, CalendarDays, FlaskConical, Scan, DollarSign,
   Receipt, Scissors, Package, Activity, TrendingUp,
@@ -502,6 +504,16 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Compliance controls for admin roles (compliance_officer has these on
+          its own ComplianceDashboard). Buttons inside gate by exact role —
+          erasure execute is super_admin-only. */}
+      {isAdminRole && (
+        <>
+          <BreakGlassQueue />
+          <ErasurePanel />
+        </>
+      )}
     </div>
   );
 }

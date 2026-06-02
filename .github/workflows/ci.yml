@@ -89,6 +89,24 @@ jobs:
           fi
           echo "OK — no offset:N pagination params in clinic pages/components."
 
+      # DOM-XSS guard (audit F-01): document.write parses its argument as raw
+      # HTML, so any new sink that interpolates staff-entered PHI without
+      # escaping re-introduces the print/report DOM-XSS we closed on 2026-06-02.
+      # The ONLY sanctioned sinks are openPrintWindow() in lib/print.ts (escapes
+      # the title; builders escapeHtml() every field) and DischargeSheet.tsx
+      # (sets the title via win.document.title, body is React-rendered). A new
+      # document.write anywhere else must be reviewed and added to this allowlist
+      # — do NOT widen it without escaping every dynamic value first.
+      - name: Block new document.write sinks in clinic src
+        run: |
+          if grep -rnE "document\s*\.\s*write\s*\(" artifacts/clinic/src/ \
+               --include=*.ts --include=*.tsx \
+               --exclude=print.ts --exclude=DischargeSheet.tsx ; then
+            echo "::error::document.write is forbidden outside the reviewed print sinks (lib/print.ts, components/DischargeSheet.tsx). Route printing through openPrintWindow() and escapeHtml() every dynamic field — see audit F-01."
+            exit 1
+          fi
+          echo "OK — no unsanctioned document.write sinks in clinic src."
+
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
@@ -269,11 +287,36 @@ jobs:
       - name: Run integration tests against testcontainers Postgres
         run: pnpm --filter @workspace/api-server run test:integration-db
 
+  # ── 9. Frontend Tests ─────────────────────────────────────────────────────────
+  # Vitest + jsdom: pure-logic route-access matrix, i18n key parity (bilingual
+  # is a hard product requirement — silent fallbacks are caught here), and
+  # Guard render smoke tests. No network — all external hooks are out of scope.
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run frontend tests
+        run: pnpm --filter @workspace/clinic run test
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -285,7 +328,8 @@ jobs:
                 "${{ needs.secrets-scan.result }}" != "success" ||
                 "${{ needs.build.result }}" != "success" ||
                 "${{ needs.migration-drift.result }}" != "success" ||
-                "${{ needs.integration-db.result }}" != "success" ]]; then
+                "${{ needs.integration-db.result }}" != "success" ||
+                "${{ needs.frontend-test.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

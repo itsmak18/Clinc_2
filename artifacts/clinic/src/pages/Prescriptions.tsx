@@ -43,7 +43,10 @@ export default function Prescriptions() {
         setNotes(""); setNotesAr("");
         toast({ title: t("prescriptionCreated") });
       },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
+      onError: (err: any) => toast({
+        title: err?.data?.error_code === 3010 ? t("consentRequiredHint") : t("failed"),
+        variant: "destructive",
+      }),
     },
   });
 

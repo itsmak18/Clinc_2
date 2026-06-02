@@ -48,6 +48,12 @@ tags:
     description: CSP violation reporting
   - name: clinic-notices
     description: Clinic-wide advisory notices
+  - name: consent
+    description: Patient consent management
+  - name: break-glass
+    description: Emergency break-glass PHI access
+  - name: erasure
+    description: Right-to-erasure (GDPR) requests
   - name: analytics
     description: Doctor performance KPIs and benchmarking
 
@@ -1523,6 +1529,10 @@ paths:
           in: query
           schema:
             type: string
+        - name: entityType
+          in: query
+          schema:
+            type: string
         - name: dateFrom
           in: query
           schema:
@@ -1552,6 +1562,273 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AuditLog"
+
+  /audit-logs/entity/{entityType}/{entityId}:
+    get:
+      operationId: getAuditLogsByEntity
+      tags: [audit]
+      summary: Change history (who/when/before→after) for a single record
+      parameters:
+        - name: entityType
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Chronological audit trail for the entity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
+  # CONSENT
+  /patients/{patientId}/consents:
+    get:
+      operationId: listPatientConsents
+      tags: [consent]
+      summary: List a patient's consents
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of consents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Consent"
+    post:
+      operationId: grantPatientConsent
+      tags: [consent]
+      summary: Grant a consent for a patient
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantConsentBody"
+      responses:
+        "201":
+          description: Consent granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+
+  /patients/{patientId}/consents/{consentId}:
+    delete:
+      operationId: revokePatientConsent
+      tags: [consent]
+      summary: Revoke a patient consent
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: consentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Consent revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Consent"
+
+  # BREAK-GLASS
+  /break-glass/patients/{patientId}/activate:
+    post:
+      operationId: activateBreakGlass
+      tags: [break-glass]
+      summary: Activate emergency break-glass access for a patient
+      parameters:
+        - name: patientId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActivateBreakGlassBody"
+      responses:
+        "201":
+          description: Break-glass session activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BreakGlassSession"
+
+  /break-glass/sessions:
+    get:
+      operationId: listBreakGlassSessions
+      tags: [break-glass]
+      summary: List break-glass sessions
+      parameters:
+        - name: patientId
+          in: query
+          schema:
+            type: integer
+        - name: active
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of break-glass sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BreakGlassSession"
+
+  /break-glass/sessions/{sessionId}/approve:
+    post:
+      operationId: approveBreakGlass
+      tags: [break-glass]
+      summary: Approve a break-glass session (extend to full TTL)
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Session approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BreakGlassSession"
+
+  /break-glass/sessions/{sessionId}/revoke:
+    post:
+      operationId: revokeBreakGlass
+      tags: [break-glass]
+      summary: Revoke a break-glass session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BreakGlassSession"
+
+  # ERASURE
+  /erasure-requests:
+    get:
+      operationId: listErasureRequests
+      tags: [erasure]
+      summary: List right-to-erasure requests
+      responses:
+        "200":
+          description: List of erasure requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ErasureRequest"
+    post:
+      operationId: createErasureRequest
+      tags: [erasure]
+      summary: Create a right-to-erasure request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateErasureBody"
+      responses:
+        "201":
+          description: Erasure request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErasureRequest"
+
+  /erasure-requests/{id}/review:
+    post:
+      operationId: reviewErasureRequest
+      tags: [erasure]
+      summary: Approve or reject an erasure request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewErasureBody"
+      responses:
+        "200":
+          description: Erasure request reviewed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErasureRequest"
+
+  /erasure-requests/{id}/execute:
+    post:
+      operationId: executeErasure
+      tags: [erasure]
+      summary: Execute an approved erasure request (irreversible, super_admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Erasure executed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  requestId:
+                    type: integer
+                  patientId:
+                    type: integer
 
   # DASHBOARD
   /dashboard/summary:
@@ -3454,17 +3731,177 @@ components:
         entityType:
           type: string
         entityId:
-          type: integer
+          type: string
           nullable: true
         ipAddress:
           type: string
         details:
           type: object
           nullable: true
+        beforeState:
+          type: object
+          nullable: true
+        afterState:
+          type: object
+          nullable: true
         createdAt:
           type: string
           format: date-time
       required: [id, userId, action, entityType, ipAddress, createdAt]
+
+    Consent:
+      type: object
+      properties:
+        id:
+          type: integer
+        patientId:
+          type: integer
+        consentType:
+          type: string
+          enum: [treatment, data_sharing, research, marketing]
+        grantedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        grantedByUserId:
+          type: integer
+        documentVersion:
+          type: string
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, patientId, consentType, grantedAt, grantedByUserId, documentVersion, createdAt]
+
+    GrantConsentBody:
+      type: object
+      properties:
+        consentType:
+          type: string
+          enum: [treatment, data_sharing, research, marketing]
+        documentVersion:
+          type: string
+        notes:
+          type: string
+          nullable: true
+      required: [consentType, documentVersion]
+
+    BreakGlassSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        patientId:
+          type: integer
+        justification:
+          type: string
+        activatedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        approvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        approvedByUserId:
+          type: integer
+          nullable: true
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        revokedByUserId:
+          type: integer
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, patientId, justification, activatedAt, expiresAt, createdAt]
+
+    ActivateBreakGlassBody:
+      type: object
+      properties:
+        justification:
+          type: string
+          minLength: 30
+        reasonCategory:
+          type: string
+          enum:
+            - life_threatening_emergency
+            - patient_unconscious
+            - code_blue_response
+            - covering_attending_unavailable
+            - regulatory_audit_request
+      required: [justification, reasonCategory]
+
+    ErasureRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        patientId:
+          type: integer
+        requestedByUserId:
+          type: integer
+        requestedAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected, executed]
+        reviewedByUserId:
+          type: integer
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewNotes:
+          type: string
+          nullable: true
+        executedByUserId:
+          type: integer
+          nullable: true
+        executedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, patientId, requestedByUserId, requestedAt, reason, status, createdAt]
+
+    CreateErasureBody:
+      type: object
+      properties:
+        patientId:
+          type: integer
+        reason:
+          type: string
+          minLength: 10
+      required: [patientId, reason]
+
+    ReviewErasureBody:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [approve, reject]
+        notes:
+          type: string
+          nullable: true
+      required: [action]
 
     DashboardSummary:
       type: object

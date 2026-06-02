@@ -175,10 +175,24 @@ describe("Token checks", () => {
 describe("Revocation", () => {
   beforeEach(() => goodJwt());
 
-  it("read scope + store throws → ok:true (degrade)", async () => {
+  it("read scope + transient store error within grace → ok:true (degrade)", async () => {
+    // Establish a recent healthy contact so the next failure is treated as a blip.
+    await evaluate(makeReq(), "read");
     vi.spyOn(runtime.revocationStore, "getRevokedAt").mockRejectedValueOnce(new Error("redis down"));
     const d = await evaluate(makeReq(), "read");
     expect(d.ok).toBe(true);
+    expect(d.trace.find(s => s.op === "revocation")?.detail).toBe("store-unavailable:degrade-within-grace");
+  });
+
+  it("read scope + sustained outage (grace exceeded) → fail CLOSED code 1003", async () => {
+    // grace=0 disables tolerance → any store error takes the sustained-outage branch.
+    const prev = process.env.REVOCATION_READ_GRACE_MS;
+    process.env.REVOCATION_READ_GRACE_MS = "0";
+    vi.spyOn(runtime.revocationStore, "getRevokedAt").mockRejectedValueOnce(new Error("redis down"));
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(false);
+    if (!d.ok) { expect(d.error.code).toBe(1003); expect(d.state).toBe("revoked"); }
+    process.env.REVOCATION_READ_GRACE_MS = prev;
   });
 
   it("write scope + store throws → ok:false code 1003 (closed)", async () => {
@@ -189,6 +203,17 @@ describe("Revocation", () => {
     );
     expect(d.ok).toBe(false);
     if (!d.ok) expect(d.error.code).toBe(1003);
+  });
+
+  it("empty-string REVOCATION_READ_GRACE_MS falls back to default (degrades, not fail-closed)", async () => {
+    // .env.example ships the var as "" — must NOT be read as grace=0/fail-closed.
+    const prev = process.env.REVOCATION_READ_GRACE_MS;
+    process.env.REVOCATION_READ_GRACE_MS = "";
+    await evaluate(makeReq(), "read"); // establish recent healthy contact
+    vi.spyOn(runtime.revocationStore, "getRevokedAt").mockRejectedValueOnce(new Error("redis down"));
+    const d = await evaluate(makeReq(), "read");
+    expect(d.ok).toBe(true);
+    process.env.REVOCATION_READ_GRACE_MS = prev;
   });
 
   it("revokedAt >= iat → code 1003, state revoked", async () => {

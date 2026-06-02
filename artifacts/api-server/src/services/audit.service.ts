@@ -17,6 +17,8 @@ const auditRowSelect = {
   ipAddress:  auditLogsTable.ipAddress,
   userAgent:  auditLogsTable.userAgent,
   details:    auditLogsTable.details,
+  beforeState: auditLogsTable.beforeState,
+  afterState:  auditLogsTable.afterState,
   createdAt:  auditLogsTable.createdAt,
   user: {
     id:       usersTable.id,

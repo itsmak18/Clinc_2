@@ -859,16 +859,135 @@ export interface Notification {
 
 export type AuditLogDetails = { [key: string]: unknown } | null;
 
+export type AuditLogBeforeState = { [key: string]: unknown } | null;
+
+export type AuditLogAfterState = { [key: string]: unknown } | null;
+
 export interface AuditLog {
   id: number;
   userId: number;
   user?: User;
   action: string;
   entityType: string;
-  entityId?: number | null;
+  entityId?: string | null;
   ipAddress: string;
   details?: AuditLogDetails;
+  beforeState?: AuditLogBeforeState;
+  afterState?: AuditLogAfterState;
   createdAt: string;
+}
+
+export type ConsentConsentType =
+  (typeof ConsentConsentType)[keyof typeof ConsentConsentType];
+
+export const ConsentConsentType = {
+  treatment: "treatment",
+  data_sharing: "data_sharing",
+  research: "research",
+  marketing: "marketing",
+} as const;
+
+export interface Consent {
+  id: number;
+  patientId: number;
+  consentType: ConsentConsentType;
+  grantedAt: string;
+  revokedAt?: string | null;
+  grantedByUserId: number;
+  documentVersion: string;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export type GrantConsentBodyConsentType =
+  (typeof GrantConsentBodyConsentType)[keyof typeof GrantConsentBodyConsentType];
+
+export const GrantConsentBodyConsentType = {
+  treatment: "treatment",
+  data_sharing: "data_sharing",
+  research: "research",
+  marketing: "marketing",
+} as const;
+
+export interface GrantConsentBody {
+  consentType: GrantConsentBodyConsentType;
+  documentVersion: string;
+  notes?: string | null;
+}
+
+export interface BreakGlassSession {
+  id: number;
+  userId: number;
+  patientId: number;
+  justification: string;
+  activatedAt: string;
+  expiresAt: string;
+  approvedAt?: string | null;
+  approvedByUserId?: number | null;
+  revokedAt?: string | null;
+  revokedByUserId?: number | null;
+  createdAt: string;
+}
+
+export type ActivateBreakGlassBodyReasonCategory =
+  (typeof ActivateBreakGlassBodyReasonCategory)[keyof typeof ActivateBreakGlassBodyReasonCategory];
+
+export const ActivateBreakGlassBodyReasonCategory = {
+  life_threatening_emergency: "life_threatening_emergency",
+  patient_unconscious: "patient_unconscious",
+  code_blue_response: "code_blue_response",
+  covering_attending_unavailable: "covering_attending_unavailable",
+  regulatory_audit_request: "regulatory_audit_request",
+} as const;
+
+export interface ActivateBreakGlassBody {
+  /** @minLength 30 */
+  justification: string;
+  reasonCategory: ActivateBreakGlassBodyReasonCategory;
+}
+
+export type ErasureRequestStatus =
+  (typeof ErasureRequestStatus)[keyof typeof ErasureRequestStatus];
+
+export const ErasureRequestStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+  executed: "executed",
+} as const;
+
+export interface ErasureRequest {
+  id: number;
+  patientId: number;
+  requestedByUserId: number;
+  requestedAt: string;
+  reason: string;
+  status: ErasureRequestStatus;
+  reviewedByUserId?: number | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  executedByUserId?: number | null;
+  executedAt?: string | null;
+  createdAt: string;
+}
+
+export interface CreateErasureBody {
+  patientId: number;
+  /** @minLength 10 */
+  reason: string;
+}
+
+export type ReviewErasureBodyAction =
+  (typeof ReviewErasureBodyAction)[keyof typeof ReviewErasureBodyAction];
+
+export const ReviewErasureBodyAction = {
+  approve: "approve",
+  reject: "reject",
+} as const;
+
+export interface ReviewErasureBody {
+  action: ReviewErasureBodyAction;
+  notes?: string | null;
 }
 
 export interface DashboardSummary {
@@ -1448,10 +1567,22 @@ export type ListNotificationsParams = {
 export type ListAuditLogsParams = {
   userId?: number;
   action?: string;
+  entityType?: string;
   dateFrom?: string;
   dateTo?: string;
   limit?: number;
   offset?: number;
+};
+
+export type ListBreakGlassSessionsParams = {
+  patientId?: number;
+  active?: string;
+};
+
+export type ExecuteErasure200 = {
+  ok?: boolean;
+  requestId?: number;
+  patientId?: number;
 };
 
 export type GetAppointmentReportParams = {

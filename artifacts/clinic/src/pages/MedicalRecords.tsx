@@ -39,7 +39,10 @@ export default function MedicalRecords() {
         setShowCreate(false);
         toast({ title: t("medicalRecordCreated") });
       },
-      onError: () => toast({ title: t("medicalRecordCreateFailed"), variant: "destructive" }),
+      onError: (err: any) => toast({
+        title: err?.data?.error_code === 3010 ? t("consentRequiredHint") : t("medicalRecordCreateFailed"),
+        variant: "destructive",
+      }),
     },
   });
 

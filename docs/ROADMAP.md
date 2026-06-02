@@ -1,5 +1,7 @@
 # Roadmap
 
+> As of 2026-06-02: **Compliance UIs + change-history shipped** — the three fully-built-but-headless backends (patient Consent, Break-Glass, Right-to-Erasure) now have frontends, and audit before/after change-history ("who did what, when, previous→new data") is surfaced. New OpenAPI paths + codegen for all three; new components `PatientConsentCard`, `BreakGlassButton`, `BreakGlassQueue`, `ErasurePanel`, `ChangeHistory`; `auditSnapshot()` capture backfill across 5 PHI entities (PHI-encrypted fields redacted — no second cleartext store). Break-glass approval and erasure review/execute are now operator-reachable (execute = super_admin, typed confirm). api-server 469/469, clinic 40/40, build clean. See CHANGELOG.
+
 > As of 2026-06-02: **Phase 3 ops hardening complete** — PgBouncer connection pooling, `audit_logs` monthly partitioning (migration 0021, ADR-009), and enhanced restore drill (audit integrity check + RUNBOOK §12) all shipped. Scalability score 8.0→8.5. Operational Resilience 7.5→8.0.
 >
 > As of 2026-06-02: **F-03 MEDIUM closed** — frontend test harness live (25 tests: route-access matrix, i18n key parity, Guard render smoke). `frontend-test` CI job now blocking.

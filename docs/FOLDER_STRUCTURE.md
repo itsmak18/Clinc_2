@@ -145,6 +145,11 @@ Clinic-Hub/
 │           │   ├── PageHeader.tsx            ← subtitle: ReactNode (supports badge JSX)
 │           │   ├── PatientTimeline.tsx
 │           │   ├── StatusBadge.tsx
+│           │   ├── ChangeHistory.tsx         ← BeforeAfterDiff + change-history timeline/card (super_admin/compliance); on PatientDetail + AuditLog modal
+│           │   ├── PatientConsentCard.tsx    ← grant/list/revoke consent; on PatientDetail (role-gated internally)
+│           │   ├── BreakGlassButton.tsx      ← emergency-access activation modal; on PatientDetail (doctor/nurse/admin/super_admin)
+│           │   ├── BreakGlassQueue.tsx       ← break-glass approval/revoke queue; on ComplianceDashboard + admin Dashboard
+│           │   ├── ErasurePanel.tsx          ← erasure request/review/execute (execute = super_admin, typed confirm); on ComplianceDashboard + admin Dashboard
 │           │   └── ui/                       ← shadcn/ui primitives ⛔ do not add other UI libraries
 │           ├── hooks/
 │           │   ├── auth.tsx                  ← useAuth(), AuthProvider, UserRole type
@@ -156,6 +161,7 @@ Clinic-Hub/
 │           │   └── useSessionTimeout.ts      ← warn 28 min, auto-logout 30 min
 │           ├── lib/
 │           │   ├── api.ts                    ← customFetch mutator (attaches X-CSRF-Token, credentials: include)
+│           │   ├── auditDiff.ts              ← computeDiff(before, after) + formatValue — pure change-history field diff
 │           │   ├── i18n.tsx                  ← (legacy stub — real i18n lives in hooks/i18n.tsx)
 │           │   ├── print.ts                  ← print report utilities
 │           │   ├── route-access.ts           ← canAccessRoute(href, role), getLandingRoute, navItems, navPinnedByRole — update when adding pages
@@ -164,7 +170,9 @@ Clinic-Hub/
 │               ├── setup.ts                  ← imports @testing-library/jest-dom; clears localStorage before each test
 │               ├── route-access.test.ts      ← 19 tests: super_admin bypass, 10-role access matrix, dashboard alias, prefix match, getLandingRoute, navPinnedByRole
 │               ├── i18n.test.ts              ← 2 tests: EN↔AR key set-equality (bilingual parity guard)
-│               └── Guard.test.tsx            ← 4 tests: denied/allowed render smoke, bilingual AccessDenied, super_admin bypass
+│               ├── Guard.test.tsx            ← 4 tests: denied/allowed render smoke, bilingual AccessDenied, super_admin bypass
+│               ├── auditDiff.test.ts         ← 7 tests: computeDiff added/removed/changed, null before/after, nested-by-value, formatValue
+│               └── print-xss.test.ts         ← 8 tests: print/report HTML escaping (F-01 regression)
 └── lib/
     ├── db/
     │   └── src/
