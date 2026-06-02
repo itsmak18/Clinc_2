@@ -7,7 +7,7 @@ import {
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
 } from "@workspace/db";
 import { eq, and, gte, lte, sql, desc, lt, inArray } from "drizzle-orm";
-import { logAudit } from "../lib/audit";
+import { logAudit, auditSnapshot } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope, recordDoctorPatientLink } from "../lib/scope";
 import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
@@ -255,7 +255,7 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
     }
 
     const [appt] = await tx.update(appointmentsTable).set(update).where(and(...conditions)).returning();
-    await logAudit(req, "UPDATE", "appointment", appt.id, null, before, appt);
+    await logAudit(req, "UPDATE", "appointment", appt.id, null, auditSnapshot(before), auditSnapshot(appt));
     await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt ?? new Date());
     await invalidateDoctorScope(appt.doctorId);
     return appt;

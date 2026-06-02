@@ -4,7 +4,7 @@
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
-import { logAudit, logRead } from "../lib/audit";
+import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { medicationsSchema } from "../lib/jsonb-schemas";
 import { encryptJson, decryptJson, isEncrypted } from "../lib/field-encryption";
@@ -112,8 +112,10 @@ export async function getPrescription(req: AuthRequest, id: number) {
 export async function voidPrescription(req: AuthRequest, id: number, reason: string) {
   if (!reason) throw new ValidationError("A reason is required to void a prescription");
   const conditions: any[] = [eq(prescriptionsTable.id, id), eq(prescriptionsTable.clinicId, req.user!.clinicId)];
-  await db.update(prescriptionsTable)
+  const [before] = await db.select().from(prescriptionsTable).where(and(...conditions));
+  const [after] = await db.update(prescriptionsTable)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(...conditions));
-  await logAudit(req, "VOID_PRESCRIPTION", "prescription", id, { reason });
+    .where(and(...conditions))
+    .returning();
+  await logAudit(req, "VOID_PRESCRIPTION", "prescription", id, { reason }, auditSnapshot(before), auditSnapshot(after));
 }

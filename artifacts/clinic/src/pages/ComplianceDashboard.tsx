@@ -4,6 +4,8 @@ import {
 } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import Metric from "@/components/Metric";
+import BreakGlassQueue from "@/components/BreakGlassQueue";
+import ErasurePanel from "@/components/ErasurePanel";
 import { SkeletonMetric } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -279,6 +281,12 @@ export default function ComplianceDashboard() {
           </div>
         )}
       </div>
+
+      {/* Break-glass approval queue */}
+      <BreakGlassQueue />
+
+      {/* Right-to-erasure requests */}
+      <ErasurePanel />
 
     </div>
   );

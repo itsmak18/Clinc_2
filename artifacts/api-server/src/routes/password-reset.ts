@@ -9,6 +9,7 @@ import { Router } from "express";
 import { z } from "zod/v4";
 import { asyncHandler } from "../middlewares/asyncHandler";
 import { authGate, type AuthRequest } from "../middlewares/auth-gate";
+import { requireStepUp } from "../middlewares/step-up";
 import { ValidationError } from "../services/errors";
 import {
   issueSelfServiceReset,
@@ -95,6 +96,7 @@ router.post(
 router.post(
   "/auth/admin-reset/:userId",
   authGate("privileged", ["super_admin", "admin", "compliance_officer"]),
+  requireStepUp("admin_reset"),
   asyncHandler(async (req: AuthRequest, res) => {
     const targetUserId = parseInt(String(req.params.userId ?? ""), 10);
     if (!Number.isFinite(targetUserId) || targetUserId <= 0) {

@@ -7,7 +7,7 @@ import {
   labTestsTable, invoicesTable, usersTable,
 } from "@workspace/db";
 import { eq, isNull, ilike, or, and, sql, desc, lt, inArray } from "drizzle-orm";
-import { logAudit, logRead } from "../lib/audit";
+import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope } from "../lib/scope";
 import { encrypt, decrypt, encryptNullable, decryptNullable } from "../lib/field-encryption";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
@@ -179,17 +179,23 @@ export async function updatePatient(
 
   const whereConditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
 
+  const [before] = await db.select().from(patientsTable).where(and(...whereConditions));
   const [patient] = await db.update(patientsTable).set(updateData).where(and(...whereConditions)).returning();
   if (!patient) throw new NotFoundError("patient", patientId);
 
-  await logAudit(req, "UPDATE", "patient", patient.id, { fields: Object.keys(updateData) });
+  // Change history: real before→after for non-encrypted fields; encrypted PHI
+  // fields are redacted by auditSnapshot. `fields` lists the patched columns
+  // (the reliable changed-set; ciphertext comparison would false-positive).
+  const fields = Object.keys(updateData).filter(k => k !== "updatedAt");
+  await logAudit(req, "UPDATE", "patient", patient.id, { fields }, auditSnapshot(before), auditSnapshot(patient));
   return decryptPatient(patient);
 }
 
 export async function deletePatient(req: AuthRequest, patientId: number) {
   const whereConditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
-  await db.update(patientsTable).set({ deletedAt: new Date() }).where(and(...whereConditions));
-  await logAudit(req, "DELETE", "patient", patientId);
+  const [before] = await db.select().from(patientsTable).where(and(...whereConditions));
+  const [after] = await db.update(patientsTable).set({ deletedAt: new Date() }).where(and(...whereConditions)).returning();
+  await logAudit(req, "DELETE", "patient", patientId, null, auditSnapshot(before), auditSnapshot(after));
 }
 
 export async function getPatientSummary(req: AuthRequest, patientId: number) {

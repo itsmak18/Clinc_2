@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useListAuditLogs, getListAuditLogsQueryKey } from "@workspace/api-client-react";
+import { useListAuditLogs, getListAuditLogsQueryKey, type AuditLog as AuditLogRow } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { BeforeAfterDiff } from "@/components/ChangeHistory";
 import DataTable from "@/components/DataTable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,7 +52,7 @@ export default function AuditLog() {
   const [dateTo,     setDateTo]     = useState("");
   const [action,     setAction]     = useState("");
   const [entityType, setEntityType] = useState("");
-  const [detailsRow, setDetailsRow] = useState<object | null>(null);
+  const [selectedLog, setSelectedLog] = useState<AuditLogRow | null>(null);
 
   const params = {
     dateFrom:   dateFrom   || undefined,
@@ -189,12 +190,14 @@ export default function AuditLog() {
               key: "details",
               header: "",
               render: l => {
-                if (!l.details || Object.keys(l.details as object).length === 0) return null;
+                const hasDetails = l.details && Object.keys(l.details as object).length > 0;
+                const hasDiff = !!l.beforeState || !!l.afterState;
+                if (!hasDetails && !hasDiff) return null;
                 return (
                   <button
                     className="btn btn-ghost btn-sm h-6 w-6 p-0"
                     title={t("viewDetails")}
-                    onClick={e => { e.stopPropagation(); setDetailsRow(l.details as object); }}
+                    onClick={e => { e.stopPropagation(); setSelectedLog(l); }}
                   >
                     <Eye className="w-3.5 h-3.5 text-[var(--ink-muted)]" />
                   </button>
@@ -205,16 +208,14 @@ export default function AuditLog() {
         />
       </div>
 
-      <Dialog open={!!detailsRow} onOpenChange={() => setDetailsRow(null)}>
+      <Dialog open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Shield className="w-4 h-4" /> {t("auditEventDetails")}
             </DialogTitle>
           </DialogHeader>
-          <pre className="text-xs bg-[var(--surface-2)] rounded-lg p-4 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed text-[var(--ink)]">
-            {JSON.stringify(detailsRow, null, 2)}
-          </pre>
+          {selectedLog && <BeforeAfterDiff log={selectedLog} />}
         </DialogContent>
       </Dialog>
     </div>

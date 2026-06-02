@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  ActivateBreakGlassBody,
   ActivityItem,
   AdminResetResponse,
   Appointment,
@@ -24,10 +25,13 @@ import type {
   AuditLog,
   AvailabilityResponse,
   BillingDashboard,
+  BreakGlassSession,
   ClinicNotice,
   ComplianceDashboard,
+  Consent,
   CreateAppointmentBody,
   CreateClinicNoticeBody,
+  CreateErasureBody,
   CreateInventoryItemBody,
   CreateInvoiceBody,
   CreateLabTestBody,
@@ -49,6 +53,8 @@ import type {
   DoctorScheduleDay,
   DoctorScheduleDetail,
   DoctorScheduleSummary,
+  ErasureRequest,
+  ExecuteErasure200,
   ForgotPasswordBody,
   ForgotPasswordResponse,
   FrontDeskDashboard,
@@ -59,6 +65,7 @@ import type {
   GetDoctorAvailabilityParams,
   GetRevenueReportParams,
   GetScheduleWeekParams,
+  GrantConsentBody,
   HealthStatus,
   ImagingDashboard,
   InventoryItem,
@@ -66,6 +73,7 @@ import type {
   LabTest,
   ListAppointmentsParams,
   ListAuditLogsParams,
+  ListBreakGlassSessionsParams,
   ListClinicNoticesParams,
   ListDoctorAnalytics200,
   ListDoctorAnalyticsParams,
@@ -100,6 +108,7 @@ import type {
   ResetPassword200,
   ResetPasswordBody,
   RevenueReport,
+  ReviewErasureBody,
   RevokeDevice200,
   ScheduleOverride,
   SubmitCspReportBodyThree,
@@ -6514,6 +6523,1069 @@ export function useListAuditLogs<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Change history (who/when/before→after) for a single record
+ */
+export const getGetAuditLogsByEntityUrl = (
+  entityType: string,
+  entityId: string,
+) => {
+  return `/api/audit-logs/entity/${entityType}/${entityId}`;
+};
+
+export const getAuditLogsByEntity = async (
+  entityType: string,
+  entityId: string,
+  options?: RequestInit,
+): Promise<AuditLog[]> => {
+  return customFetch<AuditLog[]>(
+    getGetAuditLogsByEntityUrl(entityType, entityId),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetAuditLogsByEntityQueryKey = (
+  entityType: string,
+  entityId: string,
+) => {
+  return [`/api/audit-logs/entity/${entityType}/${entityId}`] as const;
+};
+
+export const getGetAuditLogsByEntityQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAuditLogsByEntity>>,
+  TError = ErrorType<unknown>,
+>(
+  entityType: string,
+  entityId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAuditLogsByEntity>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetAuditLogsByEntityQueryKey(entityType, entityId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getAuditLogsByEntity>>
+  > = ({ signal }) =>
+    getAuditLogsByEntity(entityType, entityId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!(entityType && entityId),
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAuditLogsByEntity>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAuditLogsByEntityQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAuditLogsByEntity>>
+>;
+export type GetAuditLogsByEntityQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Change history (who/when/before→after) for a single record
+ */
+
+export function useGetAuditLogsByEntity<
+  TData = Awaited<ReturnType<typeof getAuditLogsByEntity>>,
+  TError = ErrorType<unknown>,
+>(
+  entityType: string,
+  entityId: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAuditLogsByEntity>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAuditLogsByEntityQueryOptions(
+    entityType,
+    entityId,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List a patient's consents
+ */
+export const getListPatientConsentsUrl = (patientId: number) => {
+  return `/api/patients/${patientId}/consents`;
+};
+
+export const listPatientConsents = async (
+  patientId: number,
+  options?: RequestInit,
+): Promise<Consent[]> => {
+  return customFetch<Consent[]>(getListPatientConsentsUrl(patientId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPatientConsentsQueryKey = (patientId: number) => {
+  return [`/api/patients/${patientId}/consents`] as const;
+};
+
+export const getListPatientConsentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPatientConsents>>,
+  TError = ErrorType<unknown>,
+>(
+  patientId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientConsents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListPatientConsentsQueryKey(patientId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPatientConsents>>
+  > = ({ signal }) =>
+    listPatientConsents(patientId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!patientId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPatientConsents>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPatientConsentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPatientConsents>>
+>;
+export type ListPatientConsentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List a patient's consents
+ */
+
+export function useListPatientConsents<
+  TData = Awaited<ReturnType<typeof listPatientConsents>>,
+  TError = ErrorType<unknown>,
+>(
+  patientId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPatientConsents>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPatientConsentsQueryOptions(patientId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Grant a consent for a patient
+ */
+export const getGrantPatientConsentUrl = (patientId: number) => {
+  return `/api/patients/${patientId}/consents`;
+};
+
+export const grantPatientConsent = async (
+  patientId: number,
+  grantConsentBody: GrantConsentBody,
+  options?: RequestInit,
+): Promise<Consent> => {
+  return customFetch<Consent>(getGrantPatientConsentUrl(patientId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(grantConsentBody),
+  });
+};
+
+export const getGrantPatientConsentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantPatientConsent>>,
+    TError,
+    { patientId: number; data: BodyType<GrantConsentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof grantPatientConsent>>,
+  TError,
+  { patientId: number; data: BodyType<GrantConsentBody> },
+  TContext
+> => {
+  const mutationKey = ["grantPatientConsent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof grantPatientConsent>>,
+    { patientId: number; data: BodyType<GrantConsentBody> }
+  > = (props) => {
+    const { patientId, data } = props ?? {};
+
+    return grantPatientConsent(patientId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GrantPatientConsentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof grantPatientConsent>>
+>;
+export type GrantPatientConsentMutationBody = BodyType<GrantConsentBody>;
+export type GrantPatientConsentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Grant a consent for a patient
+ */
+export const useGrantPatientConsent = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof grantPatientConsent>>,
+    TError,
+    { patientId: number; data: BodyType<GrantConsentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof grantPatientConsent>>,
+  TError,
+  { patientId: number; data: BodyType<GrantConsentBody> },
+  TContext
+> => {
+  return useMutation(getGrantPatientConsentMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a patient consent
+ */
+export const getRevokePatientConsentUrl = (
+  patientId: number,
+  consentId: number,
+) => {
+  return `/api/patients/${patientId}/consents/${consentId}`;
+};
+
+export const revokePatientConsent = async (
+  patientId: number,
+  consentId: number,
+  options?: RequestInit,
+): Promise<Consent> => {
+  return customFetch<Consent>(
+    getRevokePatientConsentUrl(patientId, consentId),
+    {
+      ...options,
+      method: "DELETE",
+    },
+  );
+};
+
+export const getRevokePatientConsentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokePatientConsent>>,
+    TError,
+    { patientId: number; consentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokePatientConsent>>,
+  TError,
+  { patientId: number; consentId: number },
+  TContext
+> => {
+  const mutationKey = ["revokePatientConsent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokePatientConsent>>,
+    { patientId: number; consentId: number }
+  > = (props) => {
+    const { patientId, consentId } = props ?? {};
+
+    return revokePatientConsent(patientId, consentId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokePatientConsentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokePatientConsent>>
+>;
+
+export type RevokePatientConsentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke a patient consent
+ */
+export const useRevokePatientConsent = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokePatientConsent>>,
+    TError,
+    { patientId: number; consentId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokePatientConsent>>,
+  TError,
+  { patientId: number; consentId: number },
+  TContext
+> => {
+  return useMutation(getRevokePatientConsentMutationOptions(options));
+};
+
+/**
+ * @summary Activate emergency break-glass access for a patient
+ */
+export const getActivateBreakGlassUrl = (patientId: number) => {
+  return `/api/break-glass/patients/${patientId}/activate`;
+};
+
+export const activateBreakGlass = async (
+  patientId: number,
+  activateBreakGlassBody: ActivateBreakGlassBody,
+  options?: RequestInit,
+): Promise<BreakGlassSession> => {
+  return customFetch<BreakGlassSession>(getActivateBreakGlassUrl(patientId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(activateBreakGlassBody),
+  });
+};
+
+export const getActivateBreakGlassMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof activateBreakGlass>>,
+    TError,
+    { patientId: number; data: BodyType<ActivateBreakGlassBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof activateBreakGlass>>,
+  TError,
+  { patientId: number; data: BodyType<ActivateBreakGlassBody> },
+  TContext
+> => {
+  const mutationKey = ["activateBreakGlass"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof activateBreakGlass>>,
+    { patientId: number; data: BodyType<ActivateBreakGlassBody> }
+  > = (props) => {
+    const { patientId, data } = props ?? {};
+
+    return activateBreakGlass(patientId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActivateBreakGlassMutationResult = NonNullable<
+  Awaited<ReturnType<typeof activateBreakGlass>>
+>;
+export type ActivateBreakGlassMutationBody = BodyType<ActivateBreakGlassBody>;
+export type ActivateBreakGlassMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Activate emergency break-glass access for a patient
+ */
+export const useActivateBreakGlass = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof activateBreakGlass>>,
+    TError,
+    { patientId: number; data: BodyType<ActivateBreakGlassBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof activateBreakGlass>>,
+  TError,
+  { patientId: number; data: BodyType<ActivateBreakGlassBody> },
+  TContext
+> => {
+  return useMutation(getActivateBreakGlassMutationOptions(options));
+};
+
+/**
+ * @summary List break-glass sessions
+ */
+export const getListBreakGlassSessionsUrl = (
+  params?: ListBreakGlassSessionsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/break-glass/sessions?${stringifiedParams}`
+    : `/api/break-glass/sessions`;
+};
+
+export const listBreakGlassSessions = async (
+  params?: ListBreakGlassSessionsParams,
+  options?: RequestInit,
+): Promise<BreakGlassSession[]> => {
+  return customFetch<BreakGlassSession[]>(
+    getListBreakGlassSessionsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListBreakGlassSessionsQueryKey = (
+  params?: ListBreakGlassSessionsParams,
+) => {
+  return [`/api/break-glass/sessions`, ...(params ? [params] : [])] as const;
+};
+
+export const getListBreakGlassSessionsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listBreakGlassSessions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListBreakGlassSessionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBreakGlassSessions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListBreakGlassSessionsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listBreakGlassSessions>>
+  > = ({ signal }) =>
+    listBreakGlassSessions(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listBreakGlassSessions>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListBreakGlassSessionsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listBreakGlassSessions>>
+>;
+export type ListBreakGlassSessionsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List break-glass sessions
+ */
+
+export function useListBreakGlassSessions<
+  TData = Awaited<ReturnType<typeof listBreakGlassSessions>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListBreakGlassSessionsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listBreakGlassSessions>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListBreakGlassSessionsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Approve a break-glass session (extend to full TTL)
+ */
+export const getApproveBreakGlassUrl = (sessionId: number) => {
+  return `/api/break-glass/sessions/${sessionId}/approve`;
+};
+
+export const approveBreakGlass = async (
+  sessionId: number,
+  options?: RequestInit,
+): Promise<BreakGlassSession> => {
+  return customFetch<BreakGlassSession>(getApproveBreakGlassUrl(sessionId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getApproveBreakGlassMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveBreakGlass>>,
+    TError,
+    { sessionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof approveBreakGlass>>,
+  TError,
+  { sessionId: number },
+  TContext
+> => {
+  const mutationKey = ["approveBreakGlass"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof approveBreakGlass>>,
+    { sessionId: number }
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return approveBreakGlass(sessionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApproveBreakGlassMutationResult = NonNullable<
+  Awaited<ReturnType<typeof approveBreakGlass>>
+>;
+
+export type ApproveBreakGlassMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Approve a break-glass session (extend to full TTL)
+ */
+export const useApproveBreakGlass = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof approveBreakGlass>>,
+    TError,
+    { sessionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof approveBreakGlass>>,
+  TError,
+  { sessionId: number },
+  TContext
+> => {
+  return useMutation(getApproveBreakGlassMutationOptions(options));
+};
+
+/**
+ * @summary Revoke a break-glass session
+ */
+export const getRevokeBreakGlassUrl = (sessionId: number) => {
+  return `/api/break-glass/sessions/${sessionId}/revoke`;
+};
+
+export const revokeBreakGlass = async (
+  sessionId: number,
+  options?: RequestInit,
+): Promise<BreakGlassSession> => {
+  return customFetch<BreakGlassSession>(getRevokeBreakGlassUrl(sessionId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRevokeBreakGlassMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeBreakGlass>>,
+    TError,
+    { sessionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof revokeBreakGlass>>,
+  TError,
+  { sessionId: number },
+  TContext
+> => {
+  const mutationKey = ["revokeBreakGlass"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof revokeBreakGlass>>,
+    { sessionId: number }
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return revokeBreakGlass(sessionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RevokeBreakGlassMutationResult = NonNullable<
+  Awaited<ReturnType<typeof revokeBreakGlass>>
+>;
+
+export type RevokeBreakGlassMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Revoke a break-glass session
+ */
+export const useRevokeBreakGlass = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof revokeBreakGlass>>,
+    TError,
+    { sessionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof revokeBreakGlass>>,
+  TError,
+  { sessionId: number },
+  TContext
+> => {
+  return useMutation(getRevokeBreakGlassMutationOptions(options));
+};
+
+/**
+ * @summary List right-to-erasure requests
+ */
+export const getListErasureRequestsUrl = () => {
+  return `/api/erasure-requests`;
+};
+
+export const listErasureRequests = async (
+  options?: RequestInit,
+): Promise<ErasureRequest[]> => {
+  return customFetch<ErasureRequest[]>(getListErasureRequestsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListErasureRequestsQueryKey = () => {
+  return [`/api/erasure-requests`] as const;
+};
+
+export const getListErasureRequestsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listErasureRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listErasureRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListErasureRequestsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listErasureRequests>>
+  > = ({ signal }) => listErasureRequests({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listErasureRequests>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListErasureRequestsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listErasureRequests>>
+>;
+export type ListErasureRequestsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List right-to-erasure requests
+ */
+
+export function useListErasureRequests<
+  TData = Awaited<ReturnType<typeof listErasureRequests>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listErasureRequests>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListErasureRequestsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a right-to-erasure request
+ */
+export const getCreateErasureRequestUrl = () => {
+  return `/api/erasure-requests`;
+};
+
+export const createErasureRequest = async (
+  createErasureBody: CreateErasureBody,
+  options?: RequestInit,
+): Promise<ErasureRequest> => {
+  return customFetch<ErasureRequest>(getCreateErasureRequestUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createErasureBody),
+  });
+};
+
+export const getCreateErasureRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createErasureRequest>>,
+    TError,
+    { data: BodyType<CreateErasureBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createErasureRequest>>,
+  TError,
+  { data: BodyType<CreateErasureBody> },
+  TContext
+> => {
+  const mutationKey = ["createErasureRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createErasureRequest>>,
+    { data: BodyType<CreateErasureBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createErasureRequest(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateErasureRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createErasureRequest>>
+>;
+export type CreateErasureRequestMutationBody = BodyType<CreateErasureBody>;
+export type CreateErasureRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a right-to-erasure request
+ */
+export const useCreateErasureRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createErasureRequest>>,
+    TError,
+    { data: BodyType<CreateErasureBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createErasureRequest>>,
+  TError,
+  { data: BodyType<CreateErasureBody> },
+  TContext
+> => {
+  return useMutation(getCreateErasureRequestMutationOptions(options));
+};
+
+/**
+ * @summary Approve or reject an erasure request
+ */
+export const getReviewErasureRequestUrl = (id: number) => {
+  return `/api/erasure-requests/${id}/review`;
+};
+
+export const reviewErasureRequest = async (
+  id: number,
+  reviewErasureBody: ReviewErasureBody,
+  options?: RequestInit,
+): Promise<ErasureRequest> => {
+  return customFetch<ErasureRequest>(getReviewErasureRequestUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(reviewErasureBody),
+  });
+};
+
+export const getReviewErasureRequestMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reviewErasureRequest>>,
+    TError,
+    { id: number; data: BodyType<ReviewErasureBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reviewErasureRequest>>,
+  TError,
+  { id: number; data: BodyType<ReviewErasureBody> },
+  TContext
+> => {
+  const mutationKey = ["reviewErasureRequest"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reviewErasureRequest>>,
+    { id: number; data: BodyType<ReviewErasureBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return reviewErasureRequest(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReviewErasureRequestMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reviewErasureRequest>>
+>;
+export type ReviewErasureRequestMutationBody = BodyType<ReviewErasureBody>;
+export type ReviewErasureRequestMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Approve or reject an erasure request
+ */
+export const useReviewErasureRequest = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reviewErasureRequest>>,
+    TError,
+    { id: number; data: BodyType<ReviewErasureBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof reviewErasureRequest>>,
+  TError,
+  { id: number; data: BodyType<ReviewErasureBody> },
+  TContext
+> => {
+  return useMutation(getReviewErasureRequestMutationOptions(options));
+};
+
+/**
+ * @summary Execute an approved erasure request (irreversible, super_admin only)
+ */
+export const getExecuteErasureUrl = (id: number) => {
+  return `/api/erasure-requests/${id}/execute`;
+};
+
+export const executeErasure = async (
+  id: number,
+  options?: RequestInit,
+): Promise<ExecuteErasure200> => {
+  return customFetch<ExecuteErasure200>(getExecuteErasureUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getExecuteErasureMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof executeErasure>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof executeErasure>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["executeErasure"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof executeErasure>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return executeErasure(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExecuteErasureMutationResult = NonNullable<
+  Awaited<ReturnType<typeof executeErasure>>
+>;
+
+export type ExecuteErasureMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Execute an approved erasure request (irreversible, super_admin only)
+ */
+export const useExecuteErasure = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof executeErasure>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof executeErasure>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getExecuteErasureMutationOptions(options));
+};
 
 /**
  * @summary Get dashboard summary stats

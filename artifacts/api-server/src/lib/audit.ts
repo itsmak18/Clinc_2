@@ -77,6 +77,10 @@ export async function logAudit(
   }
 }
 
+// Change-history snapshot helpers live in a db-free module so they stay unit
+// testable without DATABASE_URL. Re-exported here for existing import sites.
+export { auditSnapshot, changedFields } from "./audit-snapshot";
+
 // Exponential backoff delays per attempt index (0-based): 5s, 30s, 2m, 10m
 const BACKOFF_MS = [5_000, 30_000, 120_000, 600_000] as const;
 const MAX_ATTEMPTS = 5;

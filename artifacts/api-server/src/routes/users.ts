@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { authGate } from "../middlewares/auth-gate";
+import { requireStepUp } from "../middlewares/step-up";
 import { asyncHandler } from "../middlewares/asyncHandler";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
@@ -59,6 +60,7 @@ router.get(
 router.patch(
   "/users/:userId",
   authGate("privileged", ["super_admin", "admin"]),
+  requireStepUp("update_user"),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) throw new ValidationError("Invalid user ID");
@@ -79,6 +81,7 @@ router.post(
 router.delete(
   "/users/:userId",
   authGate("privileged", ["super_admin", "admin"]),
+  requireStepUp("delete_user"),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) throw new ValidationError("Invalid user ID");
@@ -90,6 +93,7 @@ router.delete(
 router.post(
   "/users/:userId/reset-password",
   authGate("privileged", ["super_admin", "admin"]),
+  requireStepUp("reset_password"),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) throw new ValidationError("Invalid user ID");
