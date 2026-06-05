@@ -6,7 +6,8 @@ import { ultrasoundRecordsTable, patientsTable, usersTable, notificationsTable }
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
-import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
+import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
@@ -17,13 +18,15 @@ export async function listUltrasounds(
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(ultrasoundRecordsTable.deletedAt), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
 
+  let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
-    const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) {
+    const scope = await getDoctorListScope(req, "ultrasound");
+    breakGlassPatientIds = scope.breakGlassPatientIds;
+    if (scope.allowed.length === 0) {
       void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: 0 });
       return { data: [], nextCursor: null };
     }
-    conditions.push(inArray(ultrasoundRecordsTable.patientId, allowed));
+    conditions.push(inArray(ultrasoundRecordsTable.patientId, scope.allowed));
   }
 
   if (params.status) conditions.push(eq(ultrasoundRecordsTable.status, params.status as any));
@@ -60,6 +63,7 @@ export async function listUltrasounds(
       .where(and(...conditions))
       .orderBy(desc(ultrasoundRecordsTable.id))
       .limit(lim),
+    { breakGlassPatientIds },
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
@@ -84,16 +88,25 @@ export async function createUltrasound(
 }
 
 export async function getUltrasound(req: AuthRequest, id: number) {
+  const isDoc = isDoctorScoped(req.user?.role);
+  const breakGlassPatientIds = isDoc
+    ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
+    : [];
+
   const record = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
     const [row] = await tx.select().from(ultrasoundRecordsTable).where(and(...conditions));
     return row;
-  });
+  }, { breakGlassPatientIds });
   if (!record) throw new NotFoundError("ultrasound record", id);
 
-  if (isDoctorScoped(req.user?.role)) {
+  if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (!allowed.includes(record.patientId)) throw new ForbiddenError();
+    const viaBreakGlass = breakGlassPatientIds.includes(record.patientId);
+    if (!allowed.includes(record.patientId) && !viaBreakGlass) throw new ForbiddenError();
+    if (viaBreakGlass) {
+      await logAudit(req, "BREAK_GLASS_ACCESS", "ultrasound", id, { patientId: record.patientId, via: "get" } as object);
+    }
   }
 
   void logRead(req, "ultrasound", id);

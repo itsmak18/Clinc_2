@@ -1,5 +1,64 @@
 # Changelog
 
+## Integration-db suite: now passes end-to-end (first time ever) + no-Docker path (2026-06-05)
+
+The real-Postgres integration suite — the cross-tenant/PHI-isolation safety net — had **never actually executed** (no Docker locally, and latent bugs + config issues would have failed it under Docker too). It now runs green end-to-end: **6 files / 54 tests, exit 0**, validating the audit fixes (booking F-P1-1, break-glass F-P2-1, erasure F-P3-1, `clinic_invoice_counters` F-P1-3, cross-tenant + doctor-scope isolation).
+
+- **No-Docker runs.** `tests/_helpers/realDb.ts` gained opt-in `INTEGRATION_PG_ADMIN_URL`: when set to a local Postgres superuser URL, `startRealDb()` creates a uniquely-named scratch DB, applies all migrations, provisions `medicore_app` (re-applying the 0026 append-only revoke), and DROPs it on teardown — instead of a Testcontainer. Default (Testcontainers) unchanged → CI unaffected.
+- **Stabilization (these are why it never passed):**
+  - `cross-tenant.integration-db.test.ts` statically imported `@workspace/db` → threw at collection (DATABASE_URL unset). Made the imports dynamic in `beforeAll`.
+  - Assertions matched `error.message`, but drizzle wraps Postgres errors as `"Failed query: …"` with the real text on `.cause`. Added `tests/_helpers/expectDbError.ts` (matches message + cause) and applied it across the WITH-CHECK / CHECK assertions.
+  - The `clinic-id-check` symmetry test looked for `{t}_clinic_id_positive`, but 0021 renamed `audit_logs`'s CHECK to `audit_logs_clinic_id_check` — now accepts either name and also covers the newer tables (`doctor_schedules`, `schedule_overrides`, `clinic_invoice_counters`). The `audit_outbox` insert was missing the NOT NULL `ip_address` (tripped that before the clinic_id CHECK) — provided it.
+  - Cross-tenant WRITE tests POSTed without CSRF (would 403) — added `_csrf` cookie + `X-CSRF-Token`.
+  - `rls-tenant-context` called `startRealDb()` twice (a STEP-0 probe + main); since `@workspace/db`'s pool is a process-singleton, the probe's teardown poisoned the main tests. Folded the probe's non-superuser guard into the single main harness (the probe was explicitly marked "remove once Phase 1 lands" — it has).
+  - **`vitest.config.integration.ts`: process-per-file isolation.** `@workspace/db` creates its pg Pool eagerly from `process.env.DATABASE_URL` at module load, so a shared fork (`singleFork`) pinned the singleton pool to the first file's DB → later files hit "database does not exist" / "Cannot use a pool after end". Switched to one process per file (`maxWorkers: 2`).
+- Unit suite **479/479**, typecheck + lint clean.
+
+## Audit fix — activate audit-integrity verification (F-P4-1/2/3) (2026-06-05)
+
+Phase 4 (data integrity & audit chain) found the audit outbox, snapshot redaction, and partitioning all solid, but the tamper-evidence hash-chain was **recorded daily and never verified in production** — `verifyIntegrity` ran only in tests, so the `AuditIntegrityMismatch` alert could never fire.
+
+- **F-P4-1 — verification now scheduled.** The daily 02:00 integrity cron calls `recordDailyIntegrity` and then **`verifyRecentIntegrity()`** (re-derives + compares the last `AUDIT_VERIFY_WINDOW_DAYS` days, default 7). Tampering of recent `audit_logs` rows is now caught within a day.
+- **F-P4-2 — chain linkage validated.** New `verifyChainLinkage()` walks the stored daily records asserting each `prevHash` == the prior calendar day's `rootHash` (gaps skipped). Catches a historical `rootHash` rewrite that `verifyIntegrity` alone (which re-derives from the *stored* prevHash) would miss. Also wired into the daily cron. Both increment `audit_integrity_check_failures_total` on failure → `AuditIntegrityMismatch` alert.
+- **F-P4-3 — `audit_logs` is now append-only for the app role.** Migration `0026_audit_logs_append_only.sql` revokes UPDATE+DELETE on `audit_logs` (parent + partitions) from `medicore_app`; it keeps SELECT+INSERT (all the code needs). Documented that new partitions re-acquire the grant via 0020's default privileges and must be re-revoked.
+- New env: `AUDIT_VERIFY_WINDOW_DAYS` (default 7). Tests: `audit-integrity.test.ts` +4 (chain intact/broken/gap, recent-skip). Verification: **479/479** unit, typecheck + lint clean. **Integration-db (incl. migration 0026) not executed (no Docker).** Working tree, uncommitted.
+
+## Audit fix — complete right-to-erasure (F-P3-1) (2026-06-04)
+
+Phase 3 (HIPAA control verification) found all §164.312(a)–(e) safeguards PASS, with one substantive gap: `executeErasure` claimed to "anonymize all PHI" but only scrubbed patients + medical_records — prescriptions were soft-deleted with the encrypted `medications` ciphertext retained, and lab/xray/ultrasound PHI (plaintext) was untouched. The audit log overstated coverage.
+
+- **`executeErasure` now scrubs every clinical table** in the erasure transaction: `prescriptions.medications` overwritten to `[ERASED]`; `lab_tests` results/notes nulled; `xray_records` + `ultrasound_records` report/imageUrl/imageFileName/notes nulled; all three soft-deleted; `appointments` reason→`[ERASED]` + notes/cancellationReason nulled; medical_records Arabic free-text also nulled.
+- **Accurate audit evidence:** `erasedEntities` + new `erasedCounts` are derived from the rows actually scrubbed (`.returning()` counts), not a hard-coded list.
+- **Tests:** mocked `erasure.service.test.ts` updated for the new `.returning()` chains + table mocks; new `erasure.integration-db.test.ts` seeds one PHI row per clinical table and asserts none survives execution.
+- Verification: api-server unit suite **475/475**, monorepo typecheck clean. **Integration-db not executed (no Docker)** — run `test:integration-db` to prove the scrub before merge. Working tree, uncommitted.
+
+## Audit fixes — Phase 2 auth hardening (F-P2-2/3/5) (2026-06-04)
+
+Closes the remaining Phase 2 (auth/session) findings. All three are low-risk code fixes with no default-behavior change.
+
+- **F-P2-2 — strict password policy now applies uniformly.** Only `password-reset` used `validatePasswordStrictAsync`; change-password (`auth.service.ts:232`), create-user (`users.service.ts:107`) and admin-reset (`:251`) used the sync validator, so even with `PHASE2_STRICT_PASSWORD_POLICY=true` they'd skip the HIBP breach check. All three now call `validatePasswordStrictAsync`. **No default change** — when the flag is off the async validator returns the identical sync result; flipping the flag stays an ops decision.
+- **F-P2-3 — timing-safe legacy password compare.** `verifyLegacyPassword` (the HMAC migration path) now uses `crypto.timingSafeEqual` (length-guarded) instead of `===`. Behavior-identical result; existing legacy-path tests still pass.
+- **F-P2-5 — method-based scope for the auth shims.** `requireAuth`/`requireRole` now pick the kernel scope by HTTP method: `read` for GET/HEAD (ADR-010 bounded fail-open on a revocation-store blip), `write` for mutations (CSRF + fail-closed). Central one-line change instead of a 23-file route sweep; safe because CSRF is method-gated, so a GET under `write` never enforced CSRF anyway.
+- Not addressed (by design): F-P2-4 (`fph` weak binding — INFO/accepted) and the `REPLIT_DOMAINS` origin in `policy.ts` (Replit-removal §6 cleanup, tracked separately).
+- Verification: api-server unit suite **475/475**, monorepo typecheck + lint clean. Working tree, uncommitted.
+
+## Audit fixes — Phase 1 RLS consistency + no-show audit (F-P1-2/3/4) (2026-06-04)
+
+Closes the remaining Phase 1 findings (the non-headline ones) from the 2026-06-03 audit. All via one new migration + a cron audit hook.
+
+- **F-P1-2 — `doctor_schedules`/`schedule_overrides` RLS realigned to the dormant standard.** Migration 0022 had shipped a strict, non-dormant `tenant_isolation` policy (no `app.rls_enforce` gate, no `nullif` guard, no `WITH CHECK`) — the root of the F-P1-1 zero-rows break and a crash risk on an empty GUC. **Migration `0025_rls_policy_consistency.sql`** drops and recreates both policies with the exact 0015 dormant shape. RLS stays `FORCE`d; only the expression changes.
+- **F-P1-3 — `clinic_invoice_counters` now has the RLS backstop.** Migration 0025 adds `ENABLE`/`FORCE ROW LEVEL SECURITY` + the dormant `tenant_isolation` policy + `CHECK (clinic_id > 0)` — it was the only clinic-bearing table without it. **Dormant by design:** `billing.service.generateInvoiceNumber` uses bare `db`, so a strict policy would have broken invoice numbering; dormant keeps that path working while enforcing inside `runInTenantContext`. Integration test added to `rls-tenant-context.integration-db.test.ts`.
+- **F-P1-4 — no-show cron now leaves an audit trail.** The hourly `scheduled → no_show` bulk transition (`cron.ts`) wrote no audit (§164.312(b) gap). It now emits one summary `SYSTEM_NO_SHOW` entry per run via the existing system-actor `logAudit` fallback (`SYSTEM_USER_ID`/`SYSTEM_CLINIC_ID`), with affected `{ id, clinicId }` pairs in `details`. The cross-tenant write itself is unchanged (intended, tenant-uniform).
+- Verification: api-server unit suite **475/475**, monorepo typecheck + lint clean. **Integration-db not executed (no Docker)** — run `test:integration-db` to verify 0025's dormant policies + the counter isolation before merge. Working tree, uncommitted.
+
+## Audit fixes — booking RLS break (F-P1-1) + break-glass clinical-PHI access (F-P2-1) (2026-06-04)
+
+Closes the two launch-blocker findings from the 2026-06-03 production audit (Phases 1–2). Both were half-wired controls in the uncommitted working tree.
+
+- **F-P1-1 (CRITICAL) — booking no longer broken by FORCE-RLS.** Migration 0022 put `FORCE ROW LEVEL SECURITY` + a non-dormant policy on `doctor_schedules`/`schedule_overrides`, but `lib/schedule-validator.ts` read them via `dbUnsafe` (no tenant context) → RLS hid every row → every appointment create/reschedule failed `409 "No schedule for this day"`. Fixed by running the validator's reads inside `runInTenantContext`: `checkDoctorAvailability(actor, doctorId, scheduledDate, existingTx?)` opens a tenant context (or reuses the caller's `tx` in `updateAppointment` to avoid a nested transaction). Callers updated in `appointments.service.ts`. Regression test added to `cross-tenant.integration-db.test.ts` (`[BOOKING]`: same-clinic booking succeeds; no-schedule day still 409).
+- **F-P2-1 (MEDIUM–HIGH) — break-glass now delivers clinical PHI.** Break-glass granted app-layer access but migration 0017's `RESTRICTIVE doctor_scope` RLS still hid the 5 doctor-bound clinical tables, so emergency access surfaced demographics only. Fixed with a **patient-scoped, read-only** bypass: migration **0024** extends the 0017 `USING` clause with `OR patient_id = ANY(app.break_glass_patient_ids)` (CSV GUC; `WITH CHECK` unchanged so break-glass cannot write); `runInTenantContext(user, fn, { breakGlassPatientIds })` sets the GUC; `break-glass.service.getActiveBreakGlassPatientIds()` + `scope.ts` (`getDoctorListScope`, break-glass-aware `assertMedicalRecordInScope`) drive it; all 5 doctor-scoped services (medical-records, lab, xray, ultrasound, prescriptions) wire list + getById to pass the GUC and audit `BREAK_GLASS_ACCESS`. Tests: `scope.test.ts` +1, `doctor-scope-rls.integration-db.test.ts` +4 (bypass works, read-only, no over-grant).
+- Verification: api-server unit suite **475/475** green, monorepo typecheck + lint clean. **Integration-db tests not executed in the fix session (no Docker)** — run `pnpm --filter @workspace/api-server run test:integration-db` before merge to runtime-verify the 0024 RLS bypass and the booking regression. Changes are in the working tree, uncommitted. Detail in [AUDIT_FINDINGS_2026-06-03_PHASE1.md](AUDIT_FINDINGS_2026-06-03_PHASE1.md) / [PHASE2](AUDIT_FINDINGS_2026-06-03_PHASE2.md).
+
 ## Compliance UIs + change-history (Consent, Break-Glass, Erasure, before→after) (2026-06-02)
 
 Closes the three "fully-built backend, zero frontend" HIPAA/compliance gaps (Consent, Break-Glass, Right-to-Erasure) and adds a "who did what, when, previous→new data" change-history surface. All three backends already had routes + services + tables but were absent from `openapi.yaml` (no generated hooks) and unreferenced in `clinic/src`. Integrated into existing pages (no new routes).

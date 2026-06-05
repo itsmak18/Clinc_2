@@ -5,7 +5,7 @@ import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { usersTable, appointmentsTable } from "@workspace/db";
 import { eq, isNull, and, gte, lte } from "drizzle-orm";
 import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
-import { hashPassword, validatePasswordStrength } from "../lib/password";
+import { hashPassword, validatePasswordStrictAsync } from "../lib/password";
 import { revokeAllTokensForUser } from "../lib/auth";
 import { logAudit, logRead } from "../lib/audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
@@ -104,7 +104,7 @@ export async function createUser(
     throw new ValidationError(`Invalid specialty. Valid values: ${VALID_SPECIALTIES.join(", ")}`);
   }
 
-  const strength = validatePasswordStrength(password);
+  const strength = await validatePasswordStrictAsync(password);
   if (!strength.valid) throw new ValidationError(strength.reason!);
 
   const hash = await hashPassword(password);
@@ -248,7 +248,7 @@ export async function deleteUser(req: AuthRequest, userId: number) {
 export async function resetPassword(req: AuthRequest, userId: number, newPassword: string) {
   if (!newPassword) throw new ValidationError("New password required");
 
-  const strength = validatePasswordStrength(newPassword);
+  const strength = await validatePasswordStrictAsync(newPassword);
   if (!strength.valid) throw new ValidationError(strength.reason!);
 
   const hash = await hashPassword(newPassword);

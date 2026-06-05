@@ -1,9 +1,4 @@
-// dbUnsafe: doctor_schedules and schedule_overrides are keyed by doctorId with
-// no clinicId column — doctor-scoping provides isolation (only the doctor's own
-// slots are accessible via isDoctorScoped). usersTable/appointmentsTable queries
-// filter by doctorId rather than clinicId; a follow-up PR will add runInTenantContext
-// wrapping once the schedule tables have clinicId columns (see ROADMAP).
-import { dbUnsafe as db } from "@workspace/db";
+import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   doctorSchedulesTable,
   scheduleOverridesTable,
@@ -20,6 +15,8 @@ import type { AuthRequest } from "../middlewares/auth";
 // ── Doctors list with weekly templates ──────────────────────────────────────
 
 export async function listDoctorsWithTemplates(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+
   const doctors = await db
     .select({
       id: usersTable.id,
@@ -30,7 +27,7 @@ export async function listDoctorsWithTemplates(req: AuthRequest) {
       isOnShift: usersTable.isOnShift,
     })
     .from(usersTable)
-    .where(and(eq(usersTable.role, "doctor"), eq(usersTable.isActive, true)));
+    .where(and(eq(usersTable.role, "doctor"), eq(usersTable.isActive, true), eq(usersTable.clinicId, clinicId)));
 
   const filteredDoctors = isDoctorScoped(req.user?.role)
     ? doctors.filter((d) => d.id === req.user!.userId)
@@ -39,14 +36,18 @@ export async function listDoctorsWithTemplates(req: AuthRequest) {
   const doctorIds = filteredDoctors.map((d) => d.id);
   const templates =
     doctorIds.length > 0
-      ? await db
-          .select()
-          .from(doctorSchedulesTable)
-          .where(
-            doctorIds.length === 1
-              ? eq(doctorSchedulesTable.doctorId, doctorIds[0])
-              : sql`${doctorSchedulesTable.doctorId} = ANY(${doctorIds})`,
-          )
+      ? await runInTenantContext(req.user!, async (tx) =>
+          tx
+            .select()
+            .from(doctorSchedulesTable)
+            .where(
+              doctorIds.length === 1
+                ? and(eq(doctorSchedulesTable.doctorId, doctorIds[0]), eq(doctorSchedulesTable.clinicId, clinicId))
+                : and(
+                    sql`${doctorSchedulesTable.doctorId} = ANY(${doctorIds})`,
+                    eq(doctorSchedulesTable.clinicId, clinicId),
+                  ),
+            ))
       : [];
 
   return filteredDoctors.map((doc) => ({
@@ -63,6 +64,8 @@ export async function getDoctorSchedule(req: AuthRequest, doctorId: number) {
     throw new ForbiddenError("Forbidden");
   }
 
+  const clinicId = req.user!.clinicId;
+
   const [doctor] = await db
     .select({
       id: usersTable.id,
@@ -73,14 +76,17 @@ export async function getDoctorSchedule(req: AuthRequest, doctorId: number) {
       isOnShift: usersTable.isOnShift,
     })
     .from(usersTable)
-    .where(and(eq(usersTable.id, doctorId), eq(usersTable.role, "doctor")));
+    .where(and(eq(usersTable.id, doctorId), eq(usersTable.role, "doctor"), eq(usersTable.clinicId, clinicId)));
 
   if (!doctor) throw new NotFoundError("Doctor not found");
 
-  const [weeklyTemplate, overrides] = await Promise.all([
-    db.select().from(doctorSchedulesTable).where(eq(doctorSchedulesTable.doctorId, doctorId)),
-    db.select().from(scheduleOverridesTable).where(eq(scheduleOverridesTable.doctorId, doctorId)),
-  ]);
+  const [weeklyTemplate, overrides] = await runInTenantContext(req.user!, async (tx) =>
+    Promise.all([
+      tx.select().from(doctorSchedulesTable)
+        .where(and(eq(doctorSchedulesTable.doctorId, doctorId), eq(doctorSchedulesTable.clinicId, clinicId))),
+      tx.select().from(scheduleOverridesTable)
+        .where(and(eq(scheduleOverridesTable.doctorId, doctorId), eq(scheduleOverridesTable.clinicId, clinicId))),
+    ]));
 
   void logRead(req, "doctor_schedule", doctorId);
   return { doctor, weeklyTemplate, overrides };
@@ -102,16 +108,26 @@ export async function getDoctorAvailability(req: AuthRequest, doctorId: number, 
   if (isNaN(targetDate.getTime())) throw new ValidationError("Invalid date");
 
   const dayName = DOW[targetDate.getDay()];
+  const clinicId = req.user!.clinicId;
 
-  const [override] = await db
-    .select()
-    .from(scheduleOverridesTable)
-    .where(
-      and(
-        eq(scheduleOverridesTable.doctorId, doctorId),
-        eq(scheduleOverridesTable.overrideDate, dateStr),
-      ),
-    );
+  const [override, template] = await runInTenantContext(req.user!, async (tx) =>
+    Promise.all([
+      tx.select().from(scheduleOverridesTable)
+        .where(and(
+          eq(scheduleOverridesTable.doctorId, doctorId),
+          eq(scheduleOverridesTable.clinicId, clinicId),
+          eq(scheduleOverridesTable.overrideDate, dateStr),
+        ))
+        .then((r) => r[0] ?? null),
+      tx.select().from(doctorSchedulesTable)
+        .where(and(
+          eq(doctorSchedulesTable.doctorId, doctorId),
+          eq(doctorSchedulesTable.clinicId, clinicId),
+          eq(doctorSchedulesTable.dayOfWeek, dayName),
+          eq(doctorSchedulesTable.status, "active"),
+        ))
+        .then((r) => r[0] ?? null),
+    ]));
 
   if (override?.isBlocked) {
     return { available: false, date: dateStr, reason: override.reason ?? "Doctor unavailable", slots: [] };
@@ -125,21 +141,9 @@ export async function getDoctorAvailability(req: AuthRequest, doctorId: number, 
     effectiveStart = override.startTime;
     effectiveEnd = override.endTime;
   } else {
-    const [template] = await db
-      .select()
-      .from(doctorSchedulesTable)
-      .where(
-        and(
-          eq(doctorSchedulesTable.doctorId, doctorId),
-          eq(doctorSchedulesTable.dayOfWeek, dayName),
-          eq(doctorSchedulesTable.status, "active"),
-        ),
-      );
-
     if (!template) {
       return { available: false, date: dateStr, reason: "No schedule for this day", slots: [] };
     }
-
     effectiveStart = template.startTime;
     effectiveEnd = template.endTime;
     slotMinutes = template.slotMinutes;
@@ -155,6 +159,7 @@ export async function getDoctorAvailability(req: AuthRequest, doctorId: number, 
     .where(
       and(
         eq(appointmentsTable.doctorId, doctorId),
+        eq(appointmentsTable.clinicId, clinicId),
         gte(appointmentsTable.scheduledAt, dayStart),
         lte(appointmentsTable.scheduledAt, dayEnd),
         notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
@@ -193,11 +198,15 @@ export async function getWeekView(req: AuthRequest, doctorId: number, weekStartS
   if (isNaN(weekStart.getTime())) throw new ValidationError("Invalid weekStart");
 
   const todayStr = todayDateStr();
+  const clinicId = req.user!.clinicId;
 
-  const [templates, overrides] = await Promise.all([
-    db.select().from(doctorSchedulesTable).where(eq(doctorSchedulesTable.doctorId, doctorId)),
-    db.select().from(scheduleOverridesTable).where(eq(scheduleOverridesTable.doctorId, doctorId)),
-  ]);
+  const [templates, overrides] = await runInTenantContext(req.user!, async (tx) =>
+    Promise.all([
+      tx.select().from(doctorSchedulesTable)
+        .where(and(eq(doctorSchedulesTable.doctorId, doctorId), eq(doctorSchedulesTable.clinicId, clinicId))),
+      tx.select().from(scheduleOverridesTable)
+        .where(and(eq(scheduleOverridesTable.doctorId, doctorId), eq(scheduleOverridesTable.clinicId, clinicId))),
+    ]));
 
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 7);
@@ -207,6 +216,7 @@ export async function getWeekView(req: AuthRequest, doctorId: number, weekStartS
     .where(
       and(
         eq(appointmentsTable.doctorId, doctorId),
+        eq(appointmentsTable.clinicId, clinicId),
         gte(appointmentsTable.scheduledAt, weekStart),
         lte(appointmentsTable.scheduledAt, weekEnd),
         notInArray(appointmentsTable.status, ["cancelled", "no_show"]),
@@ -291,22 +301,15 @@ export async function upsertWeeklyBlock(
     throw new ValidationError("dayOfWeek, startTime, endTime required");
   }
 
-  const [row] = await db
-    .insert(doctorSchedulesTable)
-    .values({
-      doctorId,
-      dayOfWeek: dayOfWeek as any,
-      startTime,
-      endTime,
-      slotMinutes: slotMinutes ?? 30,
-      maxPatients: maxPatients ?? 16,
-      notes: notes ?? null,
-      status: (status ?? "active") as any,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [doctorSchedulesTable.doctorId, doctorSchedulesTable.dayOfWeek],
-      set: {
+  const clinicId = req.user!.clinicId;
+
+  const [row] = await runInTenantContext(req.user!, async (tx) =>
+    tx
+      .insert(doctorSchedulesTable)
+      .values({
+        clinicId,
+        doctorId,
+        dayOfWeek: dayOfWeek as any,
         startTime,
         endTime,
         slotMinutes: slotMinutes ?? 30,
@@ -314,9 +317,20 @@ export async function upsertWeeklyBlock(
         notes: notes ?? null,
         status: (status ?? "active") as any,
         updatedAt: new Date(),
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: [doctorSchedulesTable.doctorId, doctorSchedulesTable.dayOfWeek],
+        set: {
+          startTime,
+          endTime,
+          slotMinutes: slotMinutes ?? 30,
+          maxPatients: maxPatients ?? 16,
+          notes: notes ?? null,
+          status: (status ?? "active") as any,
+          updatedAt: new Date(),
+        },
+      })
+      .returning());
 
   void logAudit(req, "UPSERT", "doctor_schedule", row.id);
   return row;
@@ -334,16 +348,20 @@ export async function setWeeklyBlockStatus(
     throw new ValidationError("status must be 'active' or 'inactive'");
   }
 
-  const [row] = await db
-    .update(doctorSchedulesTable)
-    .set({ status: status as any, updatedAt: new Date() })
-    .where(
-      and(
-        eq(doctorSchedulesTable.doctorId, doctorId),
-        eq(doctorSchedulesTable.dayOfWeek, day as any),
-      ),
-    )
-    .returning();
+  const clinicId = req.user!.clinicId;
+
+  const [row] = await runInTenantContext(req.user!, async (tx) =>
+    tx
+      .update(doctorSchedulesTable)
+      .set({ status: status as any, updatedAt: new Date() })
+      .where(
+        and(
+          eq(doctorSchedulesTable.doctorId, doctorId),
+          eq(doctorSchedulesTable.clinicId, clinicId),
+          eq(doctorSchedulesTable.dayOfWeek, day as any),
+        ),
+      )
+      .returning());
 
   if (!row) throw new NotFoundError("Schedule block not found");
   void logAudit(req, "UPDATE", "doctor_schedule", row.id);
@@ -353,15 +371,19 @@ export async function setWeeklyBlockStatus(
 // ── Delete weekly block ──────────────────────────────────────────────────────
 
 export async function deleteWeeklyBlock(req: AuthRequest, doctorId: number, day: string) {
-  const [row] = await db
-    .delete(doctorSchedulesTable)
-    .where(
-      and(
-        eq(doctorSchedulesTable.doctorId, doctorId),
-        eq(doctorSchedulesTable.dayOfWeek, day as any),
-      ),
-    )
-    .returning();
+  const clinicId = req.user!.clinicId;
+
+  const [row] = await runInTenantContext(req.user!, async (tx) =>
+    tx
+      .delete(doctorSchedulesTable)
+      .where(
+        and(
+          eq(doctorSchedulesTable.doctorId, doctorId),
+          eq(doctorSchedulesTable.clinicId, clinicId),
+          eq(doctorSchedulesTable.dayOfWeek, day as any),
+        ),
+      )
+      .returning());
 
   if (!row) throw new NotFoundError("Schedule block not found");
   void logAudit(req, "DELETE", "doctor_schedule", row.id);
@@ -385,28 +407,32 @@ export async function upsertOverride(
     throw new ValidationError("overrideDate required (YYYY-MM-DD)");
   }
 
-  const [row] = await db
-    .insert(scheduleOverridesTable)
-    .values({
-      doctorId,
-      overrideDate,
-      isBlocked: isBlocked ?? false,
-      startTime: isBlocked ? null : (startTime ?? null),
-      endTime: isBlocked ? null : (endTime ?? null),
-      reason: reason ?? null,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [scheduleOverridesTable.doctorId, scheduleOverridesTable.overrideDate],
-      set: {
+  const clinicId = req.user!.clinicId;
+
+  const [row] = await runInTenantContext(req.user!, async (tx) =>
+    tx
+      .insert(scheduleOverridesTable)
+      .values({
+        clinicId,
+        doctorId,
+        overrideDate,
         isBlocked: isBlocked ?? false,
         startTime: isBlocked ? null : (startTime ?? null),
         endTime: isBlocked ? null : (endTime ?? null),
         reason: reason ?? null,
         updatedAt: new Date(),
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: [scheduleOverridesTable.doctorId, scheduleOverridesTable.overrideDate],
+        set: {
+          isBlocked: isBlocked ?? false,
+          startTime: isBlocked ? null : (startTime ?? null),
+          endTime: isBlocked ? null : (endTime ?? null),
+          reason: reason ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning());
 
   void logAudit(req, "UPSERT", "schedule_override", row.id);
   return row;
@@ -415,15 +441,19 @@ export async function upsertOverride(
 // ── Delete schedule override ─────────────────────────────────────────────────
 
 export async function deleteOverride(req: AuthRequest, doctorId: number, date: string) {
-  const [row] = await db
-    .delete(scheduleOverridesTable)
-    .where(
-      and(
-        eq(scheduleOverridesTable.doctorId, doctorId),
-        eq(scheduleOverridesTable.overrideDate, date),
-      ),
-    )
-    .returning();
+  const clinicId = req.user!.clinicId;
+
+  const [row] = await runInTenantContext(req.user!, async (tx) =>
+    tx
+      .delete(scheduleOverridesTable)
+      .where(
+        and(
+          eq(scheduleOverridesTable.doctorId, doctorId),
+          eq(scheduleOverridesTable.clinicId, clinicId),
+          eq(scheduleOverridesTable.overrideDate, date),
+        ),
+      )
+      .returning());
 
   if (!row) throw new NotFoundError("Override not found");
   void logAudit(req, "DELETE", "schedule_override", row.id);

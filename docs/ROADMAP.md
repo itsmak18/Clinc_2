@@ -1,5 +1,13 @@
 # Roadmap
 
+> As of 2026-06-05: **Production-audit campaign Phases 1–4 — all findings fixed (working tree, uncommitted).** Diff-aware re-audit; findings + resolutions in `docs/AUDIT_FINDINGS_2026-06-03_PHASE{1,2,3,4}.md`. New migrations **0024** (break-glass read-bypass GUC), **0025** (RLS policy consistency: dormant 0022 tables + `clinic_invoice_counters` RLS/CHECK), **0026** (`audit_logs` append-only). New env `AUDIT_VERIFY_WINDOW_DAYS` (default 7). Highlights: fixed a CRITICAL booking break (0022 FORCE-RLS × `dbUnsafe` reader, F-P1-1); made break-glass actually deliver clinical PHI (F-P2-1); completed right-to-erasure across all clinical tables (F-P3-1); activated audit-integrity verification that was recorded-but-never-run (F-P4-1/2). 479/479 unit tests, typecheck + lint clean; migrations validated on real PG16. **Still open / next:**
+> - ⏳ **Run the integration-db suite once under Docker** (`pnpm --filter @workspace/api-server run test:integration-db`) to validate the new app-service-level tests (booking happy-path, erasure scrub, break-glass reads) — the DB layer is already PG16-validated, this exercises the service code.
+> - ⏳ **Commit the batch** (0024–0026 + service/test changes) — currently all uncommitted in the working tree alongside pre-existing WIP.
+> - ⏳ **Phase 1 sweep** — universal per-service `dbUnsafe`/`clinicId` audit (overlaps Phase 5).
+> - ⏳ **Audit Phases 5–8** — backend logic & API surface, deployment/observability, frontend/client, architecture/scale.
+> - ⏳ **Replit-removal cleanup** (audit §6) — incl. `REPLIT_DOMAINS` still read in `policy.ts` `ALLOWED_ORIGINS_SET`.
+> - ⏳ **Op follow-up** — re-run the 0026 REVOKE when new `audit_logs` partitions are created (0020 default-privs re-grant them).
+
 > As of 2026-06-02: **Compliance UIs + change-history shipped** — the three fully-built-but-headless backends (patient Consent, Break-Glass, Right-to-Erasure) now have frontends, and audit before/after change-history ("who did what, when, previous→new data") is surfaced. New OpenAPI paths + codegen for all three; new components `PatientConsentCard`, `BreakGlassButton`, `BreakGlassQueue`, `ErasurePanel`, `ChangeHistory`; `auditSnapshot()` capture backfill across 5 PHI entities (PHI-encrypted fields redacted — no second cleartext store). Break-glass approval and erasure review/execute are now operator-reachable (execute = super_admin, typed confirm). api-server 469/469, clinic 40/40, build clean. See CHANGELOG.
 
 > As of 2026-06-02: **Phase 3 ops hardening complete** — PgBouncer connection pooling, `audit_logs` monthly partitioning (migration 0021, ADR-009), and enhanced restore drill (audit integrity check + RUNBOOK §12) all shipped. Scalability score 8.0→8.5. Operational Resilience 7.5→8.0.

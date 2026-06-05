@@ -1,10 +1,11 @@
-﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   erasureRequestsTable, patientsTable, medicalRecordsTable,
-  prescriptionsTable,
+  prescriptionsTable, labTestsTable, xrayRecordsTable,
+  ultrasoundRecordsTable, appointmentsTable,
 } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
@@ -114,11 +115,18 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
     const erasureBlackoutUntil = new Date(Date.now() + retentionDays * 86_400_000);
 
     const clinicId = req.user!.clinicId;
+    const now = new Date();
+    // Per-entity counts of rows actually scrubbed, so the audit record reflects
+    // exactly what was erased (F-P3-1 — the old hard-coded list overstated it).
+    const erasedCounts: Record<string, number> = {};
+
     // We already run inside a transaction block in runInTenantContext,
     // so nested transaction creates savepoints.
     await tx.transaction(async (nestedTx) => {
-      // Anonymize patient demographics (keep record shell for audit trail)
-      await nestedTx.update(patientsTable).set({
+      // Anonymize patient demographics (keep record shell for audit trail).
+      // Overwrites the encrypted allergies/emergencyContact ciphertext.
+      // Insurance fields are named HIPAA identifiers (§164.514(e)(2)).
+      const pt = await nestedTx.update(patientsTable).set({
         fullName: ERASED,
         fullNameAr: ERASED,
         phone: ERASED,
@@ -127,45 +135,118 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         emergencyContact: null,
         dateOfBirth: ERASED_DOB,
         bloodType: null,
+        insuranceProvider: null,
+        insurancePolicyNum: null,
+        insuranceMemberId: null,
+        insuranceGroupNum: null,
+        insuranceExpiry: null,
         isActive: false,
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(and(eq(patientsTable.id, patientId), eq(patientsTable.clinicId, clinicId)));
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(patientsTable.id, patientId), eq(patientsTable.clinicId, clinicId)))
+        .returning({ id: patientsTable.id });
+      erasedCounts.patient = pt.length;
 
-      // Anonymize medical records (keep shells)
-      await nestedTx.update(medicalRecordsTable).set({
+      // Anonymize medical records (overwrite encrypted diagnosis/vitals; keep shells)
+      const mr = await nestedTx.update(medicalRecordsTable).set({
         chiefComplaint: ERASED,
+        chiefComplaintAr: null,
         diagnosis: ERASED,
+        diagnosisAr: null,
         treatment: ERASED,
+        treatmentAr: null,
         notes: null,
         vitals: null,
-        updatedAt: new Date(),
-      }).where(and(eq(medicalRecordsTable.patientId, patientId), eq(medicalRecordsTable.clinicId, clinicId)));
+        updatedAt: now,
+      }).where(and(eq(medicalRecordsTable.patientId, patientId), eq(medicalRecordsTable.clinicId, clinicId)))
+        .returning({ id: medicalRecordsTable.id });
+      erasedCounts.medical_records = mr.length;
 
-      // Soft-delete prescriptions
-      await nestedTx.update(prescriptionsTable).set({
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(and(eq(prescriptionsTable.patientId, patientId), eq(prescriptionsTable.clinicId, clinicId), isNull(prescriptionsTable.deletedAt)));
+      // Prescriptions — overwrite the encrypted `medications` ciphertext (not just
+      // soft-delete, which previously left the PHI recoverable) and soft-delete.
+      const rx = await nestedTx.update(prescriptionsTable).set({
+        medications: ERASED,
+        notes: null,
+        notesAr: null,
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(prescriptionsTable.patientId, patientId), eq(prescriptionsTable.clinicId, clinicId), isNull(prescriptionsTable.deletedAt)))
+        .returning({ id: prescriptionsTable.id });
+      erasedCounts.prescriptions = rx.length;
+
+      // Lab tests — results/notes are plaintext PHI; null them and soft-delete.
+      const lab = await nestedTx.update(labTestsTable).set({
+        results: null,
+        resultsAr: null,
+        notes: null,
+        notesAr: null,
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(labTestsTable.patientId, patientId), eq(labTestsTable.clinicId, clinicId), isNull(labTestsTable.deletedAt)))
+        .returning({ id: labTestsTable.id });
+      erasedCounts.lab_tests = lab.length;
+
+      // X-ray records — report + image (URL/filename) + notes are plaintext PHI.
+      const xray = await nestedTx.update(xrayRecordsTable).set({
+        report: null,
+        reportAr: null,
+        imageUrl: null,
+        imageFileName: null,
+        notes: null,
+        notesAr: null,
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(xrayRecordsTable.patientId, patientId), eq(xrayRecordsTable.clinicId, clinicId), isNull(xrayRecordsTable.deletedAt)))
+        .returning({ id: xrayRecordsTable.id });
+      erasedCounts.xray_records = xray.length;
+
+      // Ultrasound records — same shape as x-ray.
+      const us = await nestedTx.update(ultrasoundRecordsTable).set({
+        report: null,
+        reportAr: null,
+        imageUrl: null,
+        imageFileName: null,
+        notes: null,
+        notesAr: null,
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(ultrasoundRecordsTable.patientId, patientId), eq(ultrasoundRecordsTable.clinicId, clinicId), isNull(ultrasoundRecordsTable.deletedAt)))
+        .returning({ id: ultrasoundRecordsTable.id });
+      erasedCounts.ultrasound_records = us.length;
+
+      // Appointments — reason/notes/cancellationReason are free-text that can hold
+      // PHI. Scrub them but keep the workflow shell (status/timestamps) for the
+      // care-timeline audit trail.
+      const appt = await nestedTx.update(appointmentsTable).set({
+        reason: ERASED,
+        notes: null,
+        cancellationReason: null,
+        updatedAt: now,
+      }).where(and(eq(appointmentsTable.patientId, patientId), eq(appointmentsTable.clinicId, clinicId)))
+        .returning({ id: appointmentsTable.id });
+      erasedCounts.appointments = appt.length;
 
       // Mark erasure request as executed.
       // erasureBlackoutUntil marks the window during which backups still contain
-      // this patient's pre-erasure PHI â€” see RUNBOOK Â§2.2 for restore procedure.
+      // this patient's pre-erasure PHI — see RUNBOOK §2.2 for restore procedure.
       await nestedTx.update(erasureRequestsTable).set({
         status: "executed",
         executedByUserId: req.user!.userId,
-        executedAt: new Date(),
+        executedAt: now,
         erasureBlackoutUntil,
-        updatedAt: new Date(),
+        updatedAt: now,
       }).where(and(eq(erasureRequestsTable.id, requestId), eq(erasureRequestsTable.clinicId, clinicId)));
     });
 
-    // Immutable audit entry outside the transaction â€” must survive even if something goes wrong post-tx
+    // Immutable audit entry outside the transaction — must survive even if something goes wrong post-tx.
+    // erasedEntities is derived from rows actually scrubbed (accurate evidence).
+    const erasedEntities = Object.keys(erasedCounts).filter((k) => erasedCounts[k] > 0);
     await logAudit(req, "ERASURE_EXECUTED", "erasure_request", requestId, {
       patientId,
-      erasedEntities: ["patient", "medical_records", "prescriptions"],
+      erasedEntities,
+      erasedCounts,
     });
 
-    return { ok: true, requestId, patientId };
+    return { ok: true, requestId, patientId, erasedCounts };
   });
 }

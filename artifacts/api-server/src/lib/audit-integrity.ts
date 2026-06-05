@@ -132,3 +132,91 @@ export async function verifyIntegrity(
 
   return { ok, stored: stored.rootHash, computed };
 }
+
+// Default rolling re-verification window (days). The daily cron re-derives the
+// hashes for this many recent days so tampering of recent audit_logs rows is
+// caught within a day, not only at the quarterly restore drill (F-P4-1).
+const VERIFY_WINDOW_DAYS = (() => {
+  const n = parseInt(process.env.AUDIT_VERIFY_WINDOW_DAYS ?? "7", 10);
+  return Number.isFinite(n) && n > 0 ? n : 7;
+})();
+
+/**
+ * Re-verify the daily integrity records for the last `windowDays` days by
+ * re-deriving each day's hash from the current `audit_logs` rows and comparing
+ * to the stored value (via `verifyIntegrity`). Detects post-hoc tampering of
+ * recent audit rows. Skips dates with no recorded hash. (F-P4-1)
+ */
+export async function verifyRecentIntegrity(
+  windowDays: number = VERIFY_WINDOW_DAYS,
+): Promise<{ checked: number; mismatches: number }> {
+  let checked = 0;
+  let mismatches = 0;
+  const today = new Date();
+  for (let i = 1; i <= windowDays; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const [exists] = await db
+      .select({ checkedDate: auditIntegrityChecksTable.checkedDate })
+      .from(auditIntegrityChecksTable)
+      .where(eq(auditIntegrityChecksTable.checkedDate, dateStr))
+      .limit(1);
+    if (!exists) continue; // no hash recorded for that day — nothing to verify
+    const res = await verifyIntegrity(d);
+    checked++;
+    if (!res.ok) mismatches++;
+  }
+  if (mismatches > 0) {
+    logger.error({ windowDays, checked, mismatches }, "audit_integrity_recent_mismatch");
+  }
+  return { checked, mismatches };
+}
+
+/**
+ * Walk the stored daily integrity records in date order and assert each
+ * record's `prevHash` equals the immediately-prior calendar day's `rootHash`.
+ * Catches a rewrite of a historical `rootHash` that was not cascaded through the
+ * chain — the case `verifyIntegrity` alone misses because it re-derives from the
+ * stored `prevHash` (F-P4-2). Calendar gaps (a day with no record) are skipped,
+ * since after a gap `prevHash` is genesis-based by design.
+ */
+export async function verifyChainLinkage(): Promise<{ checked: number; breaks: number }> {
+  const records = (await db
+    .select({
+      checkedDate: auditIntegrityChecksTable.checkedDate,
+      rootHash: auditIntegrityChecksTable.rootHash,
+      prevHash: auditIntegrityChecksTable.prevHash,
+    })
+    .from(auditIntegrityChecksTable)
+    .orderBy(asc(auditIntegrityChecksTable.checkedDate))) as Array<{
+    checkedDate: string;
+    rootHash: string;
+    prevHash: string;
+  }>;
+
+  let breaks = 0;
+  for (let i = 1; i < records.length; i++) {
+    const cur = records[i];
+    const prior = records[i - 1];
+    // Only validate linkage when `prior` is the immediate calendar predecessor.
+    const expected = new Date(`${cur.checkedDate}T00:00:00.000Z`);
+    expected.setUTCDate(expected.getUTCDate() - 1);
+    const expectedPriorDate = expected.toISOString().slice(0, 10);
+    if (prior.checkedDate !== expectedPriorDate) continue; // calendar gap
+
+    if (cur.prevHash !== prior.rootHash) {
+      breaks++;
+      auditIntegrityMismatchTotal.inc();
+      logger.error(
+        { date: cur.checkedDate, expectedPrev: prior.rootHash, storedPrev: cur.prevHash },
+        "audit_integrity_chain_break — prevHash does not match prior day's rootHash",
+      );
+      await db
+        .update(auditIntegrityChecksTable)
+        .set({ status: "mismatch", verifiedAt: new Date() })
+        .where(eq(auditIntegrityChecksTable.checkedDate, cur.checkedDate));
+    }
+  }
+  return { checked: records.length, breaks };
+}

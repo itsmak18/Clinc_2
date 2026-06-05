@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import { createHash, createHmac } from "crypto";
+import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { isStrictPasswordPolicyEnabled } from "./auth-constants";
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "12", 10);
@@ -51,7 +51,11 @@ function verifyLegacyPassword(password: string, stored: string): boolean {
   if (parts.length !== 2) return false;
   const [salt, hash] = parts;
   const computed = createHmac("sha256", salt).update(password).digest("hex");
-  return `${salt}:${computed}` === stored;
+  // Constant-time compare (F-P2-3) — avoids a timing side-channel on the legacy
+  // migration path. Length guard first: timingSafeEqual throws on length mismatch.
+  const a = Buffer.from(computed);
+  const b = Buffer.from(hash);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 // ---------------------------------------------------------------------------

@@ -50,7 +50,8 @@ const APP_ROLE_PASSWORD = "medicore_app_test_pw_ci";
 export interface RealDbHarness {
   db: NodePgDatabase<Record<string, never>>;
   pool: pg.Pool;
-  container: StartedPostgreSqlContainer;
+  /** Present only in Testcontainers mode; undefined when using a local Postgres. */
+  container?: StartedPostgreSqlContainer;
   connectionUri: string;
   stop: () => Promise<void>;
 }
@@ -65,28 +66,34 @@ function discoverMigrations(): string[] {
     .sort();
 }
 
-export async function startRealDb(): Promise<RealDbHarness> {
-  const container = await new PostgreSqlContainer("postgres:16-alpine")
-    .withDatabase("medicore_test")
-    .withUsername("test")
-    .withPassword("test")
-    .start();
-
-  const superUri = container.getConnectionUri();
-
-  // Superuser pool — used only for migrations + role setup.
+/**
+ * Apply all migrations as the bootstrap superuser, create the medicore_app role
+ * (NOSUPERUSER NOBYPASSRLS) with grants mirroring migration 0020, switch
+ * DATABASE_URL to the medicore_app URI, and return the super/app clients.
+ *
+ * `superUri` must be a superuser connection to a freshly-created, empty database.
+ * Shared by both the Testcontainers path and the local-Postgres path.
+ */
+async function provision(superUri: string): Promise<{
+  dbSuper: NodePgDatabase<Record<string, never>>;
+  superPool: pg.Pool;
+  appPool: pg.Pool;
+  appUri: string;
+}> {
   const superPool = new pg.Pool({ connectionString: superUri, max: 5 });
   const dbSuper = drizzle(superPool);
 
-  // Apply all migrations as the bootstrap superuser (DDL rights required).
   for (const file of discoverMigrations()) {
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
     await superPool.query(sql);
   }
 
-  // Create medicore_app role (NOSUPERUSER NOBYPASSRLS) and grant it DML on
-  // all tables — mirrors migration 0020 and the compose medicore_app setup.
-  // The role must exist before the RLS tests run.
+  // medicore_app role + grants. Roles are cluster-wide, so on a shared local
+  // Postgres the role may already exist — IF NOT EXISTS + ALTER handles both.
+  // Grants are per-database, so they live and die with this DB. NOTE: the blanket
+  // GRANT below re-grants UPDATE/DELETE on every table; migration 0026 revoked
+  // them on audit_logs, so we re-apply 0026 after the grant to keep audit_logs
+  // append-only (the prod migrate container runs 0026 last; here we mirror that).
   await superPool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
@@ -101,25 +108,93 @@ export async function startRealDb(): Promise<RealDbHarness> {
       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${APP_ROLE};
     ALTER DEFAULT PRIVILEGES IN SCHEMA public
       GRANT USAGE, SELECT ON SEQUENCES TO ${APP_ROLE};
+    REVOKE UPDATE, DELETE ON audit_logs FROM ${APP_ROLE};
+    DO $$
+    DECLARE part text;
+    BEGIN
+      FOR part IN
+        SELECT c.relname FROM pg_class c
+        JOIN pg_inherits i ON c.oid = i.inhrelid
+        JOIN pg_class p ON i.inhparent = p.oid
+        WHERE p.relname = 'audit_logs'
+      LOOP EXECUTE format('REVOKE UPDATE, DELETE ON %I FROM ${APP_ROLE}', part); END LOOP;
+    END $$;
   `);
 
-  // Build the app URI (medicore_app role, non-superuser).
-  const containerUrl = new URL(superUri);
-  const host = containerUrl.hostname;
-  const port = containerUrl.port;
-  const dbName = containerUrl.pathname.slice(1);
-  const appUri = `postgresql://${APP_ROLE}:${APP_ROLE_PASSWORD}@${host}:${port}/${dbName}`;
+  const u = new URL(superUri);
+  const appUri = `postgresql://${APP_ROLE}:${APP_ROLE_PASSWORD}@${u.hostname}:${u.port}${u.pathname}`;
 
-  // Switch DATABASE_URL to the app role URI so that @workspace/db (imported
-  // dynamically by the test after startRealDb() returns) connects as
-  // medicore_app — exactly like production. This makes runInTenantContext's
-  // internal db pool subject to RLS enforcement.
+  // Switch DATABASE_URL so @workspace/db (imported dynamically by the test after
+  // startRealDb() returns) connects as medicore_app — exactly like production.
   process.env.DATABASE_URL = appUri;
 
-  // App pool (non-superuser) — returned as harness.pool so STEP-0 PROBE
-  // queries current_user / rolsuper / rolbypassrls via the same role the
-  // app actually uses.
   const appPool = new pg.Pool({ connectionString: appUri, max: 5 });
+  return { dbSuper, superPool, appPool, appUri };
+}
+
+/**
+ * Start a real Postgres for an integration test.
+ *
+ * Default: a throwaway `postgres:16-alpine` Testcontainer (CI path, unchanged).
+ *
+ * No-Docker fallback: set `INTEGRATION_PG_ADMIN_URL` to a SUPERUSER connection
+ * string on a local Postgres (pointing at any existing maintenance DB, e.g.
+ * `postgresql://postgres:pw@localhost:5432/postgres`). The harness creates a
+ * uniquely-named scratch database on that server, provisions it identically, and
+ * DROPs it on stop(). Lets the integration-db suite run without Docker.
+ */
+export async function startRealDb(): Promise<RealDbHarness> {
+  const adminUrl = process.env.INTEGRATION_PG_ADMIN_URL;
+
+  if (adminUrl) {
+    // ── Local Postgres path (no Docker) ──────────────────────────────────────
+    const scratchName = `medicore_it_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+    const adminPool = new pg.Pool({ connectionString: adminUrl, max: 1 });
+    await adminPool.query(`CREATE DATABASE ${scratchName}`);
+    await adminPool.end();
+
+    const superUri = (() => {
+      const u = new URL(adminUrl);
+      u.pathname = `/${scratchName}`;
+      return u.toString();
+    })();
+
+    const { dbSuper, superPool, appPool, appUri } = await provision(superUri);
+
+    return {
+      db: dbSuper,
+      pool: appPool,
+      connectionUri: appUri,
+      async stop() {
+        await appPool.end().catch(() => {});
+        await superPool.end().catch(() => {});
+        // Close the @workspace/db singleton pool the test opened against this
+        // scratch DB, so the FORCE drop below has no live connections to
+        // terminate (which would surface as an unhandled rejection / exit 1).
+        try {
+          const m = (await import("@workspace/db")) as { pool?: { end?: () => Promise<void> } };
+          await m.pool?.end?.();
+        } catch {
+          /* not imported in this file, or already closed */
+        }
+        const drop = new pg.Pool({ connectionString: adminUrl, max: 1 });
+        try {
+          await drop.query(`DROP DATABASE IF EXISTS ${scratchName} WITH (FORCE)`);
+        } finally {
+          await drop.end();
+        }
+      },
+    };
+  }
+
+  // ── Testcontainers path (default — CI) ─────────────────────────────────────
+  const container = await new PostgreSqlContainer("postgres:16-alpine")
+    .withDatabase("medicore_test")
+    .withUsername("test")
+    .withPassword("test")
+    .start();
+
+  const { dbSuper, superPool, appPool, appUri } = await provision(container.getConnectionUri());
 
   return {
     db: dbSuper,
@@ -127,8 +202,14 @@ export async function startRealDb(): Promise<RealDbHarness> {
     container,
     connectionUri: appUri,
     async stop() {
-      await appPool.end();
-      await superPool.end();
+      await appPool.end().catch(() => {});
+      await superPool.end().catch(() => {});
+      try {
+        const m = (await import("@workspace/db")) as { pool?: { end?: () => Promise<void> } };
+        await m.pool?.end?.();
+      } catch {
+        /* not imported in this file, or already closed */
+      }
       await container.stop();
     },
   };

@@ -35,6 +35,37 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # Backup freshness — node_exporter textfile collector reads
-  # backup.prom written by the backup container after each successful run.
-  # Enabled once node_exporter is provisioned (see prometheus-alerts.yml).
+  # Redis — session store, rate-limit state, SSE Pub/Sub, doctor scope cache.
+  # Requires redis_exporter service in docker-compose.prod.yml.
+  # Unlocks: RedisHighMemory alert.
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis_exporter:9121"]
+
+  # Host OS — disk, CPU, memory, network.
+  # Requires node_exporter service in docker-compose.prod.yml.
+  # Unlocks: DiskSpaceCritical alert.
+  # Also exposes the backup textfile metric (backup.prom written by backup container).
+  # Unlocks: BackupStale + BackupMissingTextfile alerts.
+  - job_name: "node"
+    static_configs:
+      - targets: ["node_exporter:9100"]
+
+  # TLS certificate expiry probe against the public API endpoint.
+  # Requires blackbox_exporter service in docker-compose.prod.yml.
+  # BLACKBOX_TARGET env var must be set in .env (e.g. https://medicore.example.com).
+  # Unlocks: SSLCertificateExpiringSoon alert.
+  - job_name: "blackbox-tls"
+    metrics_path: /probe
+    params:
+      module: [https_2xx]
+    static_configs:
+      - targets:
+          - "${BLACKBOX_TARGET}"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox_exporter:9115

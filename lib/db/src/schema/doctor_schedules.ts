@@ -2,6 +2,7 @@ import { pgTable, serial, integer, text, boolean, timestamp, pgEnum, time, uniqu
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
+import { clinicsTable } from "./clinics";
 
 export const dayOfWeekEnum = pgEnum("day_of_week", [
   "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
@@ -11,6 +12,7 @@ export const scheduleStatusEnum = pgEnum("schedule_status", ["active", "inactive
 
 export const doctorSchedulesTable = pgTable("doctor_schedules", {
   id: serial("id").primaryKey(),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   dayOfWeek: dayOfWeekEnum("day_of_week").notNull(),
   startTime: time("start_time").notNull(),
@@ -27,6 +29,7 @@ export const doctorSchedulesTable = pgTable("doctor_schedules", {
 
 export const scheduleOverridesTable = pgTable("schedule_overrides", {
   id: serial("id").primaryKey(),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   overrideDate: text("override_date").notNull(), // YYYY-MM-DD
   isBlocked: boolean("is_blocked").notNull().default(false),

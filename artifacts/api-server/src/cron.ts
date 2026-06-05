@@ -7,8 +7,9 @@ import { validateTransition } from "./lib/appointment-state-machine";
 import { emitToUser } from "./lib/sse";
 import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
-import { drainAuditOutbox } from "./lib/audit";
-import { recordDailyIntegrity } from "./lib/audit-integrity";
+import type { Request } from "express";
+import { drainAuditOutbox, logAudit } from "./lib/audit";
+import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
@@ -116,15 +117,29 @@ export function startCronJobs() {
   }));
 
   // Audit Integrity Check (runs daily at 02:00 UTC)
-  // Computes a SHA-256 hash chain over the previous day's audit_log rows and
-  // records it in audit_integrity_checks. If Prometheus fires AuditIntegrityMismatch
-  // it means rows were modified or deleted after the original hash was stored.
+  // 1. Records a SHA-256 hash chain over the previous day's audit_log rows.
+  // 2. Re-verifies a rolling window of recent days (re-derives each day's hash
+  //    from the current rows and compares) so tampering is caught daily, not
+  //    only at the quarterly restore drill (F-P4-1).
+  // 3. Walks the stored chain asserting each prevHash == prior day's rootHash
+  //    (F-P4-2). Any mismatch increments audit_integrity_check_failures_total →
+  //    the AuditIntegrityMismatch Prometheus alert fires.
   scheduledTasks.push(cron.schedule("0 2 * * *", async () => {
     logger.info("[Cron] Running Audit Integrity Hash");
     try {
       const yesterday = new Date();
       yesterday.setUTCDate(yesterday.getUTCDate() - 1);
       await recordDailyIntegrity(yesterday);
+
+      const recent = await verifyRecentIntegrity();
+      const linkage = await verifyChainLinkage();
+      logger.info({ recent, linkage }, "[Cron] Audit integrity verification complete");
+      if (recent.mismatches > 0 || linkage.breaks > 0) {
+        logger.error(
+          { recent, linkage },
+          "[Cron] AUDIT INTEGRITY MISMATCH — audit_logs may have been tampered with",
+        );
+      }
     } catch (err) {
       logger.error({ err }, "[Cron] Audit Integrity Hash failed");
     }
@@ -155,10 +170,26 @@ export function startCronJobs() {
             lte(appointmentsTable.scheduledAt, twoHoursAgo),
           ),
         )
-        .returning({ id: appointmentsTable.id });
+        .returning({ id: appointmentsTable.id, clinicId: appointmentsTable.clinicId });
 
       if (result.length > 0) {
         logger.info({ count: result.length }, "[Cron] Marked appointments as no_show");
+
+        // F-P1-4: this bulk scheduled→no_show transition is a PHI-adjacent
+        // mutation with no request context, so it previously left no audit
+        // trail (§164.312(b) gap). Record it under the system actor (SYSTEM_USER_ID
+        // / SYSTEM_CLINIC_ID via logAudit's no-req fallback). The write is
+        // deliberately cross-tenant (the rule is tenant-uniform); the affected
+        // appointment ids + their clinics are captured in details for review.
+        // One summary entry per run.
+        const systemReq = { headers: {} } as unknown as Request;
+        await logAudit(
+          systemReq,
+          "SYSTEM_NO_SHOW",
+          "appointment",
+          undefined,
+          { count: result.length, appointments: result },
+        );
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Failed to run No-show Auto-Transition");

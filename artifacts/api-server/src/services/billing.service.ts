@@ -2,7 +2,7 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { invoicesTable, patientsTable, invoiceItemsTable } from "@workspace/db";
+import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
 import { getTimezoneOffset } from "date-fns-tz";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
@@ -10,23 +10,51 @@ import { itemsSchema } from "../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
-async function generateInvoiceNumber(): Promise<string> {
-  const [{ nextval }] = await db.execute(sql`SELECT nextval('invoice_seq') as nextval`) as any;
-  const d = new Date();
-  const ym = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-  return `INV-${ym}-${String(nextval).padStart(6, "0")}`;
+// Per-clinic atomic counter — avoids leaking cross-tenant invoice volume via
+// a global sequence. UPDATE ... RETURNING is atomic; no SELECT FOR UPDATE needed.
+async function generateInvoiceNumber(clinicId: number): Promise<string> {
+  const [row] = await db
+    .update(clinicInvoiceCountersTable)
+    .set({ lastSeq: sql`${clinicInvoiceCountersTable.lastSeq} + 1` })
+    .where(eq(clinicInvoiceCountersTable.clinicId, clinicId))
+    .returning({ lastSeq: clinicInvoiceCountersTable.lastSeq });
+
+  if (!row) {
+    // First invoice for this clinic — insert the counter row and return seq 1.
+    const [inserted] = await db
+      .insert(clinicInvoiceCountersTable)
+      .values({ clinicId, lastSeq: 1 })
+      .onConflictDoUpdate({
+        target: clinicInvoiceCountersTable.clinicId,
+        set: { lastSeq: sql`${clinicInvoiceCountersTable.lastSeq} + 1` },
+      })
+      .returning({ lastSeq: clinicInvoiceCountersTable.lastSeq });
+    const seq = inserted.lastSeq;
+    const ym = formatYM();
+    return `INV-${ym}-${String(seq).padStart(6, "0")}`;
+  }
+
+  const ym = formatYM();
+  return `INV-${ym}-${String(row.lastSeq).padStart(6, "0")}`;
 }
 
-async function fetchInvoiceItems(invoiceId: number) {
+function formatYM(): string {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function fetchInvoiceItems(invoiceId: number, clinicId: number) {
   const rows = await db.select({
     description: invoiceItemsTable.description,
     quantity:    invoiceItemsTable.quantity,
     unitPrice:   invoiceItemsTable.unitPrice,
-  }).from(invoiceItemsTable).where(eq(invoiceItemsTable.invoiceId, invoiceId));
+  }).from(invoiceItemsTable).where(
+    and(eq(invoiceItemsTable.invoiceId, invoiceId), eq(invoiceItemsTable.clinicId, clinicId)),
+  );
   return rows.map(r => ({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) }));
 }
 
-async function fetchInvoiceItemsBatch(invoiceIds: number[]) {
+async function fetchInvoiceItemsBatch(invoiceIds: number[], clinicId: number) {
   const map = new Map<number, { description: string; quantity: number; unitPrice: number }[]>();
   if (!invoiceIds.length) return map;
   const rows = await db.select({
@@ -34,7 +62,9 @@ async function fetchInvoiceItemsBatch(invoiceIds: number[]) {
     description: invoiceItemsTable.description,
     quantity:    invoiceItemsTable.quantity,
     unitPrice:   invoiceItemsTable.unitPrice,
-  }).from(invoiceItemsTable).where(inArray(invoiceItemsTable.invoiceId, invoiceIds));
+  }).from(invoiceItemsTable).where(
+    and(inArray(invoiceItemsTable.invoiceId, invoiceIds), eq(invoiceItemsTable.clinicId, clinicId)),
+  );
   for (const r of rows) {
     const arr = map.get(r.invoiceId) ?? [];
     arr.push({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) });
@@ -72,7 +102,7 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
       .orderBy(desc(invoicesTable.createdAt)),
   );
 
-  const itemsMap = await fetchInvoiceItemsBatch(rows.map(r => r.id));
+  const itemsMap = await fetchInvoiceItemsBatch(rows.map(r => r.id), req.user!.clinicId);
   void logRead(req, "invoice", undefined);
   return rows.map(r => ({ ...r, items: itemsMap.get(r.id) ?? [] }));
 }
@@ -87,7 +117,7 @@ export async function createInvoice(
   }
 
   const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
-    .where(and(eq(patientsTable.id, data.patientId), isNull(patientsTable.deletedAt)));
+    .where(and(eq(patientsTable.id, data.patientId), eq(patientsTable.clinicId, req.user!.clinicId), isNull(patientsTable.deletedAt)));
   if (!patient) throw new NotFoundError("patient", String(data.patientId));
 
   const parsedItems = itemsSchema.safeParse(data.items);
@@ -97,7 +127,7 @@ export async function createInvoice(
   const subtotal = parsedItems.data.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
   const discount = data.discount ?? 0;
   const total = subtotal - discount;
-  const invoiceNumber = await generateInvoiceNumber();
+  const invoiceNumber = await generateInvoiceNumber(req.user!.clinicId);
 
   const [invoice] = await db.insert(invoicesTable).values({
     clinicId: req.user!.clinicId,
@@ -126,7 +156,7 @@ export async function getInvoice(req: AuthRequest, invoiceId: number) {
     return row;
   });
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
-  const items = await fetchInvoiceItems(invoiceId);
+  const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   void logRead(req, "invoice", invoiceId);
   return { ...invoice, items };
 }
@@ -142,7 +172,7 @@ export async function updateInvoice(req: AuthRequest, invoiceId: number, data: {
     .where(and(...conditions))
     .returning();
   await logAudit(req, "UPDATE", "invoice", invoiceId, { fields: ["notes"] }, auditSnapshot(existing), auditSnapshot(invoice));
-  const items = await fetchInvoiceItems(invoiceId);
+  const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...invoice, items };
 }
 
@@ -163,7 +193,7 @@ export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason:
 
   if (!updated) throw new ConflictError("Invoice status changed by a concurrent request.");
   await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, { reason });
-  const items = await fetchInvoiceItems(invoiceId);
+  const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...updated, items };
 }
 
@@ -198,7 +228,7 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
   if (!updated) throw new ConflictError("Invoice was already paid by a concurrent request.");
 
   await logAudit(req, "PAY", "invoice", invoiceId, { amountReceived });
-  const items = await fetchInvoiceItems(invoiceId);
+  const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...updated, items };
 }
 

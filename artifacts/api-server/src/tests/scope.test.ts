@@ -16,7 +16,16 @@ vi.mock("@workspace/db", () => ({
     insert: vi.fn(),
   },
   doctorPatientsTable: { doctorId: "doctorId", patientId: "patientId" },
-  medicalRecordsTable: { id: "id", doctorId: "doctorId" },
+  medicalRecordsTable: { id: "id", doctorId: "doctorId", patientId: "patientId" },
+  breakGlassSessionsTable: {
+    id: "id", userId: "userId", patientId: "patientId", clinicId: "clinicId",
+    revokedAt: "revokedAt", expiresAt: "expiresAt", activatedAt: "activatedAt",
+    approvedAt: "approvedAt",
+  },
+  runInTenantContext: vi.fn().mockImplementation((_user: any, fn: (tx: any) => any) => {
+    const db: any = { select: vi.fn() };
+    return fn(db);
+  }),
 }));
 
 vi.mock("../lib/audit", () => ({
@@ -24,24 +33,33 @@ vi.mock("../lib/audit", () => ({
   logDenied: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Break-glass service mock — default: no active session (getActiveSession → null).
+// Individual tests override this to simulate an active session.
+vi.mock("../services/break-glass.service", () => ({
+  getActiveSession: vi.fn().mockResolvedValue(null),
+  logBreakGlassAccess: vi.fn().mockResolvedValue(undefined),
+  getActiveBreakGlassPatientIds: vi.fn().mockResolvedValue([]),
+}));
+
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope, assertMedicalRecordInScope, recordDoctorPatientLink } from "../lib/scope";
 import { db } from "@workspace/db";
 import { logAudit, logDenied } from "../lib/audit";
 import { ForbiddenError } from "../services/errors";
+import { getActiveSession, logBreakGlassAccess } from "../services/break-glass.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 // ── Helper to build a mock request ───────────────────────────────────────────
 
-function doctorReq(userId = 5): AuthRequest {
-  return { user: { userId, username: "dr_test", role: "doctor" } } as unknown as AuthRequest;
+function doctorReq(userId = 5, clinicId = 1): AuthRequest {
+  return { user: { userId, username: "dr_test", role: "doctor", clinicId } } as unknown as AuthRequest;
 }
 
 function adminReq(): AuthRequest {
-  return { user: { userId: 1, username: "admin", role: "admin" } } as unknown as AuthRequest;
+  return { user: { userId: 1, username: "admin", role: "admin", clinicId: 1 } } as unknown as AuthRequest;
 }
 
 function superAdminReq(): AuthRequest {
-  return { user: { userId: 2, username: "sa", role: "super_admin" } } as unknown as AuthRequest;
+  return { user: { userId: 2, username: "sa", role: "super_admin", clinicId: 1 } } as unknown as AuthRequest;
 }
 
 // Chain mock helper: db.select().from().where() → resolves rows (doctor_patients lookup)
@@ -52,7 +70,7 @@ function mockScopeQuery(patientIds: number[]) {
 }
 
 // Chain mock helper: db.select().from().where() → resolves rows
-function mockRecordQuery(record: { doctorId: number } | null) {
+function mockRecordQuery(record: { doctorId: number; patientId?: number } | null) {
   const where = vi.fn().mockResolvedValue(record ? [record] : []);
   const from = vi.fn().mockReturnValue({ where });
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue({ from });
@@ -92,7 +110,11 @@ describe("getDoctorPatientScope", () => {
 // ── assertPatientInScope ──────────────────────────────────────────────────────
 
 describe("assertPatientInScope", () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: no active break-glass session
+    (getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
 
   it("resolves silently for non-doctor roles (admin)", async () => {
     await expect(assertPatientInScope(adminReq(), 99)).resolves.toBeUndefined();
@@ -108,9 +130,10 @@ describe("assertPatientInScope", () => {
     mockScopeQuery([10, 20]);
     await expect(assertPatientInScope(doctorReq(), 10)).resolves.toBeUndefined();
     expect(logAudit).not.toHaveBeenCalled();
+    expect(getActiveSession).not.toHaveBeenCalled();
   });
 
-  it("throws ForbiddenError and logs audit when patient is NOT in scope", async () => {
+  it("throws ForbiddenError and logs audit when patient is NOT in scope and no break-glass session", async () => {
     mockScopeQuery([10, 20]);
     await expect(assertPatientInScope(doctorReq(), 999)).rejects.toBeInstanceOf(ForbiddenError);
     expect(logAudit).toHaveBeenCalledWith(
@@ -134,9 +157,57 @@ describe("assertPatientInScope", () => {
     );
   });
 
-  it("throws when doctor has zero appointments (empty scope)", async () => {
+  it("throws when doctor has zero appointments (empty scope) and no break-glass session", async () => {
     mockScopeQuery([]);
     await expect(assertPatientInScope(doctorReq(), 1)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  // ── Break-glass integration ────────────────────────────────────────────────
+
+  it("[break-glass] resolves silently and logs BREAK_GLASS_ACCESS when active session exists", async () => {
+    mockScopeQuery([10, 20]); // patientId=999 not in scope
+    const fakeSession = { id: 42, userId: 5, patientId: 999, clinicId: 1 };
+    (getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue(fakeSession);
+
+    await expect(assertPatientInScope(doctorReq(5, 1), 999)).resolves.toBeUndefined();
+
+    expect(getActiveSession).toHaveBeenCalledWith(5, 999, 1);
+    expect(logBreakGlassAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      "patient",
+      999,
+    );
+    // Must NOT log ACCESS_DENIED_OUT_OF_SCOPE
+    expect(logAudit).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "ACCESS_DENIED_OUT_OF_SCOPE",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("[break-glass] uses custom entityType in BREAK_GLASS_ACCESS log", async () => {
+    mockScopeQuery([]);
+    const fakeSession = { id: 7, userId: 5, patientId: 3, clinicId: 1 };
+    (getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue(fakeSession);
+
+    await expect(assertPatientInScope(doctorReq(5, 1), 3, "medical_record")).resolves.toBeUndefined();
+
+    expect(logBreakGlassAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      7,
+      "medical_record",
+      3,
+    );
+  });
+
+  it("[break-glass] still throws when getActiveSession returns null (no session)", async () => {
+    mockScopeQuery([]);
+    (getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await expect(assertPatientInScope(doctorReq(), 1)).rejects.toBeInstanceOf(ForbiddenError);
+    expect(logBreakGlassAccess).not.toHaveBeenCalled();
   });
 });
 
@@ -146,18 +217,18 @@ describe("assertMedicalRecordInScope", () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it("resolves silently for non-doctor roles", async () => {
-    await expect(assertMedicalRecordInScope(adminReq(), 42)).resolves.toBeUndefined();
+    await expect(assertMedicalRecordInScope(adminReq(), 42)).resolves.toEqual({ breakGlassPatientIds: [] });
     expect(db.select).not.toHaveBeenCalled();
   });
 
   it("resolves silently for super_admin", async () => {
-    await expect(assertMedicalRecordInScope(superAdminReq(), 42)).resolves.toBeUndefined();
+    await expect(assertMedicalRecordInScope(superAdminReq(), 42)).resolves.toEqual({ breakGlassPatientIds: [] });
     expect(db.select).not.toHaveBeenCalled();
   });
 
   it("[Rule 1] resolves silently when record.doctorId matches current user", async () => {
     mockRecordQuery({ doctorId: 5 });
-    await expect(assertMedicalRecordInScope(doctorReq(5), 42)).resolves.toBeUndefined();
+    await expect(assertMedicalRecordInScope(doctorReq(5), 42)).resolves.toEqual({ breakGlassPatientIds: [] });
     expect(logDenied).not.toHaveBeenCalled();
   });
 
@@ -174,7 +245,16 @@ describe("assertMedicalRecordInScope", () => {
 
   it("resolves silently (let caller handle 404) when record does not exist", async () => {
     mockRecordQuery(null);
-    await expect(assertMedicalRecordInScope(doctorReq(5), 9999)).resolves.toBeUndefined();
+    await expect(assertMedicalRecordInScope(doctorReq(5), 9999)).resolves.toEqual({ breakGlassPatientIds: [] });
+    expect(logDenied).not.toHaveBeenCalled();
+  });
+
+  it("[break-glass] allows a non-owned record when an active session exists, returns the patient id, audits", async () => {
+    mockRecordQuery({ doctorId: 999, patientId: 77 });
+    (getActiveSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 1234 });
+
+    await expect(assertMedicalRecordInScope(doctorReq(5), 42)).resolves.toEqual({ breakGlassPatientIds: [77] });
+    expect(logBreakGlassAccess).toHaveBeenCalledWith(expect.anything(), 1234, "medical_record", 42);
     expect(logDenied).not.toHaveBeenCalled();
   });
 });
