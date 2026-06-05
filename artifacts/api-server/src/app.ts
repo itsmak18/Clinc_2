@@ -62,11 +62,6 @@ const devOriginPatterns: RegExp[] = [
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
 ];
 
-const replitDomains = (process.env.REPLIT_DOMAINS ?? "").split(",").map(d => d.trim()).filter(Boolean);
-const replitOriginPatterns: RegExp[] = replitDomains.map(
-  d => new RegExp(`^https://${d.replace(/\./g, "\\.")}$`)
-);
-
 // ALLOWED_ORIGINS — comma-separated additional prod origins (e.g. https://app.example.com).
 // Use this instead of REPLIT_DOMAINS when deploying outside Replit.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").map(o => o.trim()).filter(Boolean);
@@ -80,8 +75,8 @@ app.use(cors({
     if (!origin) return callback(null, true);
 
     const allowed = process.env.NODE_ENV === "production"
-      ? [...replitOriginPatterns, ...allowedOriginPatterns]
-      : [...devOriginPatterns, ...replitOriginPatterns, ...allowedOriginPatterns];
+      ? [...allowedOriginPatterns]
+      : [...devOriginPatterns, ...allowedOriginPatterns];
 
     if (allowed.some(pattern => pattern.test(origin))) {
       callback(null, true);

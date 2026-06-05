@@ -1,4 +1,4 @@
-﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -88,7 +88,7 @@ export async function createPrescription(
     .where(and(eq(patientsTable.id, pid), isNull(patientsTable.deletedAt)));
   if (!patient) throw new NotFoundError("patient", String(pid));
 
-  if (!await hasActiveConsent(pid, "treatment")) {
+  if (!await hasActiveConsent(pid, "treatment", req.user!.clinicId)) {
     throw new ConsentRequiredError("treatment consent is required before creating a prescription");
   }
 
