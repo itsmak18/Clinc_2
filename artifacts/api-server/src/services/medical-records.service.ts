@@ -5,7 +5,7 @@ import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { medicalRecordsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
-import { isDoctorScoped, getDoctorPatientScope, assertMedicalRecordInScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorListScope, assertMedicalRecordInScope } from "../lib/scope";
 import { vitalsSchema } from "../lib/jsonb-schemas";
 import { encrypt, decrypt, encryptJsonNullable, decryptJsonNullable } from "../lib/field-encryption";
 import { hasActiveConsent } from "./consent.service";
@@ -28,13 +28,15 @@ export async function listMedicalRecords(
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(medicalRecordsTable.deletedAt), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
 
+  let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
-    const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) {
+    const scope = await getDoctorListScope(req, "medical_record");
+    breakGlassPatientIds = scope.breakGlassPatientIds;
+    if (scope.allowed.length === 0) {
       void logAudit(req, "READ_LIST", "medical_record", undefined, { count: 0 });
       return { data: [], nextCursor: null };
     }
-    conditions.push(inArray(medicalRecordsTable.patientId, allowed));
+    conditions.push(inArray(medicalRecordsTable.patientId, scope.allowed));
   }
 
   if (params.patientId) {
@@ -73,6 +75,7 @@ export async function listMedicalRecords(
       .where(and(...conditions))
       .orderBy(desc(medicalRecordsTable.id))
       .limit(lim),
+    { breakGlassPatientIds },
   );
 
   const nextCursor = results.length === lim ? results[results.length - 1].id : null;
@@ -104,7 +107,8 @@ export async function createMedicalRecord(
   if (!parsedVitals.success) throw new ValidationError("Invalid vitals");
 
   const pid = Number(data.patientId);
-  const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable).where(eq(patientsTable.id, pid));
+  const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
+    .where(and(eq(patientsTable.id, pid), eq(patientsTable.clinicId, req.user!.clinicId)));
   if (!patient) throw new NotFoundError("patient", String(pid));
 
   if (!await hasActiveConsent(pid, "treatment")) {
@@ -112,7 +116,8 @@ export async function createMedicalRecord(
   }
 
   const did = Number(data.doctorId);
-  const [doctor] = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(eq(usersTable.id, did));
+  const [doctor] = await db.select({ id: usersTable.id, role: usersTable.role }).from(usersTable)
+    .where(and(eq(usersTable.id, did), eq(usersTable.clinicId, req.user!.clinicId)));
   if (!doctor || doctor.role !== "doctor") throw new ValidationError("doctorId must reference a user with doctor role");
 
   const [record] = await db.insert(medicalRecordsTable).values({
@@ -131,12 +136,12 @@ export async function createMedicalRecord(
 }
 
 export async function getMedicalRecord(req: AuthRequest, recordId: number) {
-  await assertMedicalRecordInScope(req, recordId);
+  const { breakGlassPatientIds } = await assertMedicalRecordInScope(req, recordId);
   const record = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(medicalRecordsTable.id, recordId), eq(medicalRecordsTable.clinicId, req.user!.clinicId)];
     const [row] = await tx.select().from(medicalRecordsTable).where(and(...conditions));
     return row;
-  });
+  }, { breakGlassPatientIds });
   if (!record) throw new NotFoundError("medical record", recordId);
 
   void logRead(req, "medical_record", recordId);

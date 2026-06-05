@@ -6,7 +6,8 @@ import { xrayRecordsTable, patientsTable, usersTable, notificationsTable } from 
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
-import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
+import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
@@ -17,10 +18,12 @@ export async function listXrays(
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(xrayRecordsTable.deletedAt), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
 
+  let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
-    const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) return { data: [], nextCursor: null };
-    conditions.push(inArray(xrayRecordsTable.patientId, allowed));
+    const scope = await getDoctorListScope(req, "xray");
+    breakGlassPatientIds = scope.breakGlassPatientIds;
+    if (scope.allowed.length === 0) return { data: [], nextCursor: null };
+    conditions.push(inArray(xrayRecordsTable.patientId, scope.allowed));
   }
 
   if (params.status) conditions.push(eq(xrayRecordsTable.status, params.status as any));
@@ -56,6 +59,7 @@ export async function listXrays(
       .where(and(...conditions))
       .orderBy(desc(xrayRecordsTable.id))
       .limit(lim),
+    { breakGlassPatientIds },
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
@@ -82,16 +86,25 @@ export async function createXray(
 }
 
 export async function getXray(req: AuthRequest, xrayId: number) {
+  const isDoc = isDoctorScoped(req.user?.role);
+  const breakGlassPatientIds = isDoc
+    ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
+    : [];
+
   const xray = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
     const [row] = await tx.select().from(xrayRecordsTable).where(and(...conditions));
     return row;
-  });
+  }, { breakGlassPatientIds });
   if (!xray) throw new NotFoundError("xray record", xrayId);
 
-  if (isDoctorScoped(req.user?.role)) {
+  if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (!allowed.includes(xray.patientId)) throw new ForbiddenError();
+    const viaBreakGlass = breakGlassPatientIds.includes(xray.patientId);
+    if (!allowed.includes(xray.patientId) && !viaBreakGlass) throw new ForbiddenError();
+    if (viaBreakGlass) {
+      await logAudit(req, "BREAK_GLASS_ACCESS", "xray", xrayId, { patientId: xray.patientId, via: "get" } as object);
+    }
   }
 
   void logRead(req, "xray", xrayId);

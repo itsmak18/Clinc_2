@@ -44,9 +44,25 @@ export interface TenantUser {
  * The transaction commits when `fn` resolves and rolls back if `fn` throws —
  * Drizzle's default `transaction()` semantics.
  */
+export interface TenantContextOptions {
+  /**
+   * Patient IDs the acting doctor currently has an ACTIVE, audited break-glass
+   * session for. When set, `app.break_glass_patient_ids` is populated so the
+   * `doctor_scope` RLS policy (migration 0017 + 0024) permits READ of those
+   * patients' rows in the five doctor-bound clinical tables — the DB-layer half
+   * of the break-glass emergency-access control (audit finding F-P2-1).
+   *
+   * Only meaningful when `user.role === 'doctor'`; for any other role the
+   * doctor_scope policy is already bypassed by the role clause. Caller is
+   * responsible for proving the sessions are live (see break-glass.service).
+   */
+  breakGlassPatientIds?: number[];
+}
+
 export async function runInTenantContext<T>(
   user: TenantUser,
   fn: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>,
+  options?: TenantContextOptions,
 ): Promise<T> {
   if (!Number.isInteger(user.clinicId) || user.clinicId <= 0) {
     // Defense in depth — the kernel rejects this case at auth time, but if
@@ -76,6 +92,15 @@ export async function runInTenantContext<T>(
     await tx.execute(sql`SELECT set_config('app.clinic_id', ${String(user.clinicId)}, true)`);
     await tx.execute(sql`SELECT set_config('app.user_id', ${String(user.userId)}, true)`);
     await tx.execute(sql`SELECT set_config('app.role', ${user.role}, true)`);
+    // Break-glass read bypass for doctor_scope RLS (0024). We sanitize to
+    // positive integers and join with commas; the policy parses this back via
+    // string_to_array(...)::int[]. Empty/absent → GUC left unset → policy
+    // enforces normal doctor scope (no bypass).
+    const bgIds = options?.breakGlassPatientIds
+      ?.filter((n) => Number.isInteger(n) && n > 0);
+    if (bgIds && bgIds.length > 0) {
+      await tx.execute(sql`SELECT set_config('app.break_glass_patient_ids', ${bgIds.join(",")}, true)`);
+    }
     return fn(tx);
   });
 }

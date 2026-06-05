@@ -23,8 +23,10 @@ router.get("/notifications/stream", (req: AuthRequest, res) => {
   }
 
   const userId = req.user!.userId;
+  const lastEventIdHeader = req.headers["last-event-id"];
+  const lastEventId = lastEventIdHeader ? parseInt(String(lastEventIdHeader), 10) : undefined;
 
-  const accepted = addSSEClient(userId, res);
+  const accepted = addSSEClient(userId, res, lastEventId);
   if (!accepted) {
     res.status(503).set("Retry-After", "30").json({ error: "Too many SSE connections" });
     return;

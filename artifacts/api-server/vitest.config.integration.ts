@@ -20,7 +20,16 @@ export default defineConfig({
   test: {
     environment: "node",
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } }, // serialize for predictable container lifecycles
+    // Each test file MUST run in its OWN process. `@workspace/db` creates its pg
+    // Pool eagerly at module load from process.env.DATABASE_URL (lib/db/src/index.ts),
+    // and each file provisions its own per-file database in beforeAll. A shared
+    // process (singleFork, or a reused sequential fork) pins that singleton pool to
+    // the FIRST file's DB → later files hit "database does not exist" / "Cannot use a
+    // pool after end" once that file tears down. Parallel forks give one process per
+    // file = one fresh pool per DB. `maxForks: 2` caps concurrent DB/container setup.
+    poolOptions: { forks: { singleFork: false } },
+    maxWorkers: 2,
+    minWorkers: 1,
     globals: true,
     setupFiles: ["./src/tests/setup.env.ts"],
     include: ["src/tests/**/*.integration-db.test.ts"],

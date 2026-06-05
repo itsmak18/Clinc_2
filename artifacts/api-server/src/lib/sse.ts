@@ -10,12 +10,43 @@ let totalConnections = 0;
 const MAX_CONNECTIONS = parseInt(process.env.SSE_MAX_CONNECTIONS ?? "500", 10);
 const MAX_PER_USER    = parseInt(process.env.SSE_MAX_PER_USER    ?? "10",  10);
 
+// Per-user event ring buffer for Last-Event-ID replay.
+// Stores the last SSE_REPLAY_BUFFER events per user so a reconnecting client
+// can catch up on events missed during a brief disconnection.
+const REPLAY_BUFFER_SIZE = parseInt(process.env.SSE_REPLAY_BUFFER ?? "50", 10);
+
+interface BufferedEvent {
+  id:    number;
+  event: string;
+  data:  unknown;
+}
+
+const replayBuffers = new Map<number, BufferedEvent[]>();
+// Monotonically increasing per-user event counter.
+const eventCounters = new Map<number, number>();
+
+function nextEventId(userId: number): number {
+  const n = (eventCounters.get(userId) ?? 0) + 1;
+  eventCounters.set(userId, n);
+  return n;
+}
+
+function appendToReplayBuffer(userId: number, entry: BufferedEvent): void {
+  let buf = replayBuffers.get(userId);
+  if (!buf) { buf = []; replayBuffers.set(userId, buf); }
+  buf.push(entry);
+  if (buf.length > REPLAY_BUFFER_SIZE) buf.shift();
+}
+
 /**
  * Register a new SSE client. Returns false when the per-process cap has been
  * reached — the caller must respond 503 + Retry-After. When the per-user cap
  * is reached, the oldest connection for that user is evicted to make room.
+ *
+ * lastEventId: if the reconnecting client sent Last-Event-ID, replay any
+ * buffered events newer than that ID before flushing the connection header.
  */
-export function addSSEClient(userId: number, res: Response): boolean {
+export function addSSEClient(userId: number, res: Response, lastEventId?: number): boolean {
   if (totalConnections >= MAX_CONNECTIONS) return false;
   let set = clients.get(userId);
   if (!set) {
@@ -33,6 +64,20 @@ export function addSSEClient(userId: number, res: Response): boolean {
   set.add(res);
   totalConnections++;
   sseConnectionsGauge.set(totalConnections);
+
+  // Replay missed events if the client sent Last-Event-ID.
+  if (lastEventId !== undefined && lastEventId > 0) {
+    const buf = replayBuffers.get(userId) ?? [];
+    const missed = buf.filter(e => e.id > lastEventId);
+    for (const e of missed) {
+      try {
+        res.write(`id: ${e.id}\nevent: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`);
+      } catch {
+        // Connection closed before replay finished — harmless.
+      }
+    }
+  }
+
   return true;
 }
 
@@ -51,9 +96,13 @@ runtime.eventBus.subscribe(SSE_CHANNEL, (message) => {
   try {
     const { userId, event, data } = JSON.parse(message);
     const set = clients.get(userId);
+
+    const eventId = nextEventId(userId);
+    appendToReplayBuffer(userId, { id: eventId, event, data });
+
     if (!set || set.size === 0) return;
 
-    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    const payload = `id: ${eventId}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of set) {
       try {
         res.write(payload);

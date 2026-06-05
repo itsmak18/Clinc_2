@@ -36,7 +36,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 // Import after mocks are in place
-import { computeHashFromRows, recordDailyIntegrity, verifyIntegrity } from "../lib/audit-integrity";
+import { computeHashFromRows, recordDailyIntegrity, verifyIntegrity, verifyChainLinkage, verifyRecentIntegrity } from "../lib/audit-integrity";
 import { db } from "@workspace/db";
 
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -261,5 +261,61 @@ describe("verifyIntegrity", () => {
     await expect(verifyIntegrity(new Date("2026-01-15T00:00:00.000Z")))
       .rejects
       .toThrow("No audit integrity record for 2026-01-15");
+  });
+});
+
+// ── verifyChainLinkage (F-P4-2) ───────────────────────────────────────────────
+
+describe("verifyChainLinkage", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("reports 0 breaks when each prevHash matches the prior day's rootHash", async () => {
+    setupSelectChain([[
+      { checkedDate: "2026-01-14", rootHash: "h14", prevHash: "h13" },
+      { checkedDate: "2026-01-15", rootHash: "h15", prevHash: "h14" },
+    ]]);
+    setupUpdateChain();
+
+    const res = await verifyChainLinkage();
+    expect(res.breaks).toBe(0);
+    expect(mockIncrement).not.toHaveBeenCalled();
+  });
+
+  it("detects a break when a historical rootHash was rewritten without cascading", async () => {
+    setupSelectChain([[
+      { checkedDate: "2026-01-14", rootHash: "h14", prevHash: "h13" },
+      { checkedDate: "2026-01-15", rootHash: "h15", prevHash: "TAMPERED" }, // != h14
+    ]]);
+    const { set } = setupUpdateChain();
+
+    const res = await verifyChainLinkage();
+    expect(res.breaks).toBe(1);
+    expect(mockIncrement).toHaveBeenCalledTimes(1);
+    expect((set as ReturnType<typeof vi.fn>).mock.calls[0][0].status).toBe("mismatch");
+  });
+
+  it("skips a calendar gap (prevHash is genesis-based after a missing day)", async () => {
+    setupSelectChain([[
+      { checkedDate: "2026-01-14", rootHash: "h14", prevHash: "h13" },
+      { checkedDate: "2026-01-16", rootHash: "h16", prevHash: "genesis" }, // 2-day gap
+    ]]);
+    setupUpdateChain();
+
+    const res = await verifyChainLinkage();
+    expect(res.breaks).toBe(0);
+    expect(mockIncrement).not.toHaveBeenCalled();
+  });
+});
+
+// ── verifyRecentIntegrity (F-P4-1) ────────────────────────────────────────────
+
+describe("verifyRecentIntegrity", () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it("skips days that have no recorded integrity hash", async () => {
+    setupSelectChain([]); // every exists-check returns []
+    const res = await verifyRecentIntegrity(7);
+    expect(res.checked).toBe(0);
+    expect(res.mismatches).toBe(0);
   });
 });

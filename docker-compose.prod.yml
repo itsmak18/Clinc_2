@@ -489,6 +489,94 @@ services:
     networks:
       - frontend
 
+  # ── Redis Exporter ───────────────────────────────────────────────────────────
+  # Exposes Redis metrics on :9121 for the RedisHighMemory alert.
+  # Target: the redis service on its internal Docker network address.
+  redis_exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: always
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.1
+    pids_limit: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - backend
+    depends_on:
+      - redis
+
+  # ── Node Exporter ────────────────────────────────────────────────────────────
+  # Exposes host OS metrics on :9100. Also reads the backup textfile collector
+  # directory (/metrics-textfile) where backup-metrics.sh writes backup.prom.
+  # Unlocks: DiskSpaceCritical, BackupStale, BackupMissingTextfile alerts.
+  #
+  # Requires host bind-mounts for proc/sys access (standard node_exporter setup).
+  # The textfile-dir volume is shared with the backup container.
+  node_exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: always
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.textfile.directory=/metrics-textfile"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - backup_metrics:/metrics-textfile:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.1
+    pids_limit: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - backend
+
+  # ── Blackbox Exporter ────────────────────────────────────────────────────────
+  # Probes external HTTP/HTTPS endpoints. Used for TLS certificate expiry check.
+  # Unlocks: SSLCertificateExpiringSoon alert.
+  # BLACKBOX_TARGET env var must be set in .env (e.g. https://medicore.example.com).
+  blackbox_exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    restart: always
+    command:
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+    volumes:
+      - ./monitoring/blackbox/config.yml:/etc/blackbox_exporter/config.yml:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.1
+    pids_limit: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    networks:
+      - backend
+
   # ── Prometheus ───────────────────────────────────────────────────────────────
   # Scrapes api + worker /metrics (Bearer-auth via mounted metrics_token secret).
   # No published ports — access via SSH tunnel for ad-hoc queries:
@@ -715,8 +803,9 @@ volumes:
   grafana_data:       # admin sessions, starred dashboards
   backup_data:        # Local backup files. Mount a host path or NFS in prod
                       # for durability beyond container lifetime.
-  backup_metrics:     # Shared volume between backup container and (future)
-                      # node_exporter textfile collector for BackupStale alert.
+  backup_metrics:     # Shared volume between backup container and node_exporter
+                      # textfile collector. backup-metrics.sh writes backup.prom here;
+                      # node_exporter reads it for BackupStale + BackupMissingTextfile alerts.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 # All files: mode 0600 owned by the deploy user. Never check into git.

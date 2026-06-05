@@ -5,7 +5,8 @@ import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
-import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorListScope } from "../lib/scope";
+import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { medicationsSchema } from "../lib/jsonb-schemas";
 import { encryptJson, decryptJson, isEncrypted } from "../lib/field-encryption";
 import { hasActiveConsent } from "./consent.service";
@@ -27,10 +28,12 @@ export async function listPrescriptions(
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(prescriptionsTable.deletedAt), eq(prescriptionsTable.clinicId, req.user!.clinicId)];
 
+  let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
-    const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) return { data: [], nextCursor: null };
-    conditions.push(inArray(prescriptionsTable.patientId, allowed));
+    const scope = await getDoctorListScope(req, "prescription");
+    breakGlassPatientIds = scope.breakGlassPatientIds;
+    if (scope.allowed.length === 0) return { data: [], nextCursor: null };
+    conditions.push(inArray(prescriptionsTable.patientId, scope.allowed));
   }
 
   if (params.patientId) {
@@ -60,6 +63,7 @@ export async function listPrescriptions(
       .where(and(...conditions))
       .orderBy(desc(prescriptionsTable.id))
       .limit(lim),
+    { breakGlassPatientIds },
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
@@ -99,12 +103,25 @@ export async function createPrescription(
 }
 
 export async function getPrescription(req: AuthRequest, id: number) {
+  const isDoc = isDoctorScoped(req.user?.role);
+  // Doctor scope here is enforced entirely by the doctor_scope RLS policy (this
+  // function has no app-layer patient check), so break-glass IDs must be set on
+  // the read context or a non-assigned patient's prescription returns a 404.
+  const breakGlassPatientIds = isDoc
+    ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
+    : [];
+
   const prescription = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(prescriptionsTable.id, id), isNull(prescriptionsTable.deletedAt), eq(prescriptionsTable.clinicId, req.user!.clinicId)];
     const [row] = await tx.select().from(prescriptionsTable).where(and(...conditions));
     return row;
-  });
+  }, { breakGlassPatientIds });
   if (!prescription) throw new NotFoundError("prescription", id);
+
+  if (isDoc && breakGlassPatientIds.includes(prescription.patientId)) {
+    await logAudit(req, "BREAK_GLASS_ACCESS", "prescription", id, { patientId: prescription.patientId, via: "get" } as object);
+  }
+
   void logRead(req, "prescription", id);
   return decryptPrescription(prescription);
 }

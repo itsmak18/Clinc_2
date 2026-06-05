@@ -23,6 +23,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import type { RealDbHarness } from "./_helpers/realDb";
 import { startRealDb } from "./_helpers/realDb";
+import { expectDbReject } from "./_helpers/expectDbError";
 
 let harness: RealDbHarness;
 let runInTenantContext: typeof import("@workspace/db").runInTenantContext;
@@ -134,7 +135,7 @@ describe("Doctor-scope RLS — restrictive policy intersects tenant_isolation", 
   });
 
   it("doctor A INSERT of a medical_record for patient B (out of scope) is rejected by WITH CHECK", async () => {
-    await expect(
+    await expectDbReject(
       runInTenantContext(
         { userId: doctorAId, clinicId, role: "doctor" },
         async (tx) => tx.insert(medicalRecordsTable).values({
@@ -142,6 +143,58 @@ describe("Doctor-scope RLS — restrictive policy intersects tenant_isolation", 
           chiefComplaint: "out-of-scope write attempt", diagnosis: "x", treatment: "x",
         }),
       ),
-    ).rejects.toThrow(/row-level security|new row violates/i);
+      /row-level security|new row violates/i,
+    );
+  });
+
+  // ── Break-glass READ bypass (migration 0024, audit finding F-P2-1) ──────────
+  describe("break-glass READ bypass for doctor_scope", () => {
+    it("doctor A WITHOUT break-glass cannot READ patient B's records (baseline)", async () => {
+      const rows = await runInTenantContext(
+        { userId: doctorAId, clinicId, role: "doctor" },
+        async (tx) => tx.select().from(medicalRecordsTable),
+      );
+      const patientIds = new Set((rows as Array<{ patientId: number }>).map((r) => r.patientId));
+      expect(patientIds.has(patientBId), "patient B leaked without break-glass").toBe(false);
+    });
+
+    it("doctor A WITH an active break-glass session for patient B CAN read patient B's records", async () => {
+      const rows = await runInTenantContext(
+        { userId: doctorAId, clinicId, role: "doctor" },
+        async (tx) => tx.select().from(medicalRecordsTable),
+        { breakGlassPatientIds: [patientBId] },
+      );
+      const patientIds = new Set((rows as Array<{ patientId: number }>).map((r) => r.patientId));
+      // Still sees their own patient, and now ALSO the break-glass patient.
+      expect(patientIds.has(patientAId)).toBe(true);
+      expect(patientIds.has(patientBId), "break-glass did not surface patient B's clinical PHI").toBe(true);
+    });
+
+    it("break-glass is READ-only — doctor A still cannot INSERT for patient B under break-glass", async () => {
+      await expectDbReject(
+        runInTenantContext(
+          { userId: doctorAId, clinicId, role: "doctor" },
+          async (tx) => tx.insert(medicalRecordsTable).values({
+            clinicId, patientId: patientBId, doctorId: doctorAId,
+            chiefComplaint: "break-glass write attempt", diagnosis: "x", treatment: "x",
+          }),
+          { breakGlassPatientIds: [patientBId] },
+        ),
+        /row-level security|new row violates/i,
+      );
+    });
+
+    it("break-glass for patient B does NOT widen access to an unrelated patient A's peer", async () => {
+      // Sanity: setting break-glass for patient B must not expose any OTHER
+      // out-of-scope patient. Doctor A breaks glass on B only; with no third
+      // patient seeded, the visible set is exactly {A, B}.
+      const rows = await runInTenantContext(
+        { userId: doctorAId, clinicId, role: "doctor" },
+        async (tx) => tx.select().from(medicalRecordsTable),
+        { breakGlassPatientIds: [patientBId] },
+      );
+      const patientIds = new Set((rows as Array<{ patientId: number }>).map((r) => r.patientId));
+      expect([...patientIds].every((id) => id === patientAId || id === patientBId)).toBe(true);
+    });
   });
 });

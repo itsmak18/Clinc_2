@@ -6,7 +6,7 @@ import {
   appointmentsTable, patientsTable, usersTable, notificationsTable,
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
 } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc, lt, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, lt, inArray, isNull } from "drizzle-orm";
 import { logAudit, auditSnapshot } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope, recordDoctorPatientLink } from "../lib/scope";
@@ -96,18 +96,33 @@ export async function createAppointment(
   const scheduledDate = new Date(data.scheduledAt);
   if (isNaN(scheduledDate.getTime())) throw new ValidationError("Invalid scheduledAt date");
 
-  const availability = await checkDoctorAvailability(data.doctorId, scheduledDate);
+  const clinicId = req.user!.clinicId;
+  const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
+    .where(and(eq(patientsTable.id, data.patientId), eq(patientsTable.clinicId, clinicId), isNull(patientsTable.deletedAt)));
+  if (!patient) throw new NotFoundError("patient", String(data.patientId));
+
+  const [doctor] = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.id, data.doctorId), eq(usersTable.clinicId, clinicId), eq(usersTable.role, "doctor")));
+  if (!doctor) throw new NotFoundError("doctor", String(data.doctorId));
+
+  const availability = await checkDoctorAvailability(req.user!, data.doctorId, scheduledDate);
   if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
 
-  const [appt] = await db.insert(appointmentsTable).values({
-    clinicId: req.user!.clinicId,
-    patientId: data.patientId,
-    doctorId: data.doctorId,
-    scheduledAt: scheduledDate,
-    reason: data.reason,
-    notes: data.notes,
-    bookingSource: (data.bookingSource as any) ?? "walk_in",
-  }).returning();
+  let appt: typeof appointmentsTable.$inferSelect;
+  try {
+    [appt] = await db.insert(appointmentsTable).values({
+      clinicId,
+      patientId: data.patientId,
+      doctorId: data.doctorId,
+      scheduledAt: scheduledDate,
+      reason: data.reason,
+      notes: data.notes,
+      bookingSource: (data.bookingSource as any) ?? "walk_in",
+    }).returning();
+  } catch (err: any) {
+    if (err?.code === "23505") throw new ConflictError("Doctor already has an appointment at this time");
+    throw err;
+  }
   await logAudit(req, "CREATE", "appointment", appt.id);
   await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt);
   await invalidateDoctorScope(data.doctorId);
@@ -250,11 +265,17 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
     const targetScheduledAt = update.scheduledAt !== undefined ? update.scheduledAt : new Date(before.scheduledAt);
 
     if (update.doctorId !== undefined || update.scheduledAt !== undefined) {
-      const availability = await checkDoctorAvailability(targetDoctorId, targetScheduledAt);
+      const availability = await checkDoctorAvailability(req.user!, targetDoctorId, targetScheduledAt, tx);
       if (!availability.available) throw new ConflictError(availability.reason ?? "Doctor not available");
     }
 
-    const [appt] = await tx.update(appointmentsTable).set(update).where(and(...conditions)).returning();
+    let appt: typeof appointmentsTable.$inferSelect;
+    try {
+      [appt] = await tx.update(appointmentsTable).set(update).where(and(...conditions)).returning();
+    } catch (err: any) {
+      if (err?.code === "23505") throw new ConflictError("Doctor already has an appointment at this time");
+      throw err;
+    }
     await logAudit(req, "UPDATE", "appointment", appt.id, null, auditSnapshot(before), auditSnapshot(appt));
     await recordDoctorPatientLink(appt.clinicId, appt.doctorId, appt.patientId, appt.scheduledAt ?? new Date());
     await invalidateDoctorScope(appt.doctorId);

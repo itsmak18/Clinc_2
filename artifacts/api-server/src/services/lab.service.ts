@@ -6,7 +6,8 @@ import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@w
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
-import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
+import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
+import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
@@ -17,10 +18,12 @@ export async function listLabTests(
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(labTestsTable.deletedAt), eq(labTestsTable.clinicId, req.user!.clinicId)];
 
+  let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
-    const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (allowed.length === 0) return { data: [], nextCursor: null };
-    conditions.push(inArray(labTestsTable.patientId, allowed));
+    const scope = await getDoctorListScope(req, "lab_test");
+    breakGlassPatientIds = scope.breakGlassPatientIds;
+    if (scope.allowed.length === 0) return { data: [], nextCursor: null };
+    conditions.push(inArray(labTestsTable.patientId, scope.allowed));
   }
 
   if (params.status) conditions.push(eq(labTestsTable.status, params.status as any));
@@ -55,6 +58,7 @@ export async function listLabTests(
       .where(and(...conditions))
       .orderBy(desc(labTestsTable.id))
       .limit(lim),
+    { breakGlassPatientIds },
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
@@ -81,16 +85,27 @@ export async function createLabTest(
 }
 
 export async function getLabTest(req: AuthRequest, testId: number) {
+  const isDoc = isDoctorScoped(req.user?.role);
+  // Break-glass must be resolved BEFORE the read: doctor_scope RLS (0017) would
+  // otherwise hide a non-assigned patient's row and surface a misleading 404.
+  const breakGlassPatientIds = isDoc
+    ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
+    : [];
+
   const test = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
     const [row] = await tx.select().from(labTestsTable).where(and(...conditions));
     return row;
-  });
+  }, { breakGlassPatientIds });
   if (!test) throw new NotFoundError("lab test", testId);
 
-  if (isDoctorScoped(req.user?.role)) {
+  if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);
-    if (!allowed.includes(test.patientId)) throw new ForbiddenError();
+    const viaBreakGlass = breakGlassPatientIds.includes(test.patientId);
+    if (!allowed.includes(test.patientId) && !viaBreakGlass) throw new ForbiddenError();
+    if (viaBreakGlass) {
+      await logAudit(req, "BREAK_GLASS_ACCESS", "lab_test", testId, { patientId: test.patientId, via: "get" } as object);
+    }
   }
 
   void logRead(req, "lab_test", testId);

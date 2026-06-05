@@ -60,6 +60,40 @@ export async function getActiveSession(userId: number, patientId: number, clinic
   return rows[0] ?? null;
 }
 
+// Returns the distinct patient IDs the given user currently holds an ACTIVE
+// break-glass session for (clinic-scoped). Drives both the app-layer widening
+// of doctor list-scope and the DB-layer `app.break_glass_patient_ids` GUC that
+// lets the doctor_scope RLS policy permit those patients' clinical rows.
+// Empty array when the doctor has no live sessions (the common case).
+export async function getActiveBreakGlassPatientIds(userId: number, clinicId: number): Promise<number[]> {
+  const now = new Date();
+  const rows = await runInTenantContext(
+    { userId, clinicId, role: "break_glass_read" },
+    async (tx) =>
+      tx
+        .select({ patientId: breakGlassSessionsTable.patientId })
+        .from(breakGlassSessionsTable)
+        .where(
+          and(
+            eq(breakGlassSessionsTable.clinicId, clinicId),
+            eq(breakGlassSessionsTable.userId, userId),
+            isNull(breakGlassSessionsTable.revokedAt),
+            or(
+              and(
+                isNotNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.expiresAt, now),
+              ),
+              and(
+                isNull(breakGlassSessionsTable.approvedAt),
+                gt(breakGlassSessionsTable.activatedAt, graceFloor(now)),
+              ),
+            ),
+          ),
+        ),
+  );
+  return [...new Set(rows.map((r) => r.patientId))];
+}
+
 // Activate a break-glass session. The session is unapproved at activation —
 // access is granted for a 5-minute grace window; a compliance_officer must
 // approve via POST /break-glass/sessions/:id/approve to extend to full 15 min.

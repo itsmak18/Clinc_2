@@ -9,8 +9,12 @@ vi.mock("@workspace/db", () => {
       id: "id", patientId: "patientId", status: "status", executedAt: "executedAt",
     },
     patientsTable: { id: "id" },
-    medicalRecordsTable: { patientId: "patientId" },
-    prescriptionsTable: { patientId: "patientId", deletedAt: "deletedAt" },
+    medicalRecordsTable: { id: "id", patientId: "patientId" },
+    prescriptionsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
+    labTestsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
+    xrayRecordsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
+    ultrasoundRecordsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
+    appointmentsTable: { id: "id", patientId: "patientId" },
   };
   __m.dbUnsafe = __m.db;
   return __m;
@@ -139,7 +143,11 @@ describe("executeErasure", () => {
   it("executes anonymization via transaction and returns ok", async () => {
     mockSelectDirect([{ id: 1, status: "approved", executedAt: null, patientId: 5 }]);
     (db.transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: typeof db) => Promise<void>) => {
-      const mockSet = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) });
+      // `where()` result must be both awaitable (the erasure-request update awaits
+      // it directly) AND expose `.returning()` (the PHI-scrub updates chain it).
+      const whereResult: any = Promise.resolve([]);
+      whereResult.returning = vi.fn().mockResolvedValue([]);
+      const mockSet = vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue(whereResult) });
       const tx = { update: vi.fn().mockReturnValue({ set: mockSet }) };
       await fn(tx as any);
     });

@@ -15,20 +15,26 @@ import request from "supertest";
 
 import type { RealDbHarness } from "./_helpers/realDb";
 import { startRealDb } from "./_helpers/realDb";
-import { seedCrossTenant, type CrossTenantSeed } from "./_helpers/seedCrossTenant";
+// NOTE: `seedCrossTenant` and `@workspace/db` are imported DYNAMICALLY in
+// beforeAll (below), NOT statically — `@workspace/db` throws at module load if
+// DATABASE_URL is unset, which at collection time it is. `import type` is erased
+// at runtime, so the type-only import here is safe.
+import type { CrossTenantSeed } from "./_helpers/seedCrossTenant";
 
-// These are dynamically imported AFTER the container starts and DATABASE_URL is
-// set, because @workspace/db throws at import time if DATABASE_URL is unset.
 let app: any;
 let signToken: any;
 let harness: RealDbHarness;
 let seed: CrossTenantSeed;
+let doctorSchedulesTable: any;
 
 beforeAll(async () => {
   harness = await startRealDb();
-  seed = await seedCrossTenant(harness.db);
 
-  // Lazy imports — order matters. @workspace/db reads DATABASE_URL at module load.
+  // Lazy imports — order matters. @workspace/db reads DATABASE_URL at module load,
+  // which startRealDb() has just set. seedCrossTenant transitively imports it too.
+  const { seedCrossTenant } = await import("./_helpers/seedCrossTenant");
+  seed = await seedCrossTenant(harness.db);
+  ({ doctorSchedulesTable } = await import("@workspace/db"));
   ({ default: app } = await import("../app"));
   ({ signToken } = await import("../lib/auth"));
 }, 120_000);
@@ -122,6 +128,132 @@ describe("Cross-tenant PHI isolation (real Postgres)", () => {
       const res = await request(app).get("/api/patients").set("Cookie", [`clinic_token=${badToken}`]);
       expect(res.status).toBe(401);
       expect(res.body.error_code).toBe(1005); // AUTH_TOKEN_INVALID
+    });
+  });
+
+  describe("[WRITE] cross-tenant FK validation on create endpoints", () => {
+    // These prove the fix for audit findings F-01 / F-02:
+    // createMedicalRecord, createInvoice, createAppointment must reject
+    // foreign-clinic patientId/doctorId with 404, not succeed.
+    // CSRF is enforced in the kernel on write-scope mutations, so these POSTs
+    // carry a matching _csrf cookie + X-CSRF-Token header (else they'd 403 before
+    // reaching the handler — which is what we're actually testing).
+    const csrf = "cross-tenant-write-csrf-token";
+    const writeCookies = (authCookie: string) => [authCookie, `_csrf=${csrf}`];
+
+    it("Clinic A billing_manager cannot create invoice referencing Clinic B's patient", async () => {
+      // Use a billing_manager from clinic A — they can create invoices
+      const cookie = await cookieFor(seed.superAdminA, "super_admin");
+      const res = await request(app)
+        .post("/api/billing/invoices")
+        .set("Cookie", writeCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientB.id, // Clinic B patient — should be rejected
+          items: [{ description: "Test service", quantity: 1, unitPrice: 100 }],
+        });
+      // Must fail — patient belongs to Clinic B, not Clinic A
+      expect(res.status).toBe(404);
+    });
+
+    it("Clinic A super_admin cannot create appointment with Clinic B's patient", async () => {
+      const cookie = await cookieFor(seed.superAdminA, "super_admin");
+      const res = await request(app)
+        .post("/api/appointments")
+        .set("Cookie", writeCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientB.id, // Clinic B patient
+          doctorId: seed.doctorA.id,
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+          reason: "Cross-tenant test",
+        });
+      expect(res.status).toBe(404);
+    });
+
+    it("Clinic A super_admin cannot create appointment with Clinic B's doctor", async () => {
+      const cookie = await cookieFor(seed.superAdminA, "super_admin");
+      const res = await request(app)
+        .post("/api/appointments")
+        .set("Cookie", writeCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientA.id,
+          doctorId: seed.doctorB.id, // Clinic B doctor
+          scheduledAt: new Date(Date.now() + 86400000).toISOString(),
+          reason: "Cross-tenant test",
+        });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("[BOOKING] same-clinic availability works under FORCE-RLS (F-P1-1 regression)", () => {
+    // Regression guard for F-P1-1: migration 0022 put FORCE ROW LEVEL SECURITY +
+    // a non-dormant policy on doctor_schedules/schedule_overrides. The booking
+    // validator read those tables outside any tenant context, so RLS hid every
+    // row and EVERY booking failed with 409 "No schedule for this day". The
+    // existing cross-tenant WRITE tests above only assert the 404 rejection path
+    // (which fires before availability is checked), so they could not catch this.
+    // These tests exercise the same-clinic happy path that the bug broke.
+
+    const DOW = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+    const csrf = "f-p1-1-regression-csrf-token";
+
+    function bookingCookies(authCookie: string): string[] {
+      return [authCookie, `_csrf=${csrf}`];
+    }
+
+    it("Clinic A super_admin can book when the doctor has a matching schedule", async () => {
+      const slot = new Date(Date.now() + 7 * 86_400_000);
+      slot.setHours(12, 0, 0, 0);
+      const day = DOW[slot.getDay()];
+
+      // Seed doctorA's weekly schedule via the superuser harness (bypasses RLS).
+      // 00:00–23:59 so the noon slot is always inside working hours.
+      await harness.db.insert(doctorSchedulesTable).values({
+        clinicId: seed.clinicA.id,
+        doctorId: seed.doctorA.id,
+        dayOfWeek: day as any,
+        startTime: "00:00:00",
+        endTime: "23:59:00",
+        status: "active",
+      });
+
+      const cookie = await cookieFor(seed.superAdminA, "super_admin");
+      const res = await request(app)
+        .post("/api/appointments")
+        .set("Cookie", bookingCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientA.id,
+          doctorId: seed.doctorA.id,
+          scheduledAt: slot.toISOString(),
+          reason: "F-P1-1 same-clinic booking regression",
+        });
+
+      // Pre-fix this returned 409 "No schedule for this day". Now it succeeds.
+      expect(res.status).toBeLessThan(300);
+      expect(res.status).not.toBe(409);
+      expect(res.body?.id).toBeTypeOf("number");
+    });
+
+    it("booking on a day with no schedule is still correctly rejected (validator runs, not blanket-broken)", async () => {
+      const slot = new Date(Date.now() + 8 * 86_400_000); // different weekday → no schedule seeded
+      slot.setHours(12, 0, 0, 0);
+
+      const cookie = await cookieFor(seed.superAdminA, "super_admin");
+      const res = await request(app)
+        .post("/api/appointments")
+        .set("Cookie", bookingCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientA.id,
+          doctorId: seed.doctorA.id,
+          scheduledAt: slot.toISOString(),
+          reason: "F-P1-1 no-schedule day",
+        });
+
+      expect(res.status).toBe(409);
     });
   });
 });

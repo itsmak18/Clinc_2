@@ -5,7 +5,7 @@ import { dbUnsafe as db } from "@workspace/db";
 import { usersTable, auditLogsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { signToken, revokeAllTokensForUser } from "../lib/auth";
-import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrength } from "../lib/password";
+import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrictAsync } from "../lib/password";
 import { checkAllowed, recordFailure, recordSuccess, getRemainingAttempts } from "../middlewares/rateLimiter";
 import { NotFoundError, UnauthorizedError, ValidationError } from "./errors";
 import { evaluateDeviceTrust } from "./device-trust.service";
@@ -229,7 +229,7 @@ export async function changePassword(
   newPassword: string,
   ip: string,
 ): Promise<void> {
-  const strength = validatePasswordStrength(newPassword);
+  const strength = await validatePasswordStrictAsync(newPassword);
   if (!strength.valid) throw new ValidationError(strength.reason ?? "Password does not meet requirements");
 
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId));
