@@ -72,15 +72,10 @@ const ALLOWED_ORIGINS_SET: string[] = (() => {
     .split(",")
     .map(s => s.trim())
     .filter(Boolean);
-  const replit = (process.env.REPLIT_DOMAINS ?? "")
-    .split(",")
-    .map(s => s.trim())
-    .filter(Boolean)
-    .map(d => `https://${d}`);
   if (process.env.NODE_ENV !== "production") {
-    return [...fromEnv, ...replit, "http://localhost:5173", "http://127.0.0.1:5173"];
+    return [...fromEnv, "http://localhost:5173", "http://127.0.0.1:5173"];
   }
-  return [...fromEnv, ...replit];
+  return [...fromEnv];
 })();
 
 // ── Revocation-store availability (F-03 — bounded fail-open / ADR-010) ───────

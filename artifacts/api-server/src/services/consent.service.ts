@@ -1,4 +1,4 @@
-﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -21,7 +21,7 @@ function assertValidType(type: unknown): asserts type is ConsentType {
 }
 
 // Returns true if the patient has an active (non-revoked) consent of the given type.
-export async function hasActiveConsent(patientId: number, consentType: ConsentType, tx?: any): Promise<boolean> {
+export async function hasActiveConsent(patientId: number, consentType: ConsentType, clinicId: number, tx?: any): Promise<boolean> {
   const client = tx || db;
   const [row] = await client
     .select({ id: patientConsentsTable.id })
@@ -31,6 +31,7 @@ export async function hasActiveConsent(patientId: number, consentType: ConsentTy
         eq(patientConsentsTable.patientId, patientId),
         eq(patientConsentsTable.consentType, consentType),
         isNull(patientConsentsTable.revokedAt),
+        eq(patientConsentsTable.clinicId, clinicId),
       ),
     )
     .limit(1);

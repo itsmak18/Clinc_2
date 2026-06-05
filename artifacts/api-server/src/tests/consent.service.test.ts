@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@workspace/db", () => {
   const mockDb = { select: vi.fn(), insert: vi.fn(), update: vi.fn() };
@@ -75,12 +75,12 @@ beforeEach(() => {
 describe("hasActiveConsent", () => {
   it("returns true when an active consent row exists", async () => {
     mockSelectWithLimit([{ id: 1 }]);
-    expect(await hasActiveConsent(5, "treatment")).toBe(true);
+    expect(await hasActiveConsent(5, "treatment", 1)).toBe(true);
   });
 
   it("returns false when no active consent exists", async () => {
     mockSelectWithLimit([]);
-    expect(await hasActiveConsent(5, "treatment")).toBe(false);
+    expect(await hasActiveConsent(5, "treatment", 1)).toBe(false);
   });
 });
 
