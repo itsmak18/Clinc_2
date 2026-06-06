@@ -711,10 +711,15 @@ export interface UpdateLabTestBody {
   notesAr?: string;
 }
 
+export interface InvoiceItemInput {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
 export interface CreateInvoiceBody {
   patientId: number;
-  createdById: number;
-  items: InvoiceItem[];
+  items: InvoiceItemInput[];
   discount?: number;
   notes?: string;
 }
@@ -729,7 +734,7 @@ export const UpdateInvoiceBodyStatus = {
 } as const;
 
 export interface UpdateInvoiceBody {
-  items?: InvoiceItem[];
+  items?: InvoiceItemInput[];
   discount?: number;
   status?: UpdateInvoiceBodyStatus;
   notes?: string;

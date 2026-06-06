@@ -51,7 +51,7 @@ app.use((req, _res, next) => {
   if (reportPath) directives.reportUri = [reportPath];
   app.use(helmet({
     contentSecurityPolicy: { directives },
-    crossOriginEmbedderPolicy: false, // Relaxed for Replit proxy
+    crossOriginEmbedderPolicy: false, // Relaxed for proxying
   }));
 }
 
@@ -62,8 +62,7 @@ const devOriginPatterns: RegExp[] = [
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
 ];
 
-// ALLOWED_ORIGINS — comma-separated additional prod origins (e.g. https://app.example.com).
-// Use this instead of REPLIT_DOMAINS when deploying outside Replit.
+// ALLOWED_ORIGINS — comma-separated allowed prod origins (e.g. https://app.example.com).
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").map(o => o.trim()).filter(Boolean);
 const allowedOriginPatterns: RegExp[] = allowedOrigins.map(
   o => new RegExp(`^${o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)

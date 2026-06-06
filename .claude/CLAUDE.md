@@ -423,7 +423,8 @@ Priority: **Correctness → Security → Performance → Maintainability → DX*
 3. Import and register the router in `artifacts/api-server/src/routes/index.ts`
 4. Wrap all async handlers with `asyncHandler()` from `middlewares/asyncHandler.ts`
 5. Use `authGate(scope, allowedRoles?)` from `middlewares/auth-gate.ts` for auth on new routes.
-6. If the endpoint returns patient data and doctors can access it, add doctor scope filtering (see Doctor Scope Rule below).
+6. **Validate the request body** (WS3, 2026-06-06): add `validate(SchemaBody)` from `middlewares/validate.ts` as middleware on POST/PUT/PATCH routes, AFTER the auth/role middleware and BEFORE `asyncHandler`. Import the schema from `@workspace/api-zod` (Orval-generated from `openapi.yaml` — `CreateXBody`, `UpdateXBody`, etc.); never hand-write it. `validate()` **only validates** — it does NOT mutate `req.body` (no coercion/stripping leaks to the service), and emits the canonical 400 envelope. With it in place, drop the pure `if (!field) throw ValidationError("Missing…")` presence checks from the service, but KEEP business rules (role checks, consent, JSONB guards, date-parse). **Caveat:** confirm the generated schema models *client input*, not server-set/computed fields. Billing's `CreateInvoiceBody` originally required `createdById` (server-set from `req.user`) and `items[].total` (computed) — wiring it would have rejected valid creates. Fixed by adding `InvoiceItemInput` (request items, no `total`) and dropping `createdById` in `openapi.yaml`, then regen. When a request schema is wrong, fix `lib/api-spec/openapi.yaml` + regen — never hand-edit the generated files.
+7. If the endpoint returns patient data and doctors can access it, add doctor scope filtering (see Doctor Scope Rule below).
 
 ---
 

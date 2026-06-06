@@ -112,9 +112,8 @@ export async function createInvoice(
   data: { patientId: number; items: unknown[]; discount?: number; notes?: string },
 ) {
   const createdById = req.user!.userId;
-  if (!data.patientId || !data.items?.length) {
-    throw new ValidationError("Missing required fields");
-  }
+  // patientId + non-empty items are validated at the route by
+  // validate(CreateInvoiceBody); item shape is guarded by itemsSchema below.
 
   const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
     .where(and(eq(patientsTable.id, data.patientId), eq(patientsTable.clinicId, req.user!.clinicId), isNull(patientsTable.deletedAt)));

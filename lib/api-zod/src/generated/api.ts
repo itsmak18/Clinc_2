@@ -3141,13 +3141,11 @@ export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem);
  */
 export const CreateInvoiceBody = zod.object({
   patientId: zod.number(),
-  createdById: zod.number(),
   items: zod.array(
     zod.object({
       description: zod.string(),
       quantity: zod.number(),
       unitPrice: zod.number(),
-      total: zod.number(),
     }),
   ),
   discount: zod.number().optional(),
@@ -3214,7 +3212,6 @@ export const UpdateInvoiceBody = zod.object({
         description: zod.string(),
         quantity: zod.number(),
         unitPrice: zod.number(),
-        total: zod.number(),
       }),
     )
     .optional(),

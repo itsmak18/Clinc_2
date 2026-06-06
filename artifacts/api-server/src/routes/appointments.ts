@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateAppointmentBody, UpdateAppointmentBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { logAudit } from "../lib/audit";
@@ -19,7 +21,7 @@ router.get("/appointments", asyncHandler(async (req: AuthRequest, res) => {
   res.json(await listAppointments(req, { status, date, doctorId, patientId, limit, cursor }));
 }));
 
-router.post("/appointments", asyncHandler(async (req: AuthRequest, res) => {
+router.post("/appointments", validate(CreateAppointmentBody), asyncHandler(async (req: AuthRequest, res) => {
   res.status(201).json(await createAppointment(req, req.body));
 }));
 
@@ -42,6 +44,7 @@ router.get("/appointments/:appointmentId", asyncHandler(async (req: AuthRequest,
 
 router.patch("/appointments/:appointmentId",
   requireRole("super_admin", "admin", "front_desk", "doctor", "nurse"),
+  validate(UpdateAppointmentBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
     if (!id) throw new ValidationError("Invalid appointment ID");

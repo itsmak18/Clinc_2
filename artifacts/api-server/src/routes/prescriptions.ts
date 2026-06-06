@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreatePrescriptionBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -29,6 +31,7 @@ router.get(
 router.post(
   "/prescriptions",
   requireRole("super_admin", "admin", "doctor"),
+  validate(CreatePrescriptionBody),
   asyncHandler(async (req: AuthRequest, res) => {
     res.status(201).json(await createPrescription(req, req.body));
   }),

@@ -3490,22 +3490,35 @@ components:
           type: number
       required: [description, quantity, unitPrice, total]
 
+    # Request-side line item. Unlike InvoiceItem (a response shape), `total` is
+    # NOT supplied by the client — the server computes it as quantity * unitPrice.
+    InvoiceItemInput:
+      type: object
+      properties:
+        description:
+          type: string
+        quantity:
+          type: integer
+        unitPrice:
+          type: number
+      required: [description, quantity, unitPrice]
+
     CreateInvoiceBody:
       type: object
       properties:
         patientId:
           type: integer
-        createdById:
-          type: integer
         items:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceItem"
+            $ref: "#/components/schemas/InvoiceItemInput"
         discount:
           type: number
         notes:
           type: string
-      required: [patientId, createdById, items]
+      # NOTE: `createdById` is set server-side from the authenticated user
+      # (req.user.userId) and is intentionally NOT part of the request body.
+      required: [patientId, items]
 
     UpdateInvoiceBody:
       type: object
@@ -3513,7 +3526,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/InvoiceItem"
+            $ref: "#/components/schemas/InvoiceItemInput"
         discount:
           type: number
         status:

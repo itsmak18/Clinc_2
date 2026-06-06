@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { UpsertWeeklyBlockBody, UpdateWeeklyBlockStatusBody, UpsertScheduleOverrideBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -64,6 +66,7 @@ router.get(
 router.post(
   "/schedule/doctor/:id/weekly",
   requireRole(...WRITE_ROLES),
+  validate(UpsertWeeklyBlockBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) throw new ValidationError("Invalid doctor id");
@@ -75,6 +78,7 @@ router.post(
 router.patch(
   "/schedule/doctor/:id/weekly/:day/status",
   requireRole(...WRITE_ROLES),
+  validate(UpdateWeeklyBlockStatusBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) throw new ValidationError("Invalid doctor id");
@@ -96,6 +100,7 @@ router.delete(
 router.post(
   "/schedule/doctor/:id/override",
   requireRole(...WRITE_ROLES),
+  validate(UpsertScheduleOverrideBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const doctorId = safeParseInt(req.params.id);
     if (!doctorId) throw new ValidationError("Invalid doctor id");

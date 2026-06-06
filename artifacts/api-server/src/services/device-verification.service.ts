@@ -170,7 +170,6 @@ export async function consumeVerificationToken(args: {
 export function buildVerificationLink(rawToken: string): string {
   const base =
     process.env.APP_PUBLIC_URL ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
     "http://localhost:5173";
   const origin = base.startsWith("http") ? base : `https://${base}`;
   return `${origin}/verify-device?t=${encodeURIComponent(rawToken)}`;

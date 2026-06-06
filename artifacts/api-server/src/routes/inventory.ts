@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateInventoryItemBody, UpdateInventoryItemBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -27,6 +29,7 @@ router.get(
 router.post(
   "/inventory",
   requireRole("super_admin", "admin"),
+  validate(CreateInventoryItemBody),
   asyncHandler(async (req: AuthRequest, res) => {
     res.status(201).json(await createInventoryItem(req, req.body));
   }),
@@ -45,6 +48,7 @@ router.get(
 router.patch(
   "/inventory/:itemId",
   requireRole("super_admin", "admin"),
+  validate(UpdateInventoryItemBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const itemId = safeParseInt(req.params.itemId);
     if (!itemId) throw new ValidationError("Invalid item ID");

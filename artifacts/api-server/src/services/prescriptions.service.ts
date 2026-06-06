@@ -75,10 +75,8 @@ export async function createPrescription(
   req: AuthRequest,
   data: { patientId: unknown; doctorId: string; recordId?: string; medications: unknown; notes?: string; notesAr?: string },
 ) {
-  if (!data.patientId || !data.doctorId) {
-    throw new ValidationError("Missing required fields: patientId, doctorId, medications");
-  }
-
+  // Presence of patientId/doctorId is validated at the route by
+  // validate(CreatePrescriptionBody); medications shape is guarded below.
   const parsedMeds = medicationsSchema.safeParse(data.medications);
   if (!parsedMeds.success) throw Object.assign(new ValidationError("Invalid medications format"), { status: 422 });
 

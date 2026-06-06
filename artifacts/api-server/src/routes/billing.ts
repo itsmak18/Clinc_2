@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateInvoiceBody, UpdateInvoiceBody, PayInvoiceBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -19,6 +21,7 @@ router.get("/billing/invoices", requireRole("super_admin", "admin", "front_desk"
 // Create invoice: front_desk, admin, super_admin (billing_manager does reconciliation, not creation)
 router.post("/billing/invoices",
   requireRole("super_admin", "admin", "front_desk"),
+  validate(CreateInvoiceBody),
   asyncHandler(async (req: AuthRequest, res) => {
     res.status(201).json(await createInvoice(req, req.body));
   }),
@@ -36,6 +39,7 @@ router.get("/billing/invoices/:invoiceId",
 // Update notes/non-status fields: front_desk, admin, super_admin
 router.patch("/billing/invoices/:invoiceId",
   requireRole("super_admin", "admin", "front_desk"),
+  validate(UpdateInvoiceBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
     if (!invoiceId) throw new ValidationError("Invalid invoice ID");
@@ -60,6 +64,7 @@ router.post("/billing/invoices/:invoiceId/cancel",
 // Pay invoice: billing_manager, admin, super_admin — NOT front_desk (SoD)
 router.post("/billing/invoices/:invoiceId/pay",
   requireRole("super_admin", "admin", "billing_manager"),
+  validate(PayInvoiceBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
     if (!invoiceId) throw new ValidationError("Invalid invoice ID");

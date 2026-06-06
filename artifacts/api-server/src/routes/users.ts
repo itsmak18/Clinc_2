@@ -3,6 +3,8 @@ import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth"
 import { authGate } from "../middlewares/auth-gate";
 import { requireStepUp } from "../middlewares/step-up";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateUserBody, UpdateUserBody, ResetUserPasswordBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -41,6 +43,7 @@ router.get(
 router.post(
   "/users",
   requireRole("super_admin", "admin"),
+  validate(CreateUserBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const user = await createUser(req, req.body);
     res.status(201).json(user);
@@ -61,6 +64,7 @@ router.patch(
   "/users/:userId",
   authGate("privileged", ["super_admin", "admin"]),
   requireStepUp("update_user"),
+  validate(UpdateUserBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) throw new ValidationError("Invalid user ID");
@@ -94,6 +98,7 @@ router.post(
   "/users/:userId/reset-password",
   authGate("privileged", ["super_admin", "admin"]),
   requireStepUp("reset_password"),
+  validate(ResetUserPasswordBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const userId = safeParseInt(req.params.userId);
     if (!userId) throw new ValidationError("Invalid user ID");

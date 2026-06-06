@@ -149,17 +149,33 @@ export async function startRealDb(): Promise<RealDbHarness> {
   if (adminUrl) {
     // ── Local Postgres path (no Docker) ──────────────────────────────────────
     const scratchName = `medicore_it_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-    const adminPool = new pg.Pool({ connectionString: adminUrl, max: 1 });
-    await adminPool.query(`CREATE DATABASE ${scratchName}`);
-    await adminPool.end();
-
     const superUri = (() => {
       const u = new URL(adminUrl);
       u.pathname = `/${scratchName}`;
       return u.toString();
     })();
 
-    const { dbSuper, superPool, appPool, appUri } = await provision(superUri);
+    // Parallel forks share ONE local cluster, so CREATE DATABASE (pg_database)
+    // and migration 0020's CREATE/ALTER ROLE + ALTER DEFAULT PRIVILEGES
+    // (pg_authid / pg_default_acl) race with "tuple concurrently updated".
+    // Serialize the whole cluster-global setup with a session advisory lock held
+    // on a dedicated admin connection; release it before the tests run so they
+    // still execute in parallel. (Testcontainers uses separate clusters, so this
+    // path doesn't run there.)
+    const PROVISION_LOCK_KEY = 0x6d65_6469; // "medi"
+    const lockClient = new pg.Client({ connectionString: adminUrl });
+    await lockClient.connect();
+    await lockClient.query("SELECT pg_advisory_lock($1)", [PROVISION_LOCK_KEY]);
+
+    let provisioned: { dbSuper: NodePgDatabase<Record<string, never>>; superPool: pg.Pool; appPool: pg.Pool; appUri: string };
+    try {
+      await lockClient.query(`CREATE DATABASE ${scratchName}`);
+      provisioned = await provision(superUri);
+    } finally {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [PROVISION_LOCK_KEY]).catch(() => {});
+      await lockClient.end().catch(() => {});
+    }
+    const { dbSuper, superPool, appPool, appUri } = provisioned;
 
     return {
       db: dbSuper,

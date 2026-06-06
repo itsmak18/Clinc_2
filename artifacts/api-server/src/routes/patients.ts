@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreatePatientBody, UpdatePatientBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
@@ -21,6 +23,7 @@ router.get("/patients",
 
 router.post("/patients",
   requireRole("super_admin", "admin", "nurse", "front_desk"),
+  validate(CreatePatientBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const patient = await createPatient(req, req.body);
     res.status(201).json(patient);
@@ -38,6 +41,7 @@ router.get("/patients/:patientId",
 
 router.patch("/patients/:patientId",
   requireRole("super_admin", "admin", "nurse", "front_desk"),
+  validate(UpdatePatientBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const patientId = safeParseInt(req.params.patientId);
     if (!patientId) throw new ValidationError("Invalid patient ID");
