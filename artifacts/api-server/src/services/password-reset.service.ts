@@ -33,7 +33,6 @@ function generateRawToken(): string {
 function buildResetLink(rawToken: string): string {
   const base =
     process.env.APP_PUBLIC_URL ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
     "http://localhost:5173";
   const origin = base.startsWith("http") ? base : `https://${base}`;
   return `${origin}/reset-password?t=${encodeURIComponent(rawToken)}`;

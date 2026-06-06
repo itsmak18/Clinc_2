@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateXrayRecordBody, UpdateXrayRecordBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { listXrays, createXray, getXray, updateXray } from "../services/xray.service";
@@ -14,7 +16,7 @@ router.get("/xray", asyncHandler(async (req: AuthRequest, res) => {
   res.json(await listXrays(req, { status, patientId, limit, cursor }));
 }));
 
-router.post("/xray", asyncHandler(async (req: AuthRequest, res) => {
+router.post("/xray", validate(CreateXrayRecordBody), asyncHandler(async (req: AuthRequest, res) => {
   res.status(201).json(await createXray(req, req.body));
 }));
 
@@ -29,6 +31,7 @@ router.get("/xray/:xrayId",
 
 router.patch("/xray/:xrayId",
   requireRole("super_admin", "admin", "xray_staff"),
+  validate(UpdateXrayRecordBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const xrayId = safeParseInt(req.params.xrayId);
     if (!xrayId) throw new ValidationError("Invalid xray ID");

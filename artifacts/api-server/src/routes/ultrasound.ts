@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../middlewares/auth";
 import { asyncHandler } from "../middlewares/asyncHandler";
+import { validate } from "../middlewares/validate";
+import { CreateUltrasoundRecordBody, UpdateUltrasoundRecordBody } from "@workspace/api-zod";
 import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import { listUltrasounds, createUltrasound, getUltrasound, updateUltrasound } from "../services/ultrasound.service";
@@ -14,7 +16,7 @@ router.get("/ultrasound", asyncHandler(async (req: AuthRequest, res) => {
   res.json(await listUltrasounds(req, { status, patientId, limit, cursor }));
 }));
 
-router.post("/ultrasound", asyncHandler(async (req: AuthRequest, res) => {
+router.post("/ultrasound", validate(CreateUltrasoundRecordBody), asyncHandler(async (req: AuthRequest, res) => {
   res.status(201).json(await createUltrasound(req, req.body));
 }));
 
@@ -29,6 +31,7 @@ router.get("/ultrasound/:ultrasoundId",
 
 router.patch("/ultrasound/:ultrasoundId",
   requireRole("super_admin", "admin", "xray_staff"),
+  validate(UpdateUltrasoundRecordBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.ultrasoundId);
     if (!id) throw new ValidationError("Invalid ultrasound ID");

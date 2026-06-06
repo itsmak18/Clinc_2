@@ -99,10 +99,9 @@ export async function createMedicalRecord(
     vitals?: unknown;
   },
 ) {
-  if (!data.patientId || !data.doctorId || !data.chiefComplaint || !data.diagnosis || !data.treatment) {
-    throw new ValidationError("Missing required fields: patientId, doctorId, chiefComplaint, diagnosis, treatment");
-  }
-
+  // Required fields (patientId, doctorId, chiefComplaint, diagnosis, treatment)
+  // are validated at the route by validate(CreateMedicalRecordBody); vitals shape
+  // is guarded below, and the doctor-role + consent business rules remain.
   const parsedVitals = vitalsSchema.safeParse(data.vitals);
   if (!parsedVitals.success) throw new ValidationError("Invalid vitals");
 

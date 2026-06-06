@@ -90,9 +90,8 @@ export async function createAppointment(
   req: AuthRequest,
   data: { patientId: number; doctorId: number; scheduledAt: string; reason: string; notes?: string; bookingSource?: string },
 ) {
-  if (!data.patientId || !data.doctorId || !data.scheduledAt || !data.reason) {
-    throw new ValidationError("Missing required fields");
-  }
+  // Required fields (patientId, doctorId, scheduledAt, reason) are validated at the
+  // route by validate(CreateAppointmentBody). We still re-check the date is parseable.
   const scheduledDate = new Date(data.scheduledAt);
   if (isNaN(scheduledDate.getTime())) throw new ValidationError("Invalid scheduledAt date");
 
