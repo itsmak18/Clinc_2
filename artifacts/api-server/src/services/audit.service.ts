@@ -1,6 +1,8 @@
-// dbUnsafe: audit reads apply manual eq(clinicId) filters already. super_admin
-// reads intentionally span clinics. The direct auditLogsTable write path (login
-// events) must bypass tenant context because it runs before auth completes.
+// dbUnsafe: every audit read applies a manual eq(clinicId) filter (each clinic —
+// including super_admin — sees only its own audit trail; cross-tenant governance
+// would need an explicit opt-in endpoint, which does not exist). Raw db is used
+// because these are read-only reporting/export queries that don't need RLS on top
+// of the explicit clinicId filter.
 import { dbUnsafe as db } from "@workspace/db";
 import { auditLogsTable, usersTable } from "@workspace/db";
 import { eq, gte, lte, and, desc } from "drizzle-orm";

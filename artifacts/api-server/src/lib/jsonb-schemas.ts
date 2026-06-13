@@ -43,15 +43,18 @@ export type Vitals = z.infer<typeof vitalsSchema>;
 
 // ── medications ───────────────────────────────────────────────────────────────
 // Stored on prescriptions.medications (jsonb, array).
-// Each medication must have name, dose, frequency.
-// duration and route are optional clinical additions.
+// Field names MUST match the API contract (openapi.yaml CreatePrescriptionBody)
+// and every reader (frontend form, print.ts, DischargeSheet, DoctorConsult):
+// name, dosage, frequency, duration, instructions. The previous `dose`/`route`
+// naming silently rejected every real create (F-P5-5) — the frontend and OpenAPI
+// have always sent `dosage`/`instructions`.
 export const medicationItemSchema = z
   .object({
-    name:      z.string().min(1).max(200),
-    dose:      z.string().min(1).max(100),
-    frequency: z.string().min(1).max(100),
-    duration:  z.string().max(100).optional(),
-    route:     z.string().max(50).optional(),  // e.g. oral, IV, topical
+    name:         z.string().min(1).max(200),
+    dosage:       z.string().min(1).max(100),
+    frequency:    z.string().min(1).max(100),
+    duration:     z.string().max(100).optional(),
+    instructions: z.string().max(500).nullish(),  // free-text patient guidance
   })
   .strict();
 

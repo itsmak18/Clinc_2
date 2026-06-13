@@ -125,6 +125,7 @@ export async function updateXray(
 
   if (data.status === "reviewed") {
     const notifData = {
+      clinicId: req.user!.clinicId,
       userId: xray.requestedById,
       title: "X-Ray Report Ready",
       message: `X-ray report for ${xray.bodyPart} is ready for review`,
