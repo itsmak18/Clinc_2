@@ -9,7 +9,7 @@ export const ultrasoundStatusEnum = pgEnum("ultrasound_status", ["pending", "upl
 
 export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   requestedById: integer("requested_by_id").notNull().references(() => usersTable.id),
   performedById: integer("performed_by_id").references(() => usersTable.id),

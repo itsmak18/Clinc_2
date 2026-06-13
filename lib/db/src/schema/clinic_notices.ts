@@ -5,7 +5,7 @@ import { uuidV7 } from "../uuid-v7";
 
 export const clinicNoticesTable = pgTable("clinic_notices", {
   id: uuid("id").$defaultFn(uuidV7).primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   title: text("title").notNull(),
   content: text("content").notNull(),
   createdBy: integer("created_by").notNull().references(() => usersTable.id),

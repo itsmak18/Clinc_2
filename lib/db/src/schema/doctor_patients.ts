@@ -16,7 +16,7 @@ import { clinicsTable } from "./clinics";
 // createAppointment() and updateAppointment() in appointments.service.ts.
 // Backfilled from appointments in migration 0009_*.
 export const doctorPatientsTable = pgTable("doctor_patients", {
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),

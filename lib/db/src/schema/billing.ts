@@ -9,7 +9,7 @@ export const invoiceStatusEnum = pgEnum("invoice_status", ["pending", "paid", "c
 
 export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   invoiceNumber: text("invoice_number").notNull().unique(),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   createdById: integer("created_by_id").notNull().references(() => usersTable.id),

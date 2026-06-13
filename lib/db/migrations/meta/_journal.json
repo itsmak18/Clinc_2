@@ -190,6 +190,20 @@
       "when": 1780526866959,
       "tag": "0026_audit_logs_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1780782311353,
+      "tag": "0027_mean_maddog",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1780782411353,
+      "tag": "0028_audit_partition_append_only_trigger",
+      "breakpoints": true
     }
   ]
 }

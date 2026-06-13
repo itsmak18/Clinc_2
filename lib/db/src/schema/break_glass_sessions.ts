@@ -11,7 +11,7 @@ import { clinicsTable } from "./clinics";
 // in addition to the normal audit log entry.
 export const breakGlassSessionsTable = pgTable("break_glass_sessions", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   userId: integer("user_id").notNull().references(() => usersTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   justification: text("justification").notNull(),
