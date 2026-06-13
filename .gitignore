@@ -55,6 +55,7 @@ Thumbs.db
 .env.development
 .env.production
 .env.staging
+.env.rehearsal
 
 # Plaintext credential backups — must never be committed
 credentials-backup.md
@@ -63,3 +64,7 @@ credentials-backup.md
 *secrets*.md
 *secrets*.txt
 *backup*.env
+
+# Database backup dumps — contain PHI, must never be committed
+backups/
+*.sql.gz
