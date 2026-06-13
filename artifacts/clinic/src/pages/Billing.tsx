@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListUsers, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
@@ -24,7 +24,6 @@ export default function Billing() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
-  const [createdById, setCreatedById] = useState("");
   const [discount, setDiscount] = useState("0");
   const [items, setItems] = useState<InvoiceItem[]>([{ description: "", quantity: 1, unitPrice: 0, total: 0 }]);
   const [amountReceived, setAmountReceived] = useState("");
@@ -34,7 +33,6 @@ export default function Billing() {
   const { data: invoices, isLoading } = useListInvoices(params, { query: { queryKey: getListInvoicesQueryKey(params) } });
   const { data: dailySummary } = useGetDailyBillingSummary({ date: today }, { query: { queryKey: getGetDailyBillingSummaryQueryKey({ date: today }) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
-  const { data: users } = useListUsers({}, { query: { queryKey: getListUsersQueryKey({}) } });
 
   const subtotal = items.reduce((s, i) => s + i.total, 0);
   const total = subtotal - parseFloat(discount || "0");
@@ -171,21 +169,12 @@ export default function Billing() {
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{t("newInvoice")}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">{t("patient")} *</Label>
-                <Select value={patientId} onValueChange={setPatientId}>
-                  <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
-                  <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("createdBy")} *</Label>
-                <Select value={createdById} onValueChange={setCreatedById}>
-                  <SelectTrigger data-testid="select-staff"><SelectValue placeholder={t("selectStaff")} /></SelectTrigger>
-                  <SelectContent>{users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.fullName}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-1">
+              <Label className="text-xs">{t("patient")} *</Label>
+              <Select value={patientId} onValueChange={setPatientId}>
+                <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
+                <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -235,7 +224,7 @@ export default function Billing() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { patientId: parseInt(patientId), createdById: parseInt(createdById), items: items as any, discount: parseFloat(discount) } as any })}
+                onClick={() => createMutation.mutate({ data: { patientId: parseInt(patientId), items: items as any, discount: parseFloat(discount) } as any })}
                 disabled={createMutation.isPending}
                 data-testid="button-save-invoice"
               >
