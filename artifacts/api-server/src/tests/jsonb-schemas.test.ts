@@ -77,18 +77,31 @@ describe("vitalsSchema", () => {
 // ── medicationsSchema ─────────────────────────────────────────────────────────
 
 describe("medicationsSchema", () => {
-  const validMed = { name: "Amoxicillin", dose: "500mg", frequency: "3x daily" };
+  // Field names MUST match the API contract + every reader (F-P5-5): the frontend
+  // form, OpenAPI CreatePrescriptionBody, print.ts and DischargeSheet all use
+  // `dosage` / `instructions`. The earlier `dose` / `route` shape this suite used
+  // to assert was the bug — it rejected every real create.
+  const validMed = { name: "Amoxicillin", dosage: "500mg", frequency: "3x daily" };
 
   it("accepts a valid single medication", () => {
     expect(medicationsSchema.safeParse([validMed]).success).toBe(true);
   });
 
-  it("accepts multiple medications", () => {
-    expect(medicationsSchema.safeParse([validMed, { name: "Ibuprofen", dose: "400mg", frequency: "twice daily" }]).success).toBe(true);
+  it("accepts the exact frontend/OpenAPI shape (name, dosage, frequency, duration, instructions)", () => {
+    // This is the payload Prescriptions.tsx sends — pre-F-P5-5 it was rejected.
+    expect(
+      medicationsSchema.safeParse([
+        { name: "Amoxicillin", dosage: "500mg", frequency: "3x daily", duration: "7 days", instructions: "after food" },
+      ]).success,
+    ).toBe(true);
   });
 
-  it("accepts optional fields (duration, route)", () => {
-    expect(medicationsSchema.safeParse([{ ...validMed, duration: "7 days", route: "oral" }]).success).toBe(true);
+  it("accepts multiple medications", () => {
+    expect(medicationsSchema.safeParse([validMed, { name: "Ibuprofen", dosage: "400mg", frequency: "twice daily" }]).success).toBe(true);
+  });
+
+  it("accepts optional fields (duration, instructions)", () => {
+    expect(medicationsSchema.safeParse([{ ...validMed, duration: "7 days", instructions: "oral" }]).success).toBe(true);
   });
 
   it("rejects empty array (min 1)", () => {
@@ -96,15 +109,19 @@ describe("medicationsSchema", () => {
   });
 
   it("rejects medication missing name", () => {
-    expect(medicationsSchema.safeParse([{ dose: "500mg", frequency: "daily" }]).success).toBe(false);
+    expect(medicationsSchema.safeParse([{ dosage: "500mg", frequency: "daily" }]).success).toBe(false);
   });
 
-  it("rejects medication missing dose", () => {
+  it("rejects medication missing dosage", () => {
     expect(medicationsSchema.safeParse([{ name: "Drug", frequency: "daily" }]).success).toBe(false);
   });
 
   it("rejects medication missing frequency", () => {
-    expect(medicationsSchema.safeParse([{ name: "Drug", dose: "10mg" }]).success).toBe(false);
+    expect(medicationsSchema.safeParse([{ name: "Drug", dosage: "10mg" }]).success).toBe(false);
+  });
+
+  it("rejects the legacy dose/route shape (regression guard for F-P5-5)", () => {
+    expect(medicationsSchema.safeParse([{ name: "Drug", dose: "10mg", frequency: "daily", route: "oral" }]).success).toBe(false);
   });
 
   it("rejects extra/unknown keys (strict mode)", () => {
@@ -120,7 +137,7 @@ describe("medicationsSchema", () => {
   });
 
   it("rejects medication with empty name string", () => {
-    expect(medicationsSchema.safeParse([{ name: "", dose: "10mg", frequency: "daily" }]).success).toBe(false);
+    expect(medicationsSchema.safeParse([{ name: "", dosage: "10mg", frequency: "daily" }]).success).toBe(false);
   });
 });
 
