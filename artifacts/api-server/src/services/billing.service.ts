@@ -137,6 +137,7 @@ export async function createInvoice(
 
   await db.insert(invoiceItemsTable).values(
     parsedItems.data.map(item => ({
+      clinicId: req.user!.clinicId,
       invoiceId: invoice.id,
       description: item.description,
       quantity: item.quantity,
@@ -183,7 +184,7 @@ export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason:
     throw new ConflictError(`Invoice is already ${invoice.status}. Cannot cancel.`);
   }
 
-  const cancelConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")];
+  const cancelConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
 
   const [updated] = await db.update(invoicesTable)
     .set({ status: "cancelled", updatedAt: new Date() })
@@ -217,7 +218,7 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
     throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
   }
 
-  const payConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.status, "pending")];
+  const payConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
 
   const [updated] = await db.update(invoicesTable)
     .set({ status: "paid", paidAt: new Date(), updatedAt: new Date() })

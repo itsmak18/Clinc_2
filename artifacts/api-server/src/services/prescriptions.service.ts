@@ -83,7 +83,7 @@ export async function createPrescription(
   const pid = Number(data.patientId);
 
   const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
-    .where(and(eq(patientsTable.id, pid), isNull(patientsTable.deletedAt)));
+    .where(and(eq(patientsTable.id, pid), eq(patientsTable.clinicId, req.user!.clinicId), isNull(patientsTable.deletedAt)));
   if (!patient) throw new NotFoundError("patient", String(pid));
 
   if (!await hasActiveConsent(pid, "treatment", req.user!.clinicId)) {

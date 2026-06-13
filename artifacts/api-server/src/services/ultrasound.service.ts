@@ -127,6 +127,7 @@ export async function updateUltrasound(
 
   if (data.status === "reviewed") {
     const notifData = {
+      clinicId: req.user!.clinicId,
       userId: record.requestedById,
       title: "Ultrasound Report Ready",
       message: `Ultrasound report for ${record.examType} â€” ${record.bodyPart} is ready for review`,

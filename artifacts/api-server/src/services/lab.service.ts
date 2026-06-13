@@ -126,6 +126,7 @@ export async function updateLabTest(
 
   if (data.status === "completed") {
     const notifData = {
+      clinicId: req.user!.clinicId,
       userId: test.requestedById,
       title: "Lab Results Ready",
       message: `${test.testName} results are ready for review`,

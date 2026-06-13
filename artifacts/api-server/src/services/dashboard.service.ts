@@ -1,7 +1,6 @@
-﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
-// remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
-// dbUnsafe acknowledges the intentional bypass for those specific call sites.
-import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
+﻿// All queries run inside runInTenantContext (RLS-enforced) with belt-and-braces
+// eq(clinicId) filters. No raw dbUnsafe call sites in this service.
+import { runInTenantContext } from "@workspace/db";
 import {
   appointmentsTable, patientsTable, usersTable, labTestsTable,
   xrayRecordsTable, invoicesTable, operationsTable, inventoryTable, auditLogsTable,

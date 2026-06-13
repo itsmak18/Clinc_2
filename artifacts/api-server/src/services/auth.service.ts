@@ -1,6 +1,7 @@
 // dbUnsafe: auth runs before a user context exists (login, rate-limit, legacy
-// hash migration). usersTable and auditLogsTable are queried without a clinic
-// context because the authenticating user's clinicId is not yet known.
+// hash migration), so usersTable is read without a tenant context. audit_logs
+// inserts here set clinicId explicitly (SYSTEM_CLINIC_ID for pre-tenant session
+// events; the real clinicId where the user record is resolved).
 import { dbUnsafe as db } from "@workspace/db";
 import { usersTable, auditLogsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { verifyPassword, hashPassword, isLegacyHash, validatePasswordStrictAsync
 import { checkAllowed, recordFailure, recordSuccess, getRemainingAttempts } from "../middlewares/rateLimiter";
 import { NotFoundError, UnauthorizedError, ValidationError } from "./errors";
 import { evaluateDeviceTrust } from "./device-trust.service";
+import { SYSTEM_CLINIC_ID } from "../lib/audit";
 
 // Audit helpers that don't need req — accept primitives instead
 async function logLoginAudit(
@@ -19,6 +21,12 @@ async function logLoginAudit(
 ) {
   try {
     await db.insert(auditLogsTable).values({
+      // Pre-tenant session events: clinicId is not resolved at the login boundary
+      // (esp. failed/locked logins with no user). Explicit SYSTEM_CLINIC_ID (1)
+      // preserves prior behavior now that the schema default is gone.
+      // TODO(multi-clinic): thread the user's real clinicId for resolved-user
+      // events (LOGIN_SUCCESS/PENDING) so they land in that clinic's audit view.
+      clinicId: SYSTEM_CLINIC_ID,
       userId: userId ?? null,
       action,
       entityType: "session",
@@ -197,6 +205,7 @@ export async function loginUser(
 export async function logoutUser(userId: number, ip: string): Promise<void> {
   try {
     await db.insert(auditLogsTable).values({
+      clinicId: SYSTEM_CLINIC_ID, // TODO(multi-clinic): use the user's real clinicId (known here)
       userId,
       action: "LOGOUT",
       entityType: "session",
@@ -245,6 +254,7 @@ export async function changePassword(
 
   try {
     await db.insert(auditLogsTable).values({
+      clinicId: user.clinicId, // real clinic — the user record is resolved above
       userId,
       action: "CHANGE_PASSWORD",
       entityType: "user",

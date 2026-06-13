@@ -1,3 +1,7 @@
+// dbUnsafe: the raw db reads here (doctor lists + appointment availability) all
+// carry explicit eq(clinicId) filters; PHI schedule/override reads use
+// runInTenantContext (RLS-enforced). The intentional bypass is the doctor/user
+// lookups and slot-availability scans.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   doctorSchedulesTable,
