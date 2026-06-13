@@ -617,21 +617,21 @@ services:
       - backend
 
   # ── Alertmanager ─────────────────────────────────────────────────────────────
-  # Email receiver (chosen 2026-05-31). Requires SMTP_* vars in .env.
+  # Email receiver (chosen 2026-05-31). SMTP config is in alertmanager.yml +
+  # the smtp_auth_password secret (F-P6-5) — NOT .env (Alertmanager ignores ${VAR}).
   alertmanager:
     image: prom/alertmanager:v0.27.0
     restart: always
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
-      # Allow env-var interpolation in alertmanager.yml (SMTP_*, ALERT_EMAIL_TO).
       - "--cluster.listen-address="
-    environment:
-      SMTP_SMARTHOST:  ${SMTP_SMARTHOST:?SMTP_SMARTHOST required (e.g. smtp.gmail.com:587)}
-      SMTP_FROM:       ${SMTP_FROM:?SMTP_FROM required (e.g. medicore-alerts@yourdomain)}
-      SMTP_AUTH_USER:  ${SMTP_AUTH_USER:?SMTP_AUTH_USER required}
-      SMTP_AUTH_PASS:  ${SMTP_AUTH_PASS:?SMTP_AUTH_PASS required}
-      ALERT_EMAIL_TO:  ${ALERT_EMAIL_TO:?ALERT_EMAIL_TO required}
+    # F-P6-5 (2026-06-07): Alertmanager does NOT env-expand its config file, so the
+    # old `environment: SMTP_*` block + `${VAR}` config was inert (no email ever sent).
+    # SMTP non-secret fields are now hardcoded in alertmanager.yml; the password is a
+    # Docker secret read via smtp_auth_password_file. No environment block needed.
+    secrets:
+      - smtp_auth_password
     volumes:
       - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
@@ -843,6 +843,12 @@ secrets:
     # Grafana admin password (plain text, mode 0600).
     # Generate: openssl rand -base64 32 > ./secrets/grafana_password
     file: ./secrets/grafana_password
+  smtp_auth_password:
+    # SMTP password / app-token for Alertmanager email delivery (F-P6-5, mode 0600).
+    # Alertmanager reads it via smtp_auth_password_file in alertmanager.yml.
+    # Use an app-specific token, never a reusable password.
+    # Write: printf '%s' '<smtp-app-token>' > ./secrets/smtp_auth_password
+    file: ./secrets/smtp_auth_password
   backup_ssh_key:
     # Private SSH key for rsync-over-SSH offsite uploads. Mode 0600.
     # Generate: ssh-keygen -t ed25519 -N "" -f ./secrets/backup_ssh_key

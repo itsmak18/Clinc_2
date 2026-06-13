@@ -1,22 +1,26 @@
 # Alertmanager — email receiver (chosen 2026-05-31).
-# SMTP credentials are pulled from environment variables interpolated at
-# container start (see docker-compose.prod.yml `environment:` block on
-# the alertmanager service). Required vars:
-#   SMTP_SMARTHOST   — e.g. smtp.gmail.com:587
-#   SMTP_FROM        — sender, e.g. medicore-alerts@yourdomain
-#   SMTP_AUTH_USER   — SMTP username
-#   SMTP_AUTH_PASS   — SMTP password / app token
-#   ALERT_EMAIL_TO   — destination, e.g. ops@yourdomain
 #
-# To switch SMTP providers (Gmail, SES, Mailgun, Postmark) update the
-# env block — no Alertmanager config edit required.
+# IMPORTANT (F-P6-5, 2026-06-07): Alertmanager does NOT expand ${VAR} in this
+# config file — env-var interpolation is an explicitly-declined upstream feature
+# (prometheus/alertmanager#2818). The previous `${SMTP_*}` form was therefore
+# inert: smtp_smarthost was the literal string "${SMTP_SMARTHOST}" and NO alert
+# email was ever delivered. Non-secret fields are now hardcoded; the only secret
+# (the SMTP password) is read from a Docker secret via smtp_auth_password_file.
+#
+# OPERATOR: edit the four non-secret values below to match your mail provider,
+# and write the SMTP password/app-token to ./secrets/smtp_auth_password (mode
+# 0600). To switch providers, edit this file (no .env change). After deploy,
+# verify delivery end-to-end:
+#   docker compose -f docker-compose.prod.yml exec alertmanager \
+#     amtool alert add test severity=critical --alertmanager.url=http://localhost:9093
+#   …and confirm the email lands in ALERT_EMAIL_TO's inbox.
 
 global:
   resolve_timeout: 5m
-  smtp_smarthost: "${SMTP_SMARTHOST}"
-  smtp_from: "${SMTP_FROM}"
-  smtp_auth_username: "${SMTP_AUTH_USER}"
-  smtp_auth_password: "${SMTP_AUTH_PASS}"
+  smtp_smarthost: "smtp.example.com:587"          # OPERATOR: e.g. smtp.gmail.com:587
+  smtp_from: "medicore-alerts@clinic.local"        # OPERATOR: sender address
+  smtp_auth_username: "medicore-alerts"            # OPERATOR: SMTP username
+  smtp_auth_password_file: /run/secrets/smtp_auth_password  # ./secrets/smtp_auth_password (mode 0600)
   smtp_require_tls: true
 
 route:
@@ -35,14 +39,14 @@ route:
 receivers:
   - name: "default"
     email_configs:
-      - to: "${ALERT_EMAIL_TO}"
+      - to: "oncall@clinic.local"   # OPERATOR: destination inbox
         send_resolved: true
         headers:
           Subject: "[MediCore {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}"
 
   - name: "critical"
     email_configs:
-      - to: "${ALERT_EMAIL_TO}"
+      - to: "oncall@clinic.local"   # OPERATOR: destination inbox
         send_resolved: true
         headers:
           Subject: "[MediCore CRITICAL {{ .Status | toUpper }}] {{ .CommonLabels.alertname }}"
