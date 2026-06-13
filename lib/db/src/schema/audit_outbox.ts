@@ -10,7 +10,7 @@ import { pgTable, serial, text, integer, timestamp, jsonb } from "drizzle-orm/pg
 // referential state has changed before the drain worker runs.
 export const auditOutboxTable = pgTable("audit_outbox", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1),
+  clinicId: integer("clinic_id").notNull(),
   userId: integer("user_id"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),

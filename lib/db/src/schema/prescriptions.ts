@@ -8,7 +8,7 @@ import { clinicsTable } from "./clinics";
 
 export const prescriptionsTable = pgTable("prescriptions", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   doctorId: integer("doctor_id").notNull().references(() => usersTable.id),
   recordId: integer("record_id").references(() => medicalRecordsTable.id),

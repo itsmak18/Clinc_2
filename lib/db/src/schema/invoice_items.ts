@@ -7,7 +7,7 @@ import { clinicsTable } from "./clinics";
 
 export const invoiceItemsTable = pgTable("invoice_items", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   invoiceId: integer("invoice_id").notNull().references(() => invoicesTable.id),
   // Nullable: ad-hoc items (no catalog entry) are valid
   serviceId: integer("service_id").references(() => servicesCatalogTable.id),

@@ -6,7 +6,7 @@ import { clinicsTable } from "./clinics";
 
 export const auditLogsTable = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   userId: integer("user_id").references(() => usersTable.id),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),

@@ -17,7 +17,7 @@ export const erasureStatusEnum = pgEnum("erasure_status", [
 // Hard deletion is prohibited per ADR-005; anonymization is the correct approach.
 export const erasureRequestsTable = pgTable("erasure_requests", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   requestedByUserId: integer("requested_by_user_id").notNull().references(() => usersTable.id),
   requestedAt: timestamp("requested_at").notNull().defaultNow(),

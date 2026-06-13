@@ -22,7 +22,7 @@ export const usersTable = pgTable("users", {
   fullName: text("full_name").notNull(),
   fullNameAr: text("full_name_ar"),
   email: text("email"),
-  clinicId: integer("clinic_id").notNull().default(1),
+  clinicId: integer("clinic_id").notNull(),
   role: userRoleEnum("role").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   isOnShift: boolean("is_on_shift").notNull().default(false),

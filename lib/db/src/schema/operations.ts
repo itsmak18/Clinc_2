@@ -13,7 +13,7 @@ export const operationStatusEnum = pgEnum("operation_status", [
 
 export const operationsTable = pgTable("operations", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1),
+  clinicId: integer("clinic_id").notNull(),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   surgeonId: integer("surgeon_id").notNull().references(() => usersTable.id),
   procedureName: text("procedure_name").notNull(),

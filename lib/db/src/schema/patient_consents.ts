@@ -14,7 +14,7 @@ export const consentTypeEnum = pgEnum("consent_type", [
 
 export const patientConsentsTable = pgTable("patient_consents", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   consentType: consentTypeEnum("consent_type").notNull(),
   grantedAt: timestamp("granted_at").notNull().defaultNow(),

@@ -7,7 +7,7 @@ export const genderEnum = pgEnum("gender", ["male", "female"]);
 
 export const patientsTable = pgTable("patients", {
   id: serial("id").primaryKey(),
-  clinicId: integer("clinic_id").notNull().default(1).references(() => clinicsTable.id),
+  clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   mrn: text("mrn").notNull().unique(),
   fullName: text("full_name").notNull(),
   fullNameAr: text("full_name_ar"),
