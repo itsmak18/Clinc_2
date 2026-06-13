@@ -15,7 +15,7 @@ COPY lib/api-zod/package.json           ./lib/api-zod/
 COPY lib/api-client-react/package.json  ./lib/api-client-react/
 COPY artifacts/api-server/package.json  ./artifacts/api-server/
 # Install without running lifecycle scripts (no postinstall in CI/Docker)
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm install --frozen-lockfile --ignore-scripts --node-linker=hoisted
 
 # ── Stage 3: build the API server (esbuild → single bundled .mjs) ─────────────
 FROM deps AS build

@@ -43,10 +43,11 @@
  */
 
 import { execSync, spawnSync } from "child_process";
-import { existsSync, mkdirSync, statSync, readdirSync, unlinkSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, statSync, readdirSync, unlinkSync, readFileSync, openSync, readSync, closeSync } from "fs";
 import { join, resolve } from "path";
-import { createGunzip } from "zlib";
+import { createGunzip, gunzipSync } from "zlib";
 import { createReadStream } from "fs";
+import { randomBytes } from "crypto";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -165,11 +166,10 @@ function verifyFileIntegrity(filePath) {
   log("INFO", `Backup file size: ${(stat.size / 1024 / 1024).toFixed(2)} MB`);
 
   // Read first 2 bytes (sync, then close)
-  const fs = require("fs");
   const buf = Buffer.alloc(2);
-  const fd = fs.openSync(filePath, "r");
-  fs.readSync(fd, buf, 0, 2, 0);
-  fs.closeSync(fd);
+  const fd = openSync(filePath, "r");
+  readSync(fd, buf, 0, 2, 0);
+  closeSync(fd);
 
   if (ENCRYPT) {
     // GPG binary packets start with a packet tag byte. Old format: 0x84-0xC9.
@@ -253,21 +253,46 @@ async function verifySQLContent(filePath) {
 // ── Step 4: Optional restore test ─────────────────────────────────────────────
 
 function runRestoreTest(filePath) {
-  // Pipeline proves the full restore chain end-to-end:
-  //   (encrypted)   gpg --decrypt | gunzip | psql
-  //   (plaintext)   gunzip        | psql
-  // Failure anywhere in the pipe — missing GPG key, corrupt cipher, replay
-  // syntax error — bubbles up as a non-zero exit and trips fail().
-  const pipeline = ENCRYPT
-    ? `gpg --batch --yes --decrypt "${filePath}" | gunzip -c | psql "${RESTORE_DATABASE_URL}" --no-password -v ON_ERROR_STOP=1`
-    : `zcat "${filePath}" | psql "${RESTORE_DATABASE_URL}" --no-password -v ON_ERROR_STOP=1`;
-
   log("INFO", `Starting restore drill (encrypt=${ENCRYPT}) to ${RESTORE_DATABASE_URL}`);
+  
+  let gzipBuffer;
+  if (ENCRYPT) {
+    const gpgResult = spawnSync(
+      "gpg",
+      ["--batch", "--yes", "--decrypt", filePath],
+      { stdio: ["ignore", "pipe", "pipe"], timeout: 60 * 1000 }
+    );
+    if (gpgResult.status !== 0) {
+      fail(`GPG decryption failed during restore (exit ${gpgResult.status}): ${gpgResult.stderr?.toString()}`);
+    }
+    gzipBuffer = gpgResult.stdout;
+  } else {
+    try {
+      gzipBuffer = readFileSync(filePath);
+    } catch (err) {
+      fail(`Failed to read backup file: ${err.message}`);
+    }
+  }
+
+  let decompressedSqlBuffer;
+  try {
+    decompressedSqlBuffer = gunzipSync(gzipBuffer);
+  } catch (err) {
+    fail(`Decompression failed during restore: ${err.message}`);
+  }
+
+  // Strip unrecognized PG 17/18 settings (like transaction_timeout) when restoring to older Postgres
+  let sqlText = decompressedSqlBuffer.toString("utf8");
+  sqlText = sqlText.replace(/SET\s+transaction_timeout\s*=\s*\d+;/gi, "-- SET transaction_timeout = [STRIPPED BY DRILL FOR COMPATIBILITY];");
+  decompressedSqlBuffer = Buffer.from(sqlText, "utf8");
+
+  log("INFO", "Replaying SQL into the restore database...");
   const result = spawnSync(
-    "sh",
-    ["-c", `set -o pipefail; ${pipeline}`],
-    { stdio: ["ignore", "pipe", "pipe"], timeout: 10 * 60 * 1000 }
+    "psql",
+    [RESTORE_DATABASE_URL, "--no-password", "-v", "ON_ERROR_STOP=1"],
+    { input: decompressedSqlBuffer, stdio: ["pipe", "pipe", "pipe"], timeout: 10 * 60 * 1000 }
   );
+
   if (result.status !== 0) {
     fail(`Restore drill failed (exit ${result.status}): ${result.stderr?.toString()}`);
   }
@@ -406,6 +431,107 @@ function checkAuditIntegrity() {
   log("INFO", `Post-restore audit integrity: ${okCount} checked date(s) verified OK, 0 mismatches.`);
 }
 
+// ── Step 4d: Runtime app-role usability (F-P6-8) ──────────────────────────────
+//
+// A pg_dump produced with --no-owner --no-acl (see runDump) strips every GRANT to
+// medicore_app, and the medicore_app ROLE itself is cluster-global so it does not
+// exist in a freshly provisioned restore target. A restore validated only as the
+// `postgres` superuser (row counts, audit integrity) therefore gives FALSE
+// confidence: after a real DR restore, api/worker — which connect as medicore_app
+// (NOSUPERUSER) — would get "permission denied" on every table, at the worst
+// possible moment.
+//
+// This step recreates the role and re-applies the migration 0020 grants + the 0026
+// audit_logs append-only REVOKE on the restored DB, then connects AS medicore_app
+// and proves it can actually read a tenant table. It FAILS the drill if the app
+// role cannot be made usable — so the recovery path is proven for the role the app
+// really uses, not just for the superuser. Mirrors RUNBOOK §2.2 step 5b / §12.3b.
+
+function checkAppRoleUsability() {
+  if (!RESTORE_DATABASE_URL) return;
+  log("INFO", "Verifying medicore_app role usability on the restored DB (F-P6-8)...");
+
+  const appPw = "drill_" + randomBytes(12).toString("hex");
+
+  // 1. Recreate role + re-apply 0020 grants and 0026 audit_logs REVOKE (all stripped
+  //    by --no-acl). Run as the restore superuser. Idempotent.
+  const setupSql = `
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'medicore_app') THEN
+        CREATE ROLE medicore_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+      END IF;
+    END $$;
+    ALTER ROLE medicore_app LOGIN PASSWORD '${appPw}';
+    GRANT USAGE ON SCHEMA public TO medicore_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO medicore_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO medicore_app;
+    REVOKE UPDATE, DELETE ON audit_logs FROM medicore_app;
+    DO $$ DECLARE part text; BEGIN
+      FOR part IN
+        SELECT inhrelid::regclass::text FROM pg_inherits
+        WHERE inhparent = 'audit_logs'::regclass
+      LOOP
+        EXECUTE format('REVOKE UPDATE, DELETE ON %s FROM medicore_app', part);
+      END LOOP;
+    END $$;
+  `;
+  const setup = spawnSync(
+    "psql",
+    [RESTORE_DATABASE_URL, "--no-password", "-v", "ON_ERROR_STOP=1", "-c", setupSql],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 }
+  );
+  if (setup.status !== 0) {
+    fail(`Failed to recreate medicore_app role + grants on restored DB: ${setup.stderr?.toString()}`);
+  }
+
+  // 2. Build a medicore_app connection string from the restore URL (swap creds).
+  let appUrl;
+  try {
+    const u = new URL(RESTORE_DATABASE_URL);
+    u.username = "medicore_app";
+    u.password = appPw;
+    appUrl = u.toString();
+  } catch (err) {
+    fail(`Could not derive a medicore_app connection URL from RESTORE_DATABASE_URL: ${err.message}`);
+  }
+
+  // 2a. Confirm the role is non-superuser + non-bypassrls (so RLS actually binds).
+  const probe = spawnSync(
+    "psql",
+    [appUrl, "--no-password", "--tuples-only", "--no-align", "-c",
+     // format('%s', <boolean>) uses the type output function → 't'/'f' (not the
+     // 'true'/'false' that `||` text-concatenation produces). Keep this in sync
+     // with the expected string below.
+     "SELECT format('%s,%s,%s', current_user, rolsuper, rolbypassrls) FROM pg_roles WHERE rolname = current_user;"],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 }
+  );
+  if (probe.status !== 0) {
+    fail(`medicore_app could not connect to the restored DB: ${probe.stderr?.toString()}`);
+  }
+  const ident = probe.stdout?.toString().trim();
+  if (ident !== "medicore_app,f,f") {
+    fail(`medicore_app role attributes wrong after restore (got "${ident}", want "medicore_app,f,f") — RLS would not bind.`);
+  }
+
+  // 2b. Prove it can actually READ a tenant table — this is the grant a real DR
+  //     restore silently drops. A permission failure exits non-zero (status!=0);
+  //     an empty result is fine (synthetic restores may have no patients).
+  const read = spawnSync(
+    "psql",
+    [appUrl, "--no-password", "--tuples-only", "-c", "SELECT count(*) FROM patients;"],
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 }
+  );
+  if (read.status !== 0) {
+    fail(
+      "medicore_app cannot read the patients table after restore — grants are missing (F-P6-8). " +
+      "A real DR restore must recreate the role + re-apply migration 0020 grants. " +
+      `stderr=${read.stderr?.toString()}`
+    );
+  }
+  const n = parseInt(read.stdout?.toString().trim(), 10);
+  log("INFO", `medicore_app usability verified: non-superuser, RLS-binding, reads tenant tables (patients=${isNaN(n) ? "?" : n}).`);
+}
+
 // ── Step 4e: Offsite upload ───────────────────────────────────────────────────
 
 function runOffsiteUpload(filePath) {
@@ -466,6 +592,7 @@ async function main() {
     runRestoreTest(outPath);
     checkErasureBlackouts();
     checkAuditIntegrity();
+    checkAppRoleUsability();
   }
 
   runOffsiteUpload(outPath);

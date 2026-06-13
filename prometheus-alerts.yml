@@ -4,6 +4,22 @@ groups:
   # No additional exporters required.
   - name: medicore-api-alerts
     rules:
+      # Liveness: `up` is the synthetic per-target sample Prometheus writes on
+      # every scrape (1 = scrape succeeded, 0 = target unreachable). It needs no
+      # exporter. This is the PRIMARY availability alert: a crashed/OOM-killed
+      # api or worker process produces ZERO http_requests_total, so HighErrorRate
+      # (a ratio over request rate) can never fire on a full outage — the series
+      # just goes stale. Without this rule a dead process pages no one.
+      # Covers both the api and the worker scrape jobs (see prometheus.yml).
+      - alert: ServiceDown
+        expr: up{job=~"medicore-api|medicore-worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MediCore {{ $labels.job }} is DOWN (scrape failing)"
+          description: "Prometheus cannot scrape {{ $labels.job }} at {{ $labels.instance }} (up==0) for 1 minute. The process is crashed, OOM-killed, crash-looping, or unreachable. Clinic surface is degraded or offline. Check `docker compose ps` and `docker compose logs {{ $labels.job }} --tail=200`."
+
       - alert: HighErrorRate
         expr: rate(http_requests_total{status_code=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
         for: 5m
@@ -112,14 +128,41 @@ groups:
           summary: "audit_logs partition horizon < 24 months"
           description: "Only {{ $value }} future monthly audit_logs partitions remain. Rows will overflow into the DEFAULT partition when the horizon is exhausted, preventing month-granularity pruning and HIPAA partition-drop retention. Land a follow-up migration (see ADR-009-audit-partitioning.md) to pre-create additional monthly partitions."
 
+      # SSE connection capacity: active client connections approaching the limit.
+      # Capped at 500 per process (SSE_MAX_CONNECTIONS). Above 400 (80%) starts to
+      # squeeze headroom, potentially causing new client connection attempts to fail or evict.
+      - alert: SSEConnectionsHigh
+        expr: sse_active_connections > 400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High SSE Connections (> 80% capacity)"
+          description: "Active Server-Sent Events connections are {{ $value }}, which is exceeding 80% of the 500-connection limit per process."
+
   # ── Infrastructure-level alerts ───────────────────────────────────────────────
-  # These alerts require additional Prometheus exporters that are NOT yet deployed.
-  # Add the relevant exporter to docker-compose when provisioning the cloud host.
-  # Rules are included now so that alert routing and notification channels can be
-  # configured before the exporters are live; they will simply have no active series
-  # until the exporter is scraped.
+  # The exporters these rules depend on ARE deployed in docker-compose.prod.yml as
+  # of 2026-06-03: redis_exporter (job "redis"), node_exporter (job "node"), and
+  # blackbox_exporter (job "blackbox-tls"). See monitoring/prometheus/prometheus.yml.
+  # NOTE: the blackbox-tls job target uses ${BLACKBOX_TARGET}, which Prometheus does
+  # NOT env-expand in its config file — until that is resolved (see F-P6-7) the SSL
+  # and EdgeProbeDown series below have no real target and will not fire.
   - name: medicore-infrastructure-alerts
     rules:
+      # External availability: probe_success is 0 when blackbox_exporter cannot
+      # complete the HTTP probe against the public/edge endpoint (Caddy down, DNS
+      # failure, TLS handshake failure). This is what makes RUNBOOK §7's "stop
+      # Caddy → alerting fires within 5 minutes" chaos-drill criterion achievable.
+      # Depends on the blackbox-tls job having a real target (see F-P6-7).
+      - alert: EdgeProbeDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "External probe failing for {{ $labels.instance }}"
+          description: "blackbox_exporter HTTP probe against {{ $labels.instance }} has failed for 2 minutes (probe_success==0). The edge (Caddy/TLS/DNS) is unreachable from the probe's vantage point even though internal services may be up. Verify Caddy is running and the domain resolves."
+
       # Requires: redis_exporter (https://github.com/oliver006/redis_exporter)
       # Add to docker-compose: image: oliver006/redis_exporter, target: redis:6379
       # Redis is configured with --maxmemory 512mb --maxmemory-policy allkeys-lru.

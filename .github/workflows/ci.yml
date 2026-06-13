@@ -312,11 +312,30 @@ jobs:
       - name: Run frontend tests
         run: pnpm --filter @workspace/clinic run test
 
+  # ── 10. Monitoring config validation ─────────────────────────────────────────
+  # Promtool parses prometheus-alerts.yml and fails on a malformed alert rule
+  # (bad PromQL expr, missing field, bad duration). This is the non-regressable
+  # guard for the Phase 6 alert work (ServiceDown / EdgeProbeDown additions): a
+  # syntax slip in an alert rule can no longer merge silently. NOTE: promtool
+  # validates rule *syntax*, not *delivery* — Alertmanager SMTP delivery (F-P6-5)
+  # has no live SMTP in CI and is verified at deploy time per the go-live checklist.
+  monitoring-config:
+    name: Monitoring Config Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Prometheus alert rules (promtool check rules)
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            --entrypoint promtool prom/prometheus:v2.53.0 \
+            check rules prometheus-alerts.yml
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test, monitoring-config]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -329,7 +348,8 @@ jobs:
                 "${{ needs.build.result }}" != "success" ||
                 "${{ needs.migration-drift.result }}" != "success" ||
                 "${{ needs.integration-db.result }}" != "success" ||
-                "${{ needs.frontend-test.result }}" != "success" ]]; then
+                "${{ needs.frontend-test.result }}" != "success" ||
+                "${{ needs.monitoring-config.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

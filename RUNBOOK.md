@@ -128,11 +128,44 @@ for the keypair, escrow envelopes, and drill procedure.
     > automatically after the restore drill and **fails** if active blackouts
     > are found, preventing accidental promotion of a tainted restore.
 
-6.  Update `DATABASE_URL` to point to the new instance.
-7.  Restart `api-server` instances.
-8.  Verify data integrity via `/api/healthz/ready` and manual spot-checks of
+6.  **CRITICAL — Recreate the runtime app role + grants (F-P6-8).** Backups are
+    dumped with `--no-owner --no-acl`, which strips every `GRANT` to `medicore_app`,
+    and the `medicore_app` role is cluster-global so it does **not** exist in a
+    freshly provisioned instance. Without this step, api/worker (which connect as
+    `medicore_app`, NOSUPERUSER) get *permission denied* / *role does not exist* on
+    every query. Run as the restore-target superuser (re-applies migration 0020 +
+    0026):
+
+    ```sql
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'medicore_app') THEN
+        CREATE ROLE medicore_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+      END IF;
+    END $$;
+    -- Set the same password the api/worker DATABASE_URL uses (./secrets/app_db_password):
+    ALTER ROLE medicore_app LOGIN PASSWORD '<contents of ./secrets/app_db_password>';
+    GRANT USAGE ON SCHEMA public TO medicore_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO medicore_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO medicore_app;
+    -- 0026: audit_logs is append-only for the app role (parent + every partition).
+    REVOKE UPDATE, DELETE ON audit_logs FROM medicore_app;
+    DO $$ DECLARE part text; BEGIN
+      FOR part IN SELECT inhrelid::regclass::text FROM pg_inherits
+                  WHERE inhparent = 'audit_logs'::regclass LOOP
+        EXECUTE format('REVOKE UPDATE, DELETE ON %s FROM medicore_app', part);
+      END LOOP;
+    END $$;
+    ```
+
+    Verify before promoting: connect **as `medicore_app`** and confirm it is
+    non-superuser and can read a tenant table —
+    `psql "postgres://medicore_app:…@host/db" -c "SELECT count(*) FROM patients;"`
+    must succeed (the quarterly drill automates this; see §12).
+7.  Update `DATABASE_URL` to point to the new instance.
+8.  Restart `api-server` instances.
+9.  Verify data integrity via `/api/healthz/ready` and manual spot-checks of
     recent records (e.g., `SELECT MAX(created_at) FROM patients;`).
-9.  Restore traffic at the edge.
+10. Restore traffic at the edge.
 
 ### 2.3. Backup & Restore Validation Cadence
 
@@ -323,12 +356,15 @@ docker compose -f docker-compose.prod.yml exec alertmanager amtool silence expir
 
 | Alert | First action | Escalate to backup if |
 |---|---|---|
+| `ServiceDown` | `docker compose ps` to see which of api/worker is down; `docker compose logs <job> --tail=200` for the crash cause (OOM, unhandled rejection, failed DB connect). `docker compose up -d <job>` to restart. | Crash-loops after restart → roll back to the last good `API_IMAGE` (§10.2); if DB-connection refused, check Postgres/PgBouncer health. |
+| `EdgeProbeDown` | Verify Caddy: `docker compose ps caddy` + `docker compose logs caddy --tail=100`; confirm the domain still resolves and TLS handshakes (`curl -vI https://<domain>/api/health`). | Edge stays unreachable but internal `api` is healthy → DNS/cert/proxy issue, not app; engage infra/network owner. |
 | `HighErrorRate` | Tail `docker compose logs api --tail=200`; check the last deploy SHA — if it matches the failing window, roll back (§10.2). | Errors persist after rollback → restore from backup (§2.2). |
 | `DBPoolExhaustion` | Inspect `pg_stat_activity`; kill long-running queries; raise `DB_POOL_MAX` only if every conn shows healthy short-lived work. | Pool stays saturated after `+10` slots → DB instance too small, escalate to capacity planning. |
 | `AuditLogPermanentLoss` | **HIPAA §164.312(b) breach assessment is mandatory.** Query `audit_outbox_row_exhausted` log entries for affected entity IDs; do NOT delete the outbox rows. | Always — this alert is a SEV-1 by definition. |
 | `AuditIntegrityMismatch` | Run `SELECT * FROM audit_integrity_checks WHERE status='mismatch'`; preserve evidence — do NOT update `audit_logs` until investigation completes. | Always — possible tampering, SEV-1. |
 | `HighNodeMemory` | Capture heap snapshot (`kill -USR2 <pid>` in container then copy out); restart api container to recover headroom. | RSS climbs back to threshold within 1 h after restart → leak in latest build, roll back. |
 | `BackupStale` | Check `docker compose logs backup --tail=200` for the most recent run; verify GPG keyring + SSH target are still valid. | Two consecutive missed runs → restore drill is now overdue, treat as SEV-2. |
+| `AuditPartitionLow` | Headroom < 24 future monthly `audit_logs` partitions. Land a follow-up migration (per ADR-009) that `CREATE`s the next batch of monthly partitions. **Append-only is now automatic:** migration 0028's `audit_partition_append_only_trg` event trigger auto-`REVOKE`s UPDATE/DELETE from `medicore_app` on every new audit_logs partition (so 0020's default-privs re-grant can no longer silently re-open it). After landing the migration, verify with `SELECT has_table_privilege('medicore_app','<new_partition>','DELETE')` → must be `false`; the `audit-append-only.integration-db.test.ts` test also enforces this in CI. | Migration can't be landed before the horizon is exhausted → rows fall into the un-prunable DEFAULT partition; escalate. |
 
 ### 11.5 Emergency manual backup
 
@@ -395,6 +431,12 @@ The script will:
 2. Row-count sanity check (`patients` table).
 3. Erasure-blackout check — fails if pre-erasure PHI would be revived (see §2.2).
 4. Audit integrity check — fails if any `audit_integrity_checks.status = 'mismatch'`.
+5. **App-role usability check (F-P6-8)** — recreates `medicore_app` + re-applies the
+   0020 grants / 0026 audit_logs REVOKE on the restored DB (both stripped by
+   `pg_dump --no-acl`), then connects **as `medicore_app`** and asserts it is
+   non-superuser, RLS-binding, and can read a tenant table. This proves the recovery
+   path for the role the app actually uses, not just for the `postgres` superuser —
+   the drill fails if the app role cannot be made usable.
 
 ### 12.3 Verify and record RTO
 

@@ -51,17 +51,23 @@ scrape_configs:
     static_configs:
       - targets: ["node_exporter:9100"]
 
-  # TLS certificate expiry probe against the public API endpoint.
-  # Requires blackbox_exporter service in docker-compose.prod.yml.
-  # BLACKBOX_TARGET env var must be set in .env (e.g. https://medicore.example.com).
-  # Unlocks: SSLCertificateExpiringSoon alert.
+  # TLS + edge availability probe against the public/edge endpoint.
+  # blackbox_exporter is deployed in docker-compose.prod.yml.
+  # Unlocks: SSLCertificateExpiringSoon + EdgeProbeDown alerts.
+  #
+  # F-P6-7 (2026-06-07): Prometheus does NOT env-expand its config file
+  # (prometheus/prometheus#2357), so the old "${BLACKBOX_TARGET}" was a literal
+  # target and these probes never had a real series. OPERATOR: replace the target
+  # below with your edge URL (e.g. https://clinic.yourdomain.local). Editing this
+  # file requires a Prometheus reload: `... exec prometheus wget -qO- --post-data=''
+  # http://localhost:9090/-/reload`.
   - job_name: "blackbox-tls"
     metrics_path: /probe
     params:
       module: [https_2xx]
     static_configs:
       - targets:
-          - "${BLACKBOX_TARGET}"
+          - "https://clinic.yourdomain.local"   # OPERATOR: set to your edge URL
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
