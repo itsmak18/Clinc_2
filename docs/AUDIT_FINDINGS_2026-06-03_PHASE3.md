@@ -45,14 +45,18 @@ Net: after an executed erasure, the patient's lab results, X-ray/ultrasound repo
 - Add an integration test: after `executeErasure`, assert no plaintext PHI remains in lab/xray/ultrasound rows for the patient and `medications` is tombstoned.
 
 ### F-P3-2 — `hasActiveConsent` has no clinicId filter
-**Severity: LOW (defense-in-depth) · Confidence: HIGH · Status: OPEN**
+**Severity: LOW (defense-in-depth) · Confidence: HIGH · Status: ✅ FIXED (status corrected 2026-06-07)**
 
-`consent.service.ts:24-38` queries `patient_consents` by `patientId` + `consentType` only, via bare `db` (dormant RLS, no tenant context). Safe **today** because every caller (`createMedicalRecord`, `createPrescription`) pre-validates that `patientId` belongs to the requester's clinic. But a future call path passing a foreign `patientId` would read another clinic's consent. Add `eq(clinicId)` (or pass the `tx` so RLS applies).
+`consent.service.ts` queries `patient_consents` by `patientId` + `consentType` only, via bare `db` (dormant RLS, no tenant context). Safe **today** because every caller (`createMedicalRecord`, `createPrescription`) pre-validates that `patientId` belongs to the requester's clinic. But a future call path passing a foreign `patientId` would read another clinic's consent. Add `eq(clinicId)` (or pass the `tx` so RLS applies).
+
+> **Resolution (verified 2026-06-07):** `hasActiveConsent(patientId, consentType, clinicId, tx?)` now takes `clinicId` as a required parameter and filters `eq(patientConsentsTable.clinicId, clinicId)` (`consent.service.ts:24,34`). Defense-in-depth gap closed. (This was already fixed in code; only the status line was stale — see plan §1.)
 
 ### F-P3-3 — Diagnostic orders don't gate on consent
-**Severity: INFO · Confidence: HIGH · Status: OPEN (policy decision)**
+**Severity: INFO · Confidence: HIGH · Status: ✅ DECIDED 2026-06-06 — leave ungated (orders ≠ treatment)**
 
 Treatment consent is enforced before `createMedicalRecord` / `createPrescription`, but **not** before creating lab/xray/ultrasound orders. Whether ordering diagnostics requires treatment consent is a clinic-policy call, not clearly a bug — flagging for an explicit decision.
+
+> **Decision (2026-06-06):** leave diagnostic orders ungated. Ordering a diagnostic test is not itself "treatment," and gating it would block legitimate triage/work-up flows. Rationale recorded in `SECURITY.md` → "Patient Consent — Enforcement Scope." Closed as accepted.
 
 ---
 
