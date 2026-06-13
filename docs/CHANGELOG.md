@@ -1,5 +1,124 @@
 # Changelog
 
+## Restore drill runtime-verified on real PG16 + F-P6-8 probe bug fixed (2026-06-07)
+
+Ran the actual `backup-verify.mjs --restore` drill end-to-end against local PostgreSQL 16 (fresh fully-migrated source DB → scratch target), **exit 0**. Verified: pg_dump→gzip→psql replay (with the F-P6-4 `transaction_timeout` strip working across a pg_dump v18.4 → server PG16 skew), patient sanity, erasure-blackout check, audit-integrity check, and **F-P6-8** (`medicore_app usability verified: non-superuser, RLS-binding, reads tenant tables`).
+
+- **Bug found by running it:** `checkAppRoleUsability` probed the role via SQL `||` concatenation, which renders booleans as `false` → it produced `medicore_app,false,false` and the assertion `== "medicore_app,f,f"` failed even though the role was correctly NOSUPERUSER/NOBYPASSRLS. Fixed to `format('%s,%s,%s', current_user, rolsuper, rolbypassrls)` (boolean output function → `f`). Re-ran → drill green. F-P6-8 is now runtime-verified, not just `node --check`'d.
+- Also confirmed **Replit code/config refs are gone**: a repo-wide grep for `REPLIT_DOMAINS` / `@replit/` imports hits only docs + harmless `// @replit` shadcn provenance comments — no `.ts`, `pnpm-workspace.yaml`, or `package.json` usage (the AUDIT_REPORT §5 checklist + "still read in policy.ts" notes are stale history). CLAUDE.md CORS/env doc lines still mention `REPLIT_DOMAINS` (doc-only drift).
+- Note: the dev `clinic_db` is on a divergent migration state and won't `db:migrate` to head (relation conflict) — environment data issue, not a code defect; fresh DBs migrate cleanly (the drill + 62 integration tests prove it).
+- **Monitoring configs validated with the real tools** (pinned versions): `promtool check rules prometheus-alerts.yml` → SUCCESS (18 rules, incl. the new `ServiceDown`/`EdgeProbeDown`); `amtool check-config monitoring/alertmanager/alertmanager.yml` → SUCCESS (global config + route + 1 inhibit rule + 2 receivers — confirms the F-P6-5 `smtp_auth_password_file` rewrite is structurally valid). Still deploy-gated: live SMTP *delivery*, blackbox edge probe, `k6 run` (need the running stack).
+
+## audit_logs append-only is now self-healing across partitions — migration 0028 (2026-06-07)
+
+Upgraded the audit append-only guard from a RUNBOOK note to an automatic DB control (op follow-up to F-P4-3). Migration 0026 revoked UPDATE/DELETE on audit_logs + existing partitions from `medicore_app`, but 0020's `ALTER DEFAULT PRIVILEGES` silently re-grants them on any *new* partition — so a future monthly partition would quietly become tamperable.
+
+- **Migration 0028** — `audit_partition_append_only()` + `audit_partition_append_only_trg` event trigger on `ddl_command_end`: any newly-created partition whose parent is `audit_logs` is immediately `REVOKE`d UPDATE/DELETE from `medicore_app`, regardless of how it was created (migration, helper, manual psql). Strict no-op for all other CREATE TABLE; no-op if `medicore_app` is absent (dev). `SECURITY DEFINER` so the revoke always has privilege. Plus an idempotent backstop re-revoke on all current partitions.
+- **`audit-append-only.integration-db.test.ts`** — proves it on real PG16: creates a 2037 partition and asserts `medicore_app` has no UPDATE/DELETE (but keeps SELECT/INSERT), and that every existing partition is append-only. **Full integration-db suite 8 files / 62 tests green** (was 7/60).
+- RUNBOOK §11.4 `AuditPartitionLow` playbook updated: the re-revoke is now automatic; operators just verify with `has_table_privilege`.
+
+This turns the "re-run the REVOKE when new partitions are created" manual step into a non-regressable, self-healing control.
+
+## Phase 7 hardening — regression tests + analytics route gate (2026-06-07)
+
+Closed the optional Phase 7 follow-ups (all in-repo, no live env needed):
+- **`/analytics` route-layer gate (F-P7-2 follow-up)** — `routes/analytics.ts` now `requireRole` at the route (list `super_admin/admin`; per-doctor `super_admin/admin/doctor`) in addition to the existing service-layer enforcement (`analytics.service.ts:323`,`:290-294`). Defense-in-depth; api-server typecheck clean.
+- **F-P7-4 logout CSRF test** — `auth-logout-csrf.test.tsx`: asserts `logout()` POSTs `/api/auth/logout` with `X-CSRF-Token` from the `_csrf` cookie (guards the 2026-05-13 regression).
+- **F-P7-3 DischargeSheet escaping test** — `discharge-sheet-xss.test.tsx`: feeds `<script>`-laden PHI, asserts no live `<script>` node + escaped serialized HTML (the print path copies `el.innerHTML`).
+
+Frontend suite **45/45 green** (was 43). Both tests run in the existing `frontend-test` CI job.
+
+## Audit campaign close-out — AUDIT_REPORT.md reconciled (2026-06-07)
+
+Reconciled the 2026-06-06 consolidated `AUDIT_REPORT.md` with the Phase 5–8 results (plan §6 step 6 / §7 DoD). Added a status banner + new **§7 Reconciliation**: per-phase outcomes, reconciled dimension scores with deltas, carried accepted risks (F-P2-4 fph, F-P3-3 orders), and an updated remediation roadmap. **Headline honesty correction:** the report's Operational Resilience / Deployment Safety scores had over-credited an alerting stack that was actually **inert** (Alertmanager couldn't deliver email; restore drill unproven for the app role) — now genuinely earned after F-P6-5/6/8, so the scores hold but were provisional until the Phase 6 fixes. Recorded the process lesson (Phases 6/7 rubber-stamped; Phase 8's re-checked sign-off held). With this, **all 8 audit phases are independently verified**; remaining work is runtime-verifies at deploy + the F-P8-1 `CLAUDE.md:437` one-liner + optional F-P7-3/4 tests.
+
+## Real k6 load test — booking + dashboard (F-P6-9 / §8.5) (2026-06-07)
+
+Rewrote `scripts/load-test.js` from a smoke test (it only GET'd `/healthz/ready` + `/metrics`, default port 3000 = Grafana) into a real clinical load test. `setup()` logs in with seed creds, captures the `clinic_token` + `_csrf` cookies, and discovers a patient/doctor id; each VU exercises the **dashboard** (`/dashboard/summary`, `/dashboard/recent-activity`), clinical **reads** (`/patients`, `/appointments`, `/appointments/today`, `/schedule/doctors`), and the **booking** write (`POST /appointments` with `X-CSRF-Token`) under a 0→20→0 VU ramp. Thresholds: reads `p(95)<500ms`, booking `p(95)<1500ms`, `http_req_failed<1%`, `booking_hard_errors<1%` (5xx/401/403). Booking counts 201/409/422 as acceptable outcomes so the run measures latency/stability, not seed-specific success. `node --check` clean; runtime-verify with `k6 run scripts/load-test.js` against a live stack (k6 not installed in this session). Closes the last open audit engineering item (F-P6-9 / §8.5).
+
+## Audit Phase 8 — re-verified the "complete" sign-off (2026-06-07)
+
+Re-checked Phase 8's "all passed, no defects" against the actual config (Phases 6/7 were rubber-stamped). **Phase 8's claims hold up** — first accurate sign-off of the three: pool math (`pgbouncer.ini`: pool_size=20, reserve=5, max_client_conn=200, Postgres max_connections=100 default), SSE caps (`notifications.ts:29-31` → 503+Retry-After), non-PHI caching including the real `doctor_scope:<id>` Redis cache (`scope.ts:29-47`, 60s TTL, invalidated on appointment mutations), N+1 batching (`computeKPIsForDoctorIds`), bundle splitting. Two minor opens:
+
+- **F-P8-1 (LOW, doc drift)** — `.claude/CLAUDE.md:437` Doctor Scope Rule says `getDoctorPatientScope` is "no cache — fresh on each call"; it's actually `doctor_patients`-table-backed and Redis-cached 60s. Could mislead an access-revocation assumption (≤60s staleness). The corrected text is in `AUDIT_FINDINGS_2026-06-07_PHASE8.md` — **needs a manual CLAUDE.md edit** (the agent was permission-blocked from editing the config file).
+- **§8.5 load test (= F-P6-9)** — not delivered; `scripts/load-test.js` is a smoke test (health + metrics only). Bundle-splitting half is fine.
+
+No code changed (verification + doc only).
+
+## Audit Phase 7 — re-verified the "complete" sign-off (2026-06-07)
+
+Applied the same scrutiny that exposed Phase 6's hollow "complete" to Phase 7. **Security is sound — no live vuln found** — but the sign-off's evidence was inaccurate. Findings in `docs/AUDIT_FINDINGS_2026-06-07_PHASE7.md`.
+
+- **F-P7-2 (MEDIUM) — RBAC parity "PASS" cited a non-existent test.** The doc credited `route-access.contract.test.ts`; that file doesn't exist, and the real `route-access.test.ts` only checks client-side consistency, never client↔server parity. Spot-checked the 4 sensitive routes manually (users/audit/analytics/settings) → no authz gap (backend is the real gate; `/analytics` is gated in the service layer — `analytics.service.ts:323`/`:290-294` — not the route). The actual parity contract test still needs writing (the non-regressable fix). INFO: add a route-layer `authGate` on `/analytics` for defense-in-depth.
+- **F-P7-3 (LOW) — "zero innerHTML" was false.** `DischargeSheet.tsx:98` writes `${el.innerHTML}`. Safe (React-rendered subtree, auto-escaped, no `dangerouslySetInnerHTML`), but the cited `escapeHtml/safeUrl` evidence was wrong — real safety = React escaping.
+- **F-P7-4 (LOW) — CSRF inventory wrong.** Four manual `fetch()` calls, not two; logout (`auth.tsx:72`) is a POST (the doc said all manual calls are GET-only). No defect — logout correctly double-submits `X-CSRF-Token` — but it's the path that regressed 2026-05-13, so it's now listed + a test recommended.
+- F-P7-1 (Billing `createdById`) verified genuinely fixed: removed from `Billing.tsx`, server sets `createdById = req.user!.userId` (`billing.service.ts:114`).
+
+Phase 7 demoted ✅→🟡 pending the contract test (since written — see next entry).
+
+## Phase 7 follow-up — wrote the real RBAC contract test (F-P7-2) (2026-06-07)
+
+Created `artifacts/clinic/src/test/route-access.contract.test.ts` — the file the first pass falsely cited as already verifying parity. It encodes a hand-verified backend-gate snapshot (per-route `routes/*.ts:line` sources) and asserts across all 24 nav routes: (1) every client route has a declared backend contract (no orphan), (2) client `navItems.roles` ⊆ backend roles (no client-more-permissive), (3) all-roles-visible routes are backed by an `ANY_AUTH` endpoint. Parity holds — **43/43 frontend tests pass** (was 40). Runs in the existing `frontend-test` CI job, so widening a client nav role set without a matching backend gate now fails CI. Limitation documented: the backend column is a maintained snapshot (Express role sets aren't introspectable without a registry). Phase 7 → 🟢. INFO follow-up: add a route-layer `authGate` on `/analytics` (currently service-layer-gated only) for defense-in-depth.
+
+## Audit close-out — carried-over LOW/DOC/ops items (2026-06-07)
+
+Cleared the "close regardless of phase order" backlog from `AUDIT_PLAN_PHASE_5-8.md` §1.
+
+- **F-P3-2 status corrected** — `AUDIT_FINDINGS_2026-06-03_PHASE3.md` showed it OPEN, but `hasActiveConsent(patientId, consentType, clinicId, tx?)` already takes `clinicId` and filters on it (`consent.service.ts:24,34`). Verified fixed; status line + resolution note updated.
+- **F-P3-3 decision recorded** — diagnostic orders (lab/xray/ultrasound) stay **ungated** on treatment consent (orders ≠ treatment; gating would block triage/work-up). Rationale documented in `SECURITY.md` → "Patient Consent — Enforcement Scope"; finding marked DECIDED/accepted.
+- **Audit-partition append-only re-revoke (operational)** — there is no partition-creation cron (`cron.ts` only counts headroom for the gauge); new partitions arrive via follow-up migrations. Added an `AuditPartitionLow` row to RUNBOOK §11.4 stating the new-partition migration MUST re-run the 0026 `REVOKE UPDATE, DELETE … FROM medicore_app` (migration 0020's default privileges silently re-grant them) or audit append-only-ness regresses.
+- **Alert playbooks** — added `ServiceDown` + `EdgeProbeDown` rows to RUNBOOK §11.4 so the new Phase 6 alerts are actionable, not just pages with no runbook.
+
+## Audit Phase 6 — observability second pass: alert delivery was inert (2026-06-07)
+
+Re-audited the deployment/observability stack against the "documented-active but inert" class (cf. F-01, F-P4-1). The first Phase 6 pass (F-P6-1..4) fixed script portability + added an SSE alert but did not audit the alert *delivery* path or process *liveness*. Five new findings; CRITICAL + HIGH + MEDIUM fixed. Evidence in `docs/AUDIT_FINDINGS_2026-06-07_PHASE6.md`.
+
+- **F-P6-5 (CRITICAL) — Alertmanager delivered ZERO alert emails.** `alertmanager.yml` used `${SMTP_*}`/`${ALERT_EMAIL_TO}` and compose passed them as `environment:` vars, but Alertmanager does **not** env-expand its config file (prometheus/alertmanager#2818) and there was no `envsubst` entrypoint — so `smtp_smarthost` was the literal `"${SMTP_SMARTHOST}"` and every alert (incl. `AuditLogPermanentLoss`, `AuditIntegrityMismatch`, `BackupStale`) fired in the UI but reached no human. CLAUDE.md even enshrined the false belief. **Fix (Mike's call: hardcode + `_file`):** non-secret SMTP fields hardcoded in `alertmanager.yml`; password via `smtp_auth_password_file: /run/secrets/smtp_auth_password`; new `smtp_auth_password` Docker secret; dropped the inert `environment:` block; corrected CLAUDE.md.
+- **F-P6-6 (HIGH) — no process-down alert.** Added `ServiceDown` (`up{job=~"medicore-api|medicore-worker"}==0`, critical). A full crash serves zero requests, so `HighErrorRate` (a ratio) could never fire — a dead process paged no one.
+- **F-P6-7 (MEDIUM) — SSL/edge probe inert.** `prometheus.yml` used `${BLACKBOX_TARGET}` (Prometheus also doesn't env-expand, #2357) → cert-expiry monitoring dead. Hardcoded the edge URL; added `EdgeProbeDown` (`probe_success==0`) so RUNBOOK §7's "stop Caddy → alert in 5 min" criterion is achievable.
+- **F-P6-8 (MEDIUM-HIGH) FIXED — restore drill proves bytes, not usability.** `pg_dump --no-acl` strips `medicore_app` grants and the role is absent in a fresh cluster, but the drill/restore validated only as `postgres` superuser → after a real DR restore api/worker get permission-denied. **Fix:** `backup-verify.mjs --restore` now runs `checkAppRoleUsability()` — recreates the role + re-applies 0020 grants / 0026 audit_logs REVOKE on the restored DB, connects **as `medicore_app`**, and asserts non-superuser + RLS-binding + can read `patients` (drill fails otherwise). RUNBOOK §2.2 step 6 documents the same for a real DR restore; §12.2 documents the drill check.
+- **F-P6-9 (LOW, defer to 8.5) — `load-test.js` is a smoke test** (only `/healthz/ready` + `/metrics`, wrong default port).
+- **Non-regressable guard:** new blocking CI job `monitoring-config` runs `promtool check rules prometheus-alerts.yml`; corrected the stale "exporters NOT yet deployed" comment (they're in compose since 2026-06-03). Go-live checklist now includes an `amtool` synthetic-alert **delivery** check (rule reload ≠ delivery).
+
+Validation: all four edited YAML/compose files parse clean. promtool + live SMTP/blackbox are runtime-verified at deploy (no Docker/SMTP in session). No app code touched — 484/484 unit, 60/60 integration-db unaffected.
+
+## Audit Phase 5 complete — 5.2–5.5 (2026-06-07)
+
+Finished the Phase 5 backend audit (5.1 + the 0027 hardening landed earlier). 5.2–5.5 are PASS with minor cleanups; full evidence in `.claude/AUDIT_FINDINGS_2026-06-06_PHASE5.md`.
+
+- **Sweep correction** — the 5.1 `dbUnsafe` grep was single-line and missed wrapped calls (`await db\n.select`). Re-ran multiline; surfaced raw reads in `schedule.service` (×4) and `audit.service` (×3), **all already clinic-scoped** (`eq(clinicId)`). No new defects. (Migration 0027 now makes every clinic-bearing *insert* compiler-guaranteed to set `clinicId`, so only reads need manual review going forward.)
+- **5.2 deep-read services** — dashboard/schedule/analytics/reports/search/notifications/audit all clinic-scoped; PHI reads call `logRead`, aggregate dashboards intentionally don't, cache wraps only non-PHI aggregates. Removed an unused `dbUnsafe as db` dead import from `dashboard.service.ts`; added the missing justification comment to `schedule.service.ts`; corrected a misleading header comment in `audit.service.ts`.
+- **5.3 transactions/races** — booking double-book is closed by the partial unique index `appt_no_double_book_idx` (concurrent insert → 23505 → ConflictError); invoice counter uses atomic `UPDATE…RETURNING`/`onConflictDoUpdate`; pay/cancel use status-guarded `UPDATE…RETURNING`; erasure is single-transaction. No findings.
+- **5.4 error envelope** — `globalErrorHandler` never leaks stack traces in prod (generic message; dev-only detail); canonical 7-field envelope; 23505→CONFLICT/23503→VALIDATION. No findings.
+- **5.5 authz depth** — kernel scope is method-derived (GET→read, mutations→write), so a scope inversion is structurally impossible. No findings.
+
+Validation: typecheck + lint clean, **484/484** unit, **60/60** integration-db.
+
+## Eradicate the `clinic_id DEFAULT 1` footgun — migration 0027 (2026-06-07)
+
+Follow-up to F-P5-1: removed the `clinic_id integer NOT NULL DEFAULT 1` default from all **20** clinic-bearing tables so a forgotten `clinicId` on an insert now fails loudly (`NOT NULL`, SQLSTATE 23502) instead of silently mislabeling the row as clinic 1.
+
+- **Schema** — dropped `.default(1)` from the 20 clinic-bearing schema files (`lib/db/src/schema/*`); `clinicId` is now a required field in Drizzle's insert type.
+- **Compiler-driven blast radius** — removing the default turned every insert that relied on it into a compile error. `tsc` surfaced exactly **9** sites, all bootstrap/system (zero PHI service paths — those already set `clinicId`):
+  - `auth.service.ts` ×3 — direct `audit_logs` writes for login/logout/password-change. Set `SYSTEM_CLINIC_ID` for pre-tenant session events (with `TODO(multi-clinic)`), real `user.clinicId` for CHANGE_PASSWORD. (These were wrapped in empty `catch {}`, so without the typecheck they'd have started silently dropping login/logout audit events — a HIPAA gap.)
+  - `scripts/seed.ts` ×6 — bootstrap inserts; now capture `clinic.id` from `.returning()` and thread `clinicId` through users/patients/appointments/inventory/notifications.
+- **Migration 0027** (`0027_mean_maddog.sql`) — `ALTER TABLE … ALTER COLUMN clinic_id DROP DEFAULT` on all 20 tables (idempotent; metadata-only). Tables that never had the default (`doctor_schedules`, `schedule_overrides`) and `clinic_invoice_counters` (clinic_id is PK) are untouched. `clinic_id > 0` CHECK (0014) + NOT NULL remain.
+- **Regression coverage** — `clinic-id-check.integration-db.test.ts`: NOT-NULL rejection when `clinic_id` is omitted on `patients`/`notifications`, plus a symmetry test asserting no clinic-bearing table carries a `clinic_id` default (proves 0027 reached the DB).
+
+Validation: typecheck + lint clean, **484/484** unit, **60/60** integration-db (was 57; +3).
+
+## Audit Phase 5.1 — backend tenant-scope / `dbUnsafe` sweep (2026-06-06)
+
+Executed the Phase 5.1 exhaustive `dbUnsafe`/`clinicId` sweep (the item flagged twice as not-yet-done). Audited every raw `db.<select|insert|update|delete>` call site across 32 services; full verdict table + evidence in `.claude/AUDIT_FINDINGS_2026-06-06_PHASE5.md`. Five findings, all fixed and validated on real Postgres 16.
+
+- **F-P5-5 (HIGH) — prescription creation was broken end-to-end.** The backend medication guard `medicationItemSchema` (`jsonb-schemas.ts`) was `.strict()` with `dose`/`route`, but the frontend, OpenAPI `CreatePrescriptionBody`, and every reader (`print.ts`, `DischargeSheet`, `DoctorConsult`) use `dosage`/`instructions`. Since WS3's `validate()` doesn't transform the body, every real create hit the service schema and 422'd. Aligned the schema to the contract (`name, dosage, frequency, duration?, instructions?`). The old `jsonb-schemas.test.ts` had locked in the wrong `dose`/`route` shape — rewritten + added a legacy-shape regression guard.
+- **F-P5-1 (MEDIUM) — raw inserts defaulted child rows to clinic 1.** `invoice_items` (billing) and `notifications` (lab/xray/ultrasound) were inserted via `dbUnsafe` without `clinicId`; the `clinic_id … DEFAULT 1` column silently tagged them clinic 1. Correct by accident for the seed clinic, but non-clinic-1 invoices returned zero line items and those users never saw lab/xray/ultrasound notifications. Set `clinicId` explicitly at all four sites. New `tests/clinic-id-default-leak.integration-db.test.ts` (real PG, drives a non-default clinic).
+- **F-P5-4 (MEDIUM) — `createPrescription` patient check missing `clinicId`.** Allowed referencing a foreign-clinic patient (only incidentally blocked by the consent gate, with a misleading 422). Added the clinic filter → foreign patient now 404s. New cross-tenant write test case (the suite previously covered invoice/appointment but not prescriptions).
+- **F-P5-2 (LOW) — billing cancel/pay `UPDATE` omitted `clinicId`.** Not exploitable (preceded by a clinic-scoped SELECT + global PK) but a defense-in-depth gap; added `eq(clinicId)` to both.
+- **F-P5-3 (INFO) — dead `dbUnsafe as db` import** in `reports`/`search` (pure tenant-context services) with a misleading comment; removed.
+
+Validation: typecheck + lint clean, **484/484** unit, **57/57** integration-db (7 files; +3 new tests over the prior 54). F-P5-1/4/5 each verified fails-before / passes-after.
+
 ## WS3 — Zod request validation at the route boundary (2026-06-06)
 
 Wired the Orval-generated Zod schemas from `@workspace/api-zod` into a `validate()` middleware on every mutation route, giving HTTP-boundary input validation backed by the OpenAPI contract.

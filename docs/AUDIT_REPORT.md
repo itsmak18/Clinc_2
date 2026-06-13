@@ -6,6 +6,14 @@
 **Target Scale:** Single clinic, with future multi-clinic scaling  
 **Deployment:** Pre-production (Docker Compose, PgBouncer, Node 24, Postgres 16)  
 
+> **⚠️ Status update (2026-06-07):** This report (2026-06-06) captured the kernel /
+> HIPAA / STRIDE verification. The full 8-phase campaign has since completed
+> (Phases 5–8 executed 2026-06-06→07). **§7 (Reconciliation)** brings the scores
+> and roadmap current — including a material honesty correction: several controls
+> this report credited (Alertmanager email delivery, restore-drill usability) were
+> found **inert** in the Phase 6 re-audit and have since been fixed. Read §7
+> alongside §1.1.
+
 ---
 
 ## 1. Executive Summary
@@ -154,3 +162,43 @@ The remediation roadmap is ordered by risk (blast radius x exploitability):
 ### Phase P3 — Ongoing Tasks
 1. **Quarterly Key Rotations:** Rotate the Ed25519 JWT signing key pair quarterly according to the procedure defined in `SECURITY.md`.
 2. **Monthly Partition Headroom Checks:** Ensure the Prometheus alert `AuditPartitionLow` is active to alert when partition headroom falls below 24 months.
+
+---
+
+## 7. Reconciliation — Phases 5–8 + corrected sign-offs (2026-06-07)
+
+This report (2026-06-06) covered the security kernel, HIPAA §164.312 mapping, and STRIDE model. The remaining audit phases ran 2026-06-06→07; per-phase evidence is in `AUDIT_FINDINGS_2026-06-{06_PHASE5, 07_PHASE6, 07_PHASE7, 07_PHASE8}.md`. Decisions: **D1 = single host, LAN/VPN only; D2 = synthetic/pilot data first** (real-PHI controls are pre-cutover, not launch-blockers).
+
+### 7.1 Phase outcomes
+
+- **Phase 5 — Backend Logic & API Surface (complete):** exhaustive `dbUnsafe`/`clinicId` sweep (multiline-verified; raw reads in `schedule`/`audit` services all clinic-scoped), 6 deep-read service traces, transaction/race review (booking double-book closed by partial unique index; atomic invoice counter), error-envelope + method-based authGate scope. F-P5-1..5 fixed (incl. a HIGH `dose`/`dosage` contract drift) + eradicated the `clinic_id DEFAULT 1` footgun (migration **0027**). 484 unit / 60 integration-db green.
+- **Phase 6 — Deployment/DevOps/Observability (fixes landed; runtime-verify pending):** first pass fixed backup-script portability + added an SSE alert, **but marked "complete" while the alert stack was inert.** Second pass fixed: **F-P6-5 (was CRITICAL)** Alertmanager delivered **zero** email — `${SMTP_*}` is never env-expanded (now hardcoded fields + `smtp_auth_password_file` secret); **F-P6-6 (HIGH)** no process-down alert → added `ServiceDown` (`up==0`); **F-P6-7** `${BLACKBOX_TARGET}` inert → hardcoded + `EdgeProbeDown`; **F-P6-8** restore drill validated only as `postgres` superuser → now re-provisions `medicore_app` and proves a tenant-table read; **F-P6-9** load test was a smoke test → real k6 booking+dashboard script. Added blocking `monitoring-config` CI job (`promtool check rules`).
+- **Phase 7 — Frontend & Client Security (security sound; sign-off corrected):** spot-checked RBAC parity on sensitive routes — **no authz gap** (backend is the real gate; `/analytics` is service-layer-gated). Corrected false evidence: the RBAC "PASS" had cited a **non-existent** `route-access.contract.test.ts` (now **written** — client⊆backend across 24 routes, 43/43 frontend tests green, CI-gated); "zero innerHTML" and "two GET-only fetches" were both false-but-safe. F-P7-1 (Billing `createdById`) verified fixed.
+- **Phase 8 — Architecture/Performance/Scale (re-verified accurate):** unlike 6/7, the claims held — pool math (`pgbouncer.ini` 20+5 ≪ Postgres 100), SSE caps, non-PHI caching incl. the real `doctor_scope` Redis cache, N+1 batching, bundle splitting. One LOW doc-drift: **F-P8-1** (`CLAUDE.md:437` Doctor Scope Rule wrongly says "no cache" — it's Redis-cached 60s; one-line fix pending).
+
+### 7.2 Reconciled dimension scores (Δ vs §1.1)
+
+The honesty correction below is the headline: Operational Resilience / Deployment Safety at report time **over-credited an alerting stack that could not deliver**. With F-P6-5/6/7/8 fixed the scores are now genuinely earned, so they hold — but were provisional until 2026-06-07.
+
+| Dimension | §1.1 | Reconciled | Note |
+|---|---|---|---|
+| PHI Protection | 9.0 | **9.0** | Phase 5 confirmed tenant-scope sweep; 0027 makes a forgotten `clinicId` a compile error. |
+| Authentication & Session | 9.5 | **9.5** | Phase 7: logout CSRF safe; RBAC parity now actually tested. |
+| Operational Resilience | 9.0 | **9.0** (was *provisional*) | Report credited monitoring/backup that was **inert** (no deliverable alert, restore unproven for the app role). Now real after F-P6-5/6/8. Still gated by no live chaos drill + RPO≈24h. |
+| Deployment Safety | 8.5 | **8.5** | CI gate verified + new `monitoring-config` job; alert delivery fixed. Staging absent but D1 pilot-as-staging accepted. |
+| Code Quality & Maintainability | 9.5 | **9.5** | Phase 5 confirmed service/route boundary; contract test added. |
+| Compliance Readiness | 9.0 | **9.0** | §164.312 matrix holds; F-P6-5 fix restores **delivery** of the §164.312(b) breach-detection alerts (`AuditLogPermanentLoss`, `AuditIntegrityMismatch`) — previously a latent gap. |
+
+### 7.3 Accepted risks (carried)
+- **F-P2-4 / fph weak binding (INFO):** `fph` = SHA-256(UA + Accept-Language), attacker-copyable. Accepted (see §3 F-P2-3). Defense-in-depth only; revocation + CSRF + RLS are the real controls.
+- **F-P3-3 (INFO):** diagnostic orders not consent-gated — decided accepted (orders ≠ treatment; `SECURITY.md` "Patient Consent — Enforcement Scope").
+
+### 7.4 Updated remediation roadmap (deltas to §6)
+- **P0 (launch blockers):** Replit removal — verify (Track A.5 reportedly removed refs; re-confirm `pnpm-workspace.yaml`). Credential rotation + Phase 2 flags → captured on the Phase 6 go-live checklist.
+- **P1 (first 30 days):** ✅ Restore-drill usability now validated in-script (F-P6-8); ✅ alert delivery now works (F-P6-5) — **must runtime-verify with a synthetic `amtool` alert at deploy**. Staging → accept D1 pilot-as-staging or stand one up.
+- **New / now-tracked:** ✅ **F-P8-1** `CLAUDE.md` doctor-scope cache line corrected (+ the audit append-only line updated for migration 0028). ✅ F-P7-3/F-P7-4 regression tests written (45/45 frontend green). ✅ route-layer `authGate` added to `/analytics`. ✅ migration **0028** event trigger makes audit_logs partitions append-only automatically (proven on real PG16). ✅ Replit code/config refs confirmed gone (docs-only residue).
+- **Verified locally 2026-06-07 (real PG16 / static tools):** `promtool check rules` → SUCCESS (18 rules); `amtool check-config` → SUCCESS; `backup-verify.mjs --restore` full drill → exit 0 (incl. F-P6-8 app-role usability — and running it caught + fixed a boolean-render bug in the check).
+- **Still deploy-gated (need the running stack):** live **SMTP email delivery** via a synthetic `amtool alert add`; **blackbox** probe of the real edge URL (`probe_success`/cert expiry); **`k6 run`** of `load-test.js` (needs the API up); P0 credential rotation + `PHASE2_*` flags at go-live.
+
+### 7.5 Process note
+Phases 6 and 7 were first signed off as "complete" while carrying, respectively, a live CRITICAL (undeliverable alerts) and a headline claim backed by a non-existent test. Phase 8's sign-off, re-checked the same way, held. **Lesson:** a phase is "complete" only when its evidence is independently reproduced — re-verify rubber-stamped sign-offs, but don't assume they're wrong.

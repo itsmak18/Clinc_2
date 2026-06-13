@@ -179,6 +179,23 @@ concern.
 catch. This will cause password changes to fail with a 503 during HIBP outages — test
 this against acceptable UX degradation before enabling.
 
+## Patient Consent — Enforcement Scope (F-P3-3 decision)
+
+Active `treatment` consent (`hasActiveConsent`, `patient_consents` table) is enforced
+**before clinical-record creation** — specifically `createMedicalRecord` and
+`createPrescription` throw `ConsentRequiredError` (HTTP 422, code 3010) when no active
+treatment consent exists. The consent lookup is clinic-scoped (`hasActiveConsent` takes
+`clinicId` and filters on it — F-P3-2).
+
+**Diagnostic *orders* (lab / x-ray / ultrasound) are intentionally NOT consent-gated**
+(decided 2026-06-06, F-P3-3, accepted-risk). Rationale: ordering a diagnostic test is
+part of the triage / work-up that *precedes* a treatment decision — it is not itself
+"treatment," and gating it would block legitimate clinical flow (e.g. a nurse ordering
+labs during intake before the doctor documents a treatment plan). The PHI produced by
+those orders is still protected by RLS tenant isolation, doctor-scope, field encryption,
+and full audit logging. Revisit this decision if a regulatory regime is selected that
+treats diagnostic ordering as a consented act.
+
 ## Vulnerability Disclosure Policy
 
 We take security seriously. If you believe you have found a security vulnerability in our application, please report it to us immediately.
