@@ -156,6 +156,23 @@ describe("Cross-tenant PHI isolation (real Postgres)", () => {
       expect(res.status).toBe(404);
     });
 
+    it("Clinic A doctor cannot create prescription referencing Clinic B's patient (F-P5-4)", async () => {
+      // Pre-fix: createPrescription's patient existence check omitted the clinicId
+      // filter, so a foreign patientId slipped past it and was only incidentally
+      // blocked by the consent gate (422). Now the patient check is clinic-scoped → 404.
+      const cookie = await cookieFor(seed.doctorA, "doctor");
+      const res = await request(app)
+        .post("/api/prescriptions")
+        .set("Cookie", writeCookies(cookie))
+        .set("X-CSRF-Token", csrf)
+        .send({
+          patientId: seed.patientB.id, // Clinic B patient
+          doctorId: seed.doctorA.id,
+          medications: [{ name: "Amoxicillin", dosage: "500mg", frequency: "TID", duration: "7d" }],
+        });
+      expect(res.status).toBe(404);
+    });
+
     it("Clinic A super_admin cannot create appointment with Clinic B's patient", async () => {
       const cookie = await cookieFor(seed.superAdminA, "super_admin");
       const res = await request(app)
