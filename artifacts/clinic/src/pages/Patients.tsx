@@ -23,7 +23,7 @@ export default function Patients() {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
-    fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male" as "male" | "female",
+    idCardNumber: "", fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male" as "male" | "female",
     phone: "", address: "", bloodType: "", allergies: "", emergencyContact: "",
   });
 
@@ -75,10 +75,15 @@ export default function Patients() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
         setShowCreate(false);
-        setForm({ fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male", phone: "", address: "", bloodType: "", allergies: "", emergencyContact: "" });
+        setForm({ idCardNumber: "", fullName: "", fullNameAr: "", dateOfBirth: "", gender: "male", phone: "", address: "", bloodType: "", allergies: "", emergencyContact: "" });
         toast({ title: t("patientRegisteredSuccess") });
       },
-      onError: () => toast({ title: t("patientRegisterFailed"), variant: "destructive" }),
+      onError: (error: any) => {
+        // Surface the real server reason (canonical error envelope `message`)
+        // instead of a generic failure — e.g. duplicate ID card, missing field.
+        const serverMsg = error?.data?.message ?? error?.message;
+        toast({ title: t("patientRegisterFailed"), description: serverMsg, variant: "destructive" });
+      },
     },
   });
 
@@ -108,6 +113,7 @@ export default function Patients() {
             onClick={() => exportToCSV(
               patients.map(p => ({
                 MRN: p.mrn,
+                "ID Card": p.idCardNumber,
                 Name: p.fullName,
                 "Name (AR)": p.fullNameAr ?? "",
                 Gender: p.gender,
@@ -141,6 +147,11 @@ export default function Patients() {
               key: "mrn",
               header: t("mrn"),
               render: p => <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{p.mrn}</span>,
+            },
+            {
+              key: "idCard",
+              header: t("idCardNumber"),
+              render: p => <span className="font-mono text-xs text-[var(--ink)]">{p.idCardNumber}</span>,
             },
             {
               key: "name",
@@ -213,6 +224,10 @@ export default function Patients() {
             <DialogTitle>{t("registerPatient")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">{t("idCardNumber")} *</Label>
+              <Input value={form.idCardNumber} onChange={e => setForm(f => ({ ...f, idCardNumber: e.target.value }))} data-testid="input-id-card" />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">{t("name")} (EN) *</Label>
@@ -266,7 +281,7 @@ export default function Patients() {
               <button
                 className="btn btn-primary btn-sm"
                 onClick={() => createMutation.mutate({ data: form as any })}
-                disabled={createMutation.isPending}
+                disabled={createMutation.isPending || !form.idCardNumber.trim() || !form.fullName.trim() || !form.dateOfBirth || !form.phone.trim()}
                 data-testid="button-save-patient"
               >
                 {createMutation.isPending ? t("loading") : t("save")}

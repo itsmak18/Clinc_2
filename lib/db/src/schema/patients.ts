@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, timestamp, date, pgEnum, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, boolean, timestamp, date, pgEnum, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clinicsTable } from "./clinics";
@@ -9,6 +9,7 @@ export const patientsTable = pgTable("patients", {
   id: serial("id").primaryKey(),
   clinicId: integer("clinic_id").notNull().references(() => clinicsTable.id),
   mrn: text("mrn").notNull().unique(),
+  idCardNumber: text("id_card_number").notNull(),
   fullName: text("full_name").notNull(),
   fullNameAr: text("full_name_ar"),
   dateOfBirth: date("date_of_birth").notNull(),
@@ -32,6 +33,9 @@ export const patientsTable = pgTable("patients", {
   index("patient_clinic_idx").on(t.clinicId),
   index("patient_clinic_phone_idx").on(t.clinicId, t.phone),
   index("patient_clinic_active_idx").on(t.clinicId, t.isActive),
+  // National ID card number is unique per clinic — blocks duplicate patient
+  // registrations on the same identity within a tenant.
+  uniqueIndex("patient_clinic_idcard_uq").on(t.clinicId, t.idCardNumber),
 ]);
 
 export const insertPatientSchema = createInsertSchema(patientsTable).omit({

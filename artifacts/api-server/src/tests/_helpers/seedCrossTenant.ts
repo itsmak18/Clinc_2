@@ -58,11 +58,11 @@ export async function seedCrossTenant(db: NodePgDatabase<Record<string, never>>)
   }).returning();
 
   const [patientA] = await db.insert(patientsTable).values({
-    clinicId: clinicAId, mrn: "MRN-A-001", fullName: "Patient A", dateOfBirth: "1990-01-01",
+    clinicId: clinicAId, mrn: "MRN-A-001", idCardNumber: "ID-A-001", fullName: "Patient A", dateOfBirth: "1990-01-01",
     gender: "male", phone: "+1-555-0001",
   }).returning();
   const [patientB] = await db.insert(patientsTable).values({
-    clinicId: clinicBId, mrn: "MRN-B-001", fullName: "Patient B", dateOfBirth: "1991-02-02",
+    clinicId: clinicBId, mrn: "MRN-B-001", idCardNumber: "ID-B-001", fullName: "Patient B", dateOfBirth: "1991-02-02",
     gender: "female", phone: "+1-555-0002",
   }).returning();
 

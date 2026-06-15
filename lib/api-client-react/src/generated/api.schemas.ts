@@ -188,6 +188,7 @@ export const PatientGender = {
 export interface Patient {
   id: number;
   mrn: string;
+  idCardNumber: string;
   fullName: string;
   fullNameAr?: string;
   dateOfBirth: string;
@@ -277,6 +278,8 @@ export const CreatePatientBodyGender = {
 } as const;
 
 export interface CreatePatientBody {
+  /** National ID / ID card number. Unique per clinic. */
+  idCardNumber: string;
   fullName: string;
   fullNameAr?: string;
   dateOfBirth: string;
@@ -297,6 +300,8 @@ export const UpdatePatientBodyGender = {
 } as const;
 
 export interface UpdatePatientBody {
+  /** National ID / ID card number. Unique per clinic. */
+  idCardNumber?: string;
   fullName?: string;
   fullNameAr?: string;
   dateOfBirth?: string;

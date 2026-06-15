@@ -22,7 +22,7 @@ $backendEnv = @{
 
 $frontendEnv = @{
     DATABASE_URL   = $env:DATABASE_URL
-    PORT           = "5173"
+    PORT           = "5174"
     BASE_PATH      = "/"
     NODE_ENV       = $env:NODE_ENV
     SESSION_SECRET = $env:SESSION_SECRET
@@ -40,7 +40,7 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "$pnpmRoot; $front
 Write-Host ""
 Write-Host "  MediCore starting..." -ForegroundColor Cyan
 Write-Host "  Backend  -> http://localhost:5000" -ForegroundColor Green
-Write-Host "  Frontend -> http://localhost:5173" -ForegroundColor Green
+Write-Host "  Frontend -> http://localhost:5174" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Two new PowerShell windows opened (one per server)." -ForegroundColor Gray
 Write-Host "  Close them to stop the servers." -ForegroundColor Gray

@@ -204,6 +204,13 @@
       "when": 1780782411353,
       "tag": "0028_audit_partition_append_only_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1781484081823,
+      "tag": "0029_complex_micromacro",
+      "breakpoints": true
     }
   ]
 }

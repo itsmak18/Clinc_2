@@ -83,11 +83,11 @@ export async function runInTenantContext<T>(
     // SET LOCAL scopes the GUC to this transaction only — when COMMIT/ROLLBACK
     // runs, the session reverts. Pool checkout/return therefore can't leak
     // tenant state to another request that gets the same connection.
-    // We embed values as identifier literals via sql.raw — these come from a
-    // verified JWT, not user input, so SQL-injection surface is zero. We still
-    // pass them through Postgres's `set_config(name, value, true)` form (the
-    // function-call equivalent of SET LOCAL) which accepts parameters; that
-    // avoids any string-interpolation question.
+    // Values are bound as parameters via Drizzle's tagged `sql` template
+    // (NOT sql.raw) — they come from a verified JWT, not user input, and are
+    // passed through Postgres's `set_config(name, value, true)` form (the
+    // function-call equivalent of SET LOCAL), which accepts bind parameters;
+    // there is no string interpolation, so the SQL-injection surface is zero.
     await tx.execute(sql`SELECT set_config('app.rls_enforce', 'on', true)`);
     await tx.execute(sql`SELECT set_config('app.clinic_id', ${String(user.clinicId)}, true)`);
     await tx.execute(sql`SELECT set_config('app.user_id', ${String(user.userId)}, true)`);

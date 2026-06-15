@@ -13,7 +13,8 @@ router.use("/xray", requireRole("super_admin", "admin", "doctor", "nurse", "xray
 
 router.get("/xray", asyncHandler(async (req: AuthRequest, res) => {
   const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-  res.json(await listXrays(req, { status, patientId, limit, cursor }));
+  const result = await listXrays(req, { status, patientId, limit, cursor });
+  res.json(result.data);
 }));
 
 router.post("/xray", validate(CreateXrayRecordBody), asyncHandler(async (req: AuthRequest, res) => {

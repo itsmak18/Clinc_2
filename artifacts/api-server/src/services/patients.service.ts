@@ -10,7 +10,7 @@ import { eq, isNull, ilike, or, and, sql, desc, lt, inArray } from "drizzle-orm"
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope } from "../lib/scope";
 import { encrypt, decrypt, encryptNullable, decryptNullable } from "../lib/field-encryption";
-import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
+import { NotFoundError, ForbiddenError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
 function decryptPatient<T extends { allergies?: string | null; emergencyContact?: string | null }>(p: T): T {
@@ -22,7 +22,10 @@ function decryptPatient<T extends { allergies?: string | null; emergencyContact?
 }
 
 async function generateMRN(): Promise<string> {
-  const [{ nextval }] = await db.execute(sql`SELECT nextval('mrn_seq') as nextval`) as any;
+  // db.execute (drizzle node-postgres) returns a pg QueryResult ({ rows, ... }),
+  // which is NOT array-iterable — read .rows, don't array-destructure the result.
+  const { rows } = await db.execute(sql`SELECT nextval('mrn_seq') as nextval`) as any;
+  const nextval = rows[0].nextval;
   const now = new Date();
   const ym = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   return `MRN-${ym}-${String(nextval).padStart(5, "0")}`;
@@ -87,6 +90,7 @@ export async function listPatients(
 export async function createPatient(
   req: AuthRequest,
   data: {
+    idCardNumber: string;
     fullName: string;
     fullNameAr?: string;
     dateOfBirth: string;
@@ -98,8 +102,8 @@ export async function createPatient(
     emergencyContact?: string;
   },
 ) {
-  if (!data.fullName || !data.dateOfBirth || !data.gender || !data.phone) {
-    throw new ValidationError("Missing required fields: fullName, dateOfBirth, gender, phone");
+  if (!data.idCardNumber || !data.fullName || !data.dateOfBirth || !data.gender || !data.phone) {
+    throw new ValidationError("Missing required fields: idCardNumber, fullName, dateOfBirth, gender, phone");
   }
   if (new Date(data.dateOfBirth) > new Date()) {
     throw new ValidationError("Date of birth cannot be in the future");
@@ -108,9 +112,20 @@ export async function createPatient(
     throw new ValidationError("Gender must be 'male' or 'female'");
   }
 
+  const idCardNumber = data.idCardNumber.trim();
+  // Pre-check the per-clinic unique ID card constraint so a duplicate returns a
+  // clear ConflictError instead of a raw 23505. The DB unique index
+  // (patient_clinic_idcard_uq) remains the authoritative backstop.
+  const [dup] = await db.select({ id: patientsTable.id }).from(patientsTable)
+    .where(and(eq(patientsTable.clinicId, req.user!.clinicId), eq(patientsTable.idCardNumber, idCardNumber)));
+  if (dup) {
+    throw new ConflictError("A patient with this ID card number already exists");
+  }
+
   const mrn = await generateMRN();
   const [patient] = await db.insert(patientsTable).values({
     mrn, ...data,
+    idCardNumber,
     clinicId: req.user!.clinicId,
     gender: data.gender as "male" | "female",
     allergies: encryptNullable(data.allergies ?? null),
@@ -154,13 +169,14 @@ export async function updatePatient(
     updateData = { fullName, fullNameAr, phone, address, emergencyContact, bloodType, allergies, dateOfBirth };
   } else {
     const {
-      fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, dateOfBirth,
+      idCardNumber, fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, dateOfBirth,
       insuranceProvider, insurancePolicyNum, insuranceMemberId, insuranceExpiry, insuranceGroupNum,
     } = body;
     if (insuranceExpiry && isNaN(new Date(insuranceExpiry).getTime())) {
       throw new ValidationError("Invalid insurance expiry date");
     }
     updateData = {
+      idCardNumber: typeof idCardNumber === "string" ? idCardNumber.trim() : undefined,
       fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, dateOfBirth,
       insuranceProvider, insurancePolicyNum, insuranceMemberId,
       insuranceExpiry: insuranceExpiry ? new Date(insuranceExpiry) : undefined,
@@ -170,6 +186,20 @@ export async function updatePatient(
 
   Object.keys(updateData).forEach(k => updateData[k] === undefined && delete updateData[k]);
   if (Object.keys(updateData).length === 0) throw new ValidationError("No valid fields to update");
+
+  // ID card number is unique per clinic — if it's being changed, reject a
+  // collision with another patient up front (DB unique index is the backstop).
+  if ("idCardNumber" in updateData) {
+    if (!updateData.idCardNumber) throw new ValidationError("ID card number cannot be empty");
+    const [dup] = await db.select({ id: patientsTable.id }).from(patientsTable)
+      .where(and(
+        eq(patientsTable.clinicId, req.user!.clinicId),
+        eq(patientsTable.idCardNumber, updateData.idCardNumber),
+      ));
+    if (dup && dup.id !== patientId) {
+      throw new ConflictError("A patient with this ID card number already exists");
+    }
+  }
 
   // Encrypt PHI fields before storing
   if ("allergies" in updateData) updateData.allergies = encryptNullable(updateData.allergies);

@@ -13,7 +13,8 @@ router.use("/ultrasound", requireRole("super_admin", "admin", "doctor", "nurse",
 
 router.get("/ultrasound", asyncHandler(async (req: AuthRequest, res) => {
   const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-  res.json(await listUltrasounds(req, { status, patientId, limit, cursor }));
+  const result = await listUltrasounds(req, { status, patientId, limit, cursor });
+  res.json(result.data);
 }));
 
 router.post("/ultrasound", validate(CreateUltrasoundRecordBody), asyncHandler(async (req: AuthRequest, res) => {

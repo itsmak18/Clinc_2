@@ -17,7 +17,8 @@ router.get("/medical-records",
   requireRole("super_admin", "admin", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
     const { patientId, doctorId, limit, cursor } = req.query as Record<string, string | undefined>;
-    res.json(await listMedicalRecords(req, { patientId, doctorId, limit, cursor }));
+    const result = await listMedicalRecords(req, { patientId, doctorId, limit, cursor });
+    res.json(result.data);
   }),
 );
 

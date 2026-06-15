@@ -60,11 +60,11 @@ beforeAll(async () => {
   }).returning();
 
   const [patientA] = await db.insert(patientsTable).values({
-    clinicId, mrn: "MRN-S-A", fullName: "Scope Patient A", dateOfBirth: "1990-01-01",
+    clinicId, mrn: "MRN-S-A", idCardNumber: "ID-S-A", fullName: "Scope Patient A", dateOfBirth: "1990-01-01",
     gender: "male", phone: "+1-555-1001",
   }).returning();
   const [patientB] = await db.insert(patientsTable).values({
-    clinicId, mrn: "MRN-S-B", fullName: "Scope Patient B", dateOfBirth: "1991-02-02",
+    clinicId, mrn: "MRN-S-B", idCardNumber: "ID-S-B", fullName: "Scope Patient B", dateOfBirth: "1991-02-02",
     gender: "female", phone: "+1-555-1002",
   }).returning();
 

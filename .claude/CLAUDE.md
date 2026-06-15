@@ -109,7 +109,7 @@ pnpm --filter @workspace/scripts run seed        # Truncates users, patients, ap
 
 # Run tests
 pnpm --filter @workspace/api-server run test     # Vitest unit + integration suite
-pnpm --filter @workspace/api-server run test:integration-db   # Real-Postgres suite (*.integration-db.test.ts) — 6 files / 54 tests
+pnpm --filter @workspace/api-server run test:integration-db   # Real-Postgres suite (*.integration-db.test.ts) — count via CI / vitest run
   # Default: spins up a postgres:16-alpine Testcontainer per file (needs Docker).
   # No Docker? Point it at a LOCAL Postgres superuser — the harness creates a
   # throwaway scratch DB per file, applies migrations, sets up medicore_app, and
@@ -121,7 +121,7 @@ pnpm --filter @workspace/api-server run test:integration-db   # Real-Postgres su
   # collection; and each file gets ONE process (config), so use ONE harness per file.
   # Assert DB-constraint rejections with expectDbReject() (matches PG error .cause),
   # not .rejects.toThrow(/check constraint/) (drizzle wraps the message).
-pnpm --filter @workspace/clinic run test         # Frontend Vitest suite (25 tests: route-access, i18n, Guard)
+pnpm --filter @workspace/clinic run test         # Frontend Vitest suite (route-access, i18n, Guard, XSS, CSRF — count via CI / vitest run)
 pnpm --filter @workspace/clinic run test:watch   # Frontend Vitest watch mode
 
 # Validate error codes (CI step — run before tests)
@@ -199,7 +199,7 @@ lib/api-zod/src/generated/            ← backend validates against
 - Global mutation rate limit: `ipRateLimit(100, 15 * 60 * 1000)` applied to all POST/PUT/PATCH/DELETE routes except `/auth/login` (which gets the stricter login-shield). Do not add redundant per-route rate limiters for normal mutations.
 
 **Database**
-- All tables use `serial` PKs and `createdAt`/`updatedAt` timestamps.
+- Most tables use `serial` integer PKs and `createdAt`/`updatedAt` timestamps. **Exceptions:** `clinic_notices` uses a `uuidV7` PK; `login_attempts` a `text` natural key; `clinic_invoice_counters` an `integer` (`clinic_id`) natural key; `doctor_patients` and `user_devices` use composite PKs. **New tables: prefer `uuid("id").$defaultFn(uuidV7).primaryKey()`** (see Feature Checklist).
 - Soft-delete via `deletedAt` column on most domain tables.
 - JSONB columns and their guard schemas (in `artifacts/api-server/src/lib/jsonb-schemas.ts`): `medical_records.vitals` → `vitalsSchema`; `prescriptions.medications` → `medicationsSchema`; `operations.staffAssigned` → `staffAssignedSchema` (default `[]`). `audit_logs.details` is intentionally unconstrained. **Never `db.insert` / `db.update` a JSONB column without `safeParse` against the matching schema** — services are the only callers, never bypass. `itemsSchema` (in `jsonb-schemas.ts`) is retained for input validation in `billing.service.ts` `createInvoice()` — the `invoices.items` JSONB column was dropped in migration `0005_charming_psynapse.sql`; `invoice_items` is now the sole source of truth for line-items.
 - `medical_records` — `isGlobal` and `globalReason` columns removed (migration `0011_clinic_notices.sql`). Clinic-wide advisories live in the separate `clinic_notices` table (`GET/POST/DELETE /clinic-notices`). `PATCH /medical-records/:id/global-flag` route removed.
@@ -250,7 +250,7 @@ lib/api-zod/src/generated/            ← backend validates against
 | Break-Glass Access | `break_glass_sessions` table. 15-min TTL. **Activate is gated to clinical roles** (`super_admin`, `admin`, `doctor`, `nurse` — front_desk / billing / pharmacy / lab / xray are not eligible). Request body requires both `justification` (≥30 chars) AND `reasonCategory` (enum: `life_threatening_emergency` \| `patient_unconscious` \| `code_blue_response` \| `covering_attending_unavailable` \| `regulatory_audit_request`). Immediate SSE alert to all same-clinic `compliance_officer` users; payload contains IDs + `reasonCategory` only (no PHI). Every PHI access during session logs `BREAK_GLASS_ACCESS`. Owner or compliance_officer can revoke early. Sessions, the patient lookup, and the officer fan-out are all clinic-scoped. **Clinical-PHI read bypass (F-P2-1, 2026-06-04):** an active session lets the activating doctor READ the patient's 5 doctor-bound clinical tables — enforced at the DB layer by migration 0024's `app.break_glass_patient_ids` clause on the `doctor_scope` RLS policy (read-only; `WITH CHECK` unchanged). Wired via `getActiveBreakGlassPatientIds()` → `runInTenantContext(..., { breakGlassPatientIds })`; see Doctor Scope Rule. |
 | Right-to-Erasure | `erasure_requests` table. Three-step: request → approve → execute (super_admin only). Execution anonymizes PHI across **all** clinical tables in one transaction (F-P3-1, 2026-06-04): patients demographics, medical_records (incl. encrypted diagnosis/vitals + Arabic fields), prescriptions (`medications` ciphertext → `[ERASED]` + soft-delete), lab_tests / xray_records / ultrasound_records (results/report/imageUrl/notes nulled + soft-delete), appointments (reason → `[ERASED]`, notes/cancellationReason nulled). `erasedCounts` in the `ERASURE_EXECUTED` audit is derived from rows actually scrubbed. Irreversible (ADR-005). When adding a new PHI-bearing table, extend `executeErasure`. |
 | SSE Payloads | IDs only — no PHI |
-| CORS | Dev: `localhost:*` + `127.0.0.1:*`. Prod: `REPLIT_DOMAINS` + optional `ALLOWED_ORIGINS` env var. No-origin requests (curl/Postman) are allowed through — CORS is not a CSRF substitute. |
+| CORS | Dev: `localhost:*` + `127.0.0.1:*`. Prod: `ALLOWED_ORIGINS` env var only (parsed once into `policy.ts` `ALLOWED_ORIGINS_SET`; `REPLIT_DOMAINS` was removed). No-origin requests (curl/Postman) are allowed through — CORS is not a CSRF substitute. |
 | Error Handling | No stack traces in 5xx responses (production). Canonical error envelope: `{ success, error_code, error_name, session_state, message, request_id, timestamp }` — 20 stable codes in `src/errors.ts`. 404 + global 5xx emit the envelope via `middlewares/envelope.ts`; domain errors via `middlewares/asyncHandler.ts`. The 2 raw shapes in `routes/auth.ts` (429/401 with `retryAfterSecs` / `attemptsRemaining`) are intentional. |
 
 ---
@@ -322,8 +322,7 @@ REVOCATION_READ_GRACE_MS=30000 # ADR-010: read-scope revocation bounded fail-ope
                               #   Reads degrade only within this window of last healthy
                               #   store contact; sustained outage fails closed. 0 = always
                               #   fail closed. write/privileged always fail closed.
-REPLIT_DOMAINS=               # comma-separated Replit host domains for CORS + allowed origins
-ALLOWED_ORIGINS=              # optional comma-separated additional CORS origins (e.g. https://myapp.example.com)
+ALLOWED_ORIGINS=              # comma-separated CORS origins for production (e.g. https://medicore.example.com). Sole CORS origin source — REPLIT_DOMAINS removed.
 FINGERPRINT_BINDING=          # set to "disabled" to bypass fph fingerprint checks (emergency lever only — RUNBOOK §5)
 FIELD_ENCRYPTION_KEY=         # 64 hex chars (32 bytes) for AES-256-GCM PHI field encryption — kid="1"
   # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -402,7 +401,7 @@ Priority: **Correctness → Security → Performance → Maintainability → DX*
 - Rate limiter (login IP layer): 20 req / 15 min per IP in `middlewares/login-shield.ts`. Stacks with the DB-backed limiter.
 - Rate limiter (global mutations): 100 req / 15 min per IP applied in `app.ts` to all non-login mutations.
 - Password migration: legacy HMAC-SHA256 hashes auto-migrate to bcrypt on successful login — `password.ts` handles both paths. Do not add new HMAC logic.
-- Supply chain: pnpm `minimumReleaseAge: 1440` (1 day) enforced for all packages except `@replit/*`.
+- Supply chain: pnpm `minimumReleaseAge: 1440` (1 day) enforced for all packages — `minimumReleaseAgeExclude: []` in `pnpm-workspace.yaml` (no packages currently excluded).
 - Only `pnpm` allowed — `preinstall` script rejects npm/yarn.
 
 ---

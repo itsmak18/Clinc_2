@@ -2709,6 +2709,8 @@ components:
           type: integer
         mrn:
           type: string
+        idCardNumber:
+          type: string
         fullName:
           type: string
         fullNameAr:
@@ -2738,7 +2740,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, mrn, fullName, dateOfBirth, gender, phone, isActive, createdAt]
+      required: [id, mrn, idCardNumber, fullName, dateOfBirth, gender, phone, isActive, createdAt]
 
     PaginatedPatients:
       type: object
@@ -2769,6 +2771,9 @@ components:
     CreatePatientBody:
       type: object
       properties:
+        idCardNumber:
+          type: string
+          description: National ID / ID card number. Unique per clinic.
         fullName:
           type: string
         fullNameAr:
@@ -2789,11 +2794,14 @@ components:
           type: string
         emergencyContact:
           type: string
-      required: [fullName, dateOfBirth, gender, phone]
+      required: [idCardNumber, fullName, dateOfBirth, gender, phone]
 
     UpdatePatientBody:
       type: object
       properties:
+        idCardNumber:
+          type: string
+          description: National ID / ID card number. Unique per clinic.
         fullName:
           type: string
         fullNameAr:
