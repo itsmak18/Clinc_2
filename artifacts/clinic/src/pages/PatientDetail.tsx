@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatDateTime, formatCurrency, calcAge } from "@/lib/api";
 import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, AlertTriangle, Activity, Edit2, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BLOOD_TYPES } from "@/lib/constants";
 
 export default function PatientDetail() {
   const { t } = useI18n();
@@ -83,13 +84,25 @@ export default function PatientDetail() {
         toast({ title: t("patientUpdated") });
       },
       onError: (err: any) => {
-        const msg = err.response?.data?.error || t("failed");
-        toast({ title: msg, variant: "destructive" });
+        // ApiError (custom-fetch) carries the canonical envelope on `err.data`,
+        // with the human reason in `message` — NOT `err.response.data.error`
+        // (that path never matched, so every failure showed a bare "Failed").
+        const msg = err?.data?.message ?? err?.message ?? t("failed");
+        toast({ title: t("failed"), description: msg, variant: "destructive" });
       }
     }
   });
 
   const handleUpdate = () => {
+    const missing = [
+      !form.fullName.trim() && `${t("name")} (EN)`,
+      !form.dateOfBirth && t("dateOfBirth"),
+      !form.phone.trim() && t("phone"),
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      toast({ title: t("fillRequiredFields"), description: missing.join("، "), variant: "destructive" });
+      return;
+    }
     updateMutation.mutate({ patientId, data: form as any });
   };
 
@@ -355,7 +368,13 @@ export default function PatientDetail() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">{t("bloodType")}</Label>
-                    <Input value={form.bloodType} onChange={e => setForm(f => ({ ...f, bloodType: e.target.value }))} />
+                    <Select value={form.bloodType} onValueChange={v => setForm(f => ({ ...f, bloodType: v === "none" ? "" : v }))}>
+                      <SelectTrigger data-testid="select-blood-type"><SelectValue placeholder={t("selectBloodType")} /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{t("notSpecified")}</SelectItem>
+                        {BLOOD_TYPES.map(bt => <SelectItem key={bt} value={bt}>{bt}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">{t("emergencyContact")}</Label>

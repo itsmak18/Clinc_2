@@ -93,6 +93,22 @@ describe("CSRF (write scope, mutation methods)", () => {
     if (!d.ok) expect(d.error.code).toBe(1020);
   });
 
+  it("dev: accepts a localhost Origin on any port (e.g. :5174) — not 1020", async () => {
+    // Regression: the dev origin allowlist hardcoded :5173, so the Vite dev
+    // server landing on :5174 was rejected with AUTH_CSRF_ORIGIN (1020). Dev now
+    // trusts any localhost / 127.0.0.1 port (matches the documented dev CORS
+    // policy). makeReq's default _csrf cookie matches the x-csrf-token below.
+    goodJwt();
+    const d = await evaluate(
+      makeReq({
+        method: "POST",
+        headers: { origin: "http://localhost:5174", "x-csrf-token": "csrfval" },
+      }),
+      "write",
+    );
+    expect(d.ok).toBe(true);
+  });
+
   it("rejects missing CSRF token/cookie → code 1021", async () => {
     const d = await evaluate(
       makeReq({ method: "POST", headers: {}, cookies: { clinic_token: "tok" } }),

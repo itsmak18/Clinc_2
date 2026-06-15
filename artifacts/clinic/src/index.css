@@ -464,6 +464,17 @@ textarea:focus-visible,
   border-radius: var(--r-sm);
 }
 
+/* cmdk search inputs (combobox / command palette) are auto-focused the moment
+   their popover opens and already sit inside a bordered panel with a border-b
+   separator, so the global teal focus ring just boxes them awkwardly. Suppress
+   it here. Higher specificity than `input:focus-visible` and also unlayered, so
+   it wins the cascade. */
+[cmdk-input]:focus-visible {
+  outline: none;
+  outline-offset: 0;
+  border-radius: 0;
+}
+
 .btn-primary { background: var(--teal-600); border-color: var(--teal-600); color: #fff; }
 .btn-primary:hover { background: var(--teal-700); border-color: var(--teal-700); }
 

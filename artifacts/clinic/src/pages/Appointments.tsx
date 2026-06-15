@@ -14,6 +14,7 @@ import StatusBadge from "@/components/StatusBadge";
 import DischargeSheet from "@/components/DischargeSheet";
 import DayScheduleView from "@/components/DayScheduleView";
 import GlobalSearch from "@/components/GlobalSearch";
+import SearchSelect from "@/components/SearchSelect";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -83,7 +84,7 @@ export default function Appointments() {
         setForm({ patientId: "", doctorId: "", scheduledAt: "", reason: "", notes: "", bookingSource: "walk_in" });
         toast({ title: t("appointmentCreated") });
       },
-      onError: () => toast({ title: t("appointmentCreateFailed"), variant: "destructive" }),
+      onError: (error: any) => toast({ title: t("appointmentCreateFailed"), description: error?.data?.message ?? error?.message, variant: "destructive" }),
     },
   });
 
@@ -310,21 +311,34 @@ export default function Appointments() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("patient")} *</Label>
-              <Select value={form.patientId} onValueChange={v => setForm(f => ({ ...f, patientId: v }))}>
-                <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
-                <SelectContent>
-                  {patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName} ({p.mrn})</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                data-testid="select-patient"
+                value={form.patientId}
+                onChange={v => setForm(f => ({ ...f, patientId: v }))}
+                placeholder={t("selectPatient")}
+                searchPlaceholder={t("searchPatient")}
+                emptyText={t("noPatientsFound")}
+                options={(patients?.patients ?? []).map(p => ({
+                  value: String(p.id),
+                  // Searchable by name, MRN, AND ID card number; displayed as
+                  // "Name (MRN)" — the ID card (sensitive national ID) is a search
+                  // key only, not shown in the list (PII minimization).
+                  label: `${p.fullName} (${p.mrn})`,
+                  search: `${p.fullName} ${p.mrn} ${p.idCardNumber}`,
+                }))}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t("doctorLabel")} *</Label>
-              <Select value={form.doctorId} onValueChange={v => setForm(f => ({ ...f, doctorId: v }))}>
-                <SelectTrigger data-testid="select-doctor"><SelectValue placeholder={t("selectDoctor")} /></SelectTrigger>
-                <SelectContent>
-                  {users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.fullName}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <SearchSelect
+                data-testid="select-doctor"
+                value={form.doctorId}
+                onChange={v => setForm(f => ({ ...f, doctorId: v }))}
+                placeholder={t("selectDoctor")}
+                searchPlaceholder={t("searchDoctor")}
+                emptyText={t("noDoctorsFound")}
+                options={(users ?? []).map(u => ({ value: String(u.id), label: u.fullName }))}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t("scheduledAt")} *</Label>
@@ -355,7 +369,27 @@ export default function Appointments() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), scheduledAt: new Date(form.scheduledAt).toISOString() } as any })}
+                onClick={() => {
+                  // Validate before building the payload — `new Date("").toISOString()`
+                  // throws synchronously, which previously made Save silently do
+                  // nothing when Scheduled At was empty.
+                  const missing = [
+                    !form.patientId && t("patient"),
+                    !form.doctorId && t("doctorLabel"),
+                    !form.scheduledAt && t("scheduledAt"),
+                    !form.reason.trim() && t("reason"),
+                  ].filter(Boolean);
+                  if (missing.length > 0) {
+                    toast({ title: t("fillRequiredFields"), description: missing.join("، "), variant: "destructive" });
+                    return;
+                  }
+                  const scheduled = new Date(form.scheduledAt);
+                  if (isNaN(scheduled.getTime())) {
+                    toast({ title: t("fillRequiredFields"), description: t("scheduledAt"), variant: "destructive" });
+                    return;
+                  }
+                  createMutation.mutate({ data: { ...form, patientId: parseInt(form.patientId), doctorId: parseInt(form.doctorId), scheduledAt: scheduled.toISOString() } as any });
+                }}
                 disabled={createMutation.isPending}
                 data-testid="button-save-appointment"
               >
