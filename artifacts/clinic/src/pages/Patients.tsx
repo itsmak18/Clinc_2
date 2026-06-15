@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/auth";
 import { formatDate } from "@/lib/api";
 import { Plus, Search, Scan, Download } from "lucide-react";
 import { calcAge, exportToCSV } from "@/lib/api";
+import { BLOOD_TYPES } from "@/lib/constants";
 
 export default function Patients() {
   const { t } = useI18n();
@@ -261,7 +262,13 @@ export default function Patients() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("bloodType")}</Label>
-                <Input value={form.bloodType} onChange={e => setForm(f => ({ ...f, bloodType: e.target.value }))} placeholder="A+, B-, O+..." />
+                <Select value={form.bloodType} onValueChange={v => setForm(f => ({ ...f, bloodType: v === "none" ? "" : v }))}>
+                  <SelectTrigger data-testid="select-blood-type"><SelectValue placeholder={t("selectBloodType")} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">{t("notSpecified")}</SelectItem>
+                    {BLOOD_TYPES.map(bt => <SelectItem key={bt} value={bt}>{bt}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-1">
@@ -280,8 +287,23 @@ export default function Patients() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: form as any })}
-                disabled={createMutation.isPending || !form.idCardNumber.trim() || !form.fullName.trim() || !form.dateOfBirth || !form.phone.trim()}
+                onClick={() => {
+                  // Keep the button live so a click always gives feedback — a
+                  // disabled button silently swallows the click ("nothing
+                  // happens"). Name the missing required fields instead.
+                  const missing = [
+                    !form.idCardNumber.trim() && `${t("idCardNumber")}`,
+                    !form.fullName.trim() && `${t("name")} (EN)`,
+                    !form.dateOfBirth && t("dateOfBirth"),
+                    !form.phone.trim() && t("phone"),
+                  ].filter(Boolean);
+                  if (missing.length > 0) {
+                    toast({ title: t("fillRequiredFields"), description: missing.join("، "), variant: "destructive" });
+                    return;
+                  }
+                  createMutation.mutate({ data: form as any });
+                }}
+                disabled={createMutation.isPending}
                 data-testid="button-save-patient"
               >
                 {createMutation.isPending ? t("loading") : t("save")}

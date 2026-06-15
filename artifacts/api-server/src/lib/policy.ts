@@ -94,6 +94,18 @@ let lastRevocationStoreOkAt = 0;
 function originAllowed(origin: string): boolean {
   try {
     const { protocol, hostname, port } = new URL(origin);
+    // Dev: accept ANY localhost / 127.0.0.1 port. The Vite dev server can land on
+    // 5173, 5174, … (e.g. when a port is already taken), and hardcoding 5173
+    // rejected those with AUTH_CSRF_ORIGIN_REJECTED. Matches the documented dev
+    // CORS policy (localhost:* / 127.0.0.1:*). Production is unaffected — it only
+    // trusts ALLOWED_ORIGINS.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      (protocol === "http:" || protocol === "https:") &&
+      (hostname === "localhost" || hostname === "127.0.0.1")
+    ) {
+      return true;
+    }
     return ALLOWED_ORIGINS_SET.some(o => {
       try {
         const a = new URL(o);

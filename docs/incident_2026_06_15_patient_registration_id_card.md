@@ -129,7 +129,8 @@ Required, plaintext, per-clinic-unique `id_card_number`:
 | Task | Priority | Status |
 |---|---|---|
 | Add a real-DB integration test for `createPatient` (would have caught the `generateMRN` 500) | High | **Done** — `registration.integration-db.test.ts` (3 tests green) |
-| Move `mrn_seq` (+ `invoice_seq`) creation into a migration — prod has no seed, so a fresh prod DB lacks the sequence and the first registration would 500 | High | Open (latent; app undeployed) |
+| Move `mrn_seq` (+ `invoice_seq`) creation into a migration — prod has no seed, so a fresh prod DB lacks the sequence and the first registration would 500 | High | **Done** — migration 0030 (`pgSequence` in schema/sequences.ts; integration test now proves fresh-DB path) |
+| Surface the canonical envelope `message` in the registration `onError` toast | Medium | **Done** — toast description = `error.data.message` |
 | Restart/rebuild the Vite frontend so the ID-card field ships (`:5173` was down) | High | Owner action |
 | Rework 0029 as nullable→backfill→NOT NULL for any populated env | High | Open (dev OK) |
 | Surface server `error_code`/`message` in the registration `onError` toast | Medium | Open |

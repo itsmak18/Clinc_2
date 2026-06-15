@@ -731,7 +731,7 @@ export const updateUser = async (
 ): Promise<User> => {
   return customFetch<User>(getUpdateUserUrl(userId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateUserBody),
   });
@@ -1415,7 +1415,7 @@ export const updatePatient = async (
 ): Promise<Patient> => {
   return customFetch<Patient>(getUpdatePatientUrl(patientId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updatePatientBody),
   });
@@ -1946,7 +1946,7 @@ export const updateAppointment = async (
 ): Promise<Appointment> => {
   return customFetch<Appointment>(getUpdateAppointmentUrl(appointmentId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateAppointmentBody),
   });
@@ -3221,7 +3221,7 @@ export const updateMedicalRecord = async (
 ): Promise<MedicalRecord> => {
   return customFetch<MedicalRecord>(getUpdateMedicalRecordUrl(recordId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateMedicalRecordBody),
   });
@@ -4113,7 +4113,7 @@ export const updateXrayRecord = async (
 ): Promise<XrayRecord> => {
   return customFetch<XrayRecord>(getUpdateXrayRecordUrl(xrayId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateXrayBody),
   });
@@ -4838,7 +4838,7 @@ export const updateLabTest = async (
 ): Promise<LabTest> => {
   return customFetch<LabTest>(getUpdateLabTestUrl(testId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateLabTestBody),
   });
@@ -5192,7 +5192,7 @@ export const updateInvoice = async (
 ): Promise<Invoice> => {
   return customFetch<Invoice>(getUpdateInvoiceUrl(invoiceId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateInvoiceBody),
   });
@@ -5737,7 +5737,7 @@ export const updateOperation = async (
 ): Promise<Operation> => {
   return customFetch<Operation>(getUpdateOperationUrl(operationId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateOperationBody),
   });
@@ -6095,7 +6095,7 @@ export const updateInventoryItem = async (
 ): Promise<InventoryItem> => {
   return customFetch<InventoryItem>(getUpdateInventoryItemUrl(itemId), {
     ...options,
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(updateInventoryItemBody),
   });

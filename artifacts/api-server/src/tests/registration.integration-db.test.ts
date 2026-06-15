@@ -15,7 +15,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { sql } from "drizzle-orm";
 
 import type { RealDbHarness } from "./_helpers/realDb";
 import { startRealDb } from "./_helpers/realDb";
@@ -32,11 +31,11 @@ beforeAll(async () => {
   const { seedCrossTenant } = await import("./_helpers/seedCrossTenant");
   seed = await seedCrossTenant(harness.db);
 
-  // mrn_seq is created by the seed script, NOT by a migration — the harness only
-  // applies migrations, so create it here (as the superuser harness.db; the
-  // provision-time ALTER DEFAULT PRIVILEGES grants medicore_app USAGE on it, so
-  // generateMRN's nextval() works when the service runs as medicore_app).
-  await (harness.db as any).execute(sql`CREATE SEQUENCE IF NOT EXISTS mrn_seq START WITH 1001`);
+  // NOTE: mrn_seq is intentionally NOT created here. Migration 0030 creates it
+  // (and invoice_seq), and the harness applies every migration — so this test
+  // also proves the prod path: a freshly-migrated, UNSEEDED DB can register a
+  // patient. Before 0030, mrn_seq existed only via the dev seed, so this would
+  // have failed with `relation "mrn_seq" does not exist`.
 
   ({ default: app } = await import("../app"));
   ({ signToken } = await import("../lib/auth"));

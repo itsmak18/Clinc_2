@@ -186,7 +186,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
-    put:
+    patch:
       operationId: updateUser
       tags: [users]
       summary: Update user
@@ -346,7 +346,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Patient"
-    put:
+    patch:
       operationId: updatePatient
       tags: [patients]
       summary: Update patient info
@@ -480,7 +480,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Appointment"
-    put:
+    patch:
       operationId: updateAppointment
       tags: [appointments]
       summary: Update appointment
@@ -755,7 +755,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MedicalRecord"
-    put:
+    patch:
       operationId: updateMedicalRecord
       tags: [medical-records]
       summary: Update medical record
@@ -957,7 +957,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/XrayRecord"
-    put:
+    patch:
       operationId: updateXrayRecord
       tags: [xray]
       summary: Update X-ray record (add report)
@@ -1127,7 +1127,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LabTest"
-    put:
+    patch:
       operationId: updateLabTest
       tags: [lab]
       summary: Update lab test (enter results)
@@ -1222,7 +1222,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
-    put:
+    patch:
       operationId: updateInvoice
       tags: [billing]
       summary: Update invoice
@@ -1357,7 +1357,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Operation"
-    put:
+    patch:
       operationId: updateOperation
       tags: [operations]
       summary: Update operation
@@ -1445,7 +1445,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InventoryItem"
-    put:
+    patch:
       operationId: updateInventoryItem
       tags: [inventory]
       summary: Update inventory item
