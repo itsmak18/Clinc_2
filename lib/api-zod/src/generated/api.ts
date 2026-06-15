@@ -305,6 +305,7 @@ export const ListPatientsResponse = zod.object({
     zod.object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -326,6 +327,9 @@ export const ListPatientsResponse = zod.object({
  * @summary Register a new patient and assign MRN
  */
 export const CreatePatientBody = zod.object({
+  idCardNumber: zod
+    .string()
+    .describe("National ID \/ ID card number. Unique per clinic."),
   fullName: zod.string(),
   fullNameAr: zod.string().optional(),
   dateOfBirth: zod.coerce.date(),
@@ -347,6 +351,7 @@ export const GetPatientParams = zod.object({
 export const GetPatientResponse = zod.object({
   id: zod.number(),
   mrn: zod.string(),
+  idCardNumber: zod.string(),
   fullName: zod.string(),
   fullNameAr: zod.string().optional(),
   dateOfBirth: zod.coerce.date(),
@@ -368,6 +373,10 @@ export const UpdatePatientParams = zod.object({
 });
 
 export const UpdatePatientBody = zod.object({
+  idCardNumber: zod
+    .string()
+    .optional()
+    .describe("National ID \/ ID card number. Unique per clinic."),
   fullName: zod.string().optional(),
   fullNameAr: zod.string().optional(),
   dateOfBirth: zod.coerce.date().optional(),
@@ -382,6 +391,7 @@ export const UpdatePatientBody = zod.object({
 export const UpdatePatientResponse = zod.object({
   id: zod.number(),
   mrn: zod.string(),
+  idCardNumber: zod.string(),
   fullName: zod.string(),
   fullNameAr: zod.string().optional(),
   dateOfBirth: zod.coerce.date(),
@@ -413,6 +423,7 @@ export const GetPatientSummaryResponse = zod.object({
   patient: zod.object({
     id: zod.number(),
     mrn: zod.string(),
+    idCardNumber: zod.string(),
     fullName: zod.string(),
     fullNameAr: zod.string().optional(),
     dateOfBirth: zod.coerce.date(),
@@ -434,6 +445,7 @@ export const GetPatientSummaryResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -504,6 +516,7 @@ export const GetPatientSummaryResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -569,6 +582,7 @@ export const GetPatientSummaryResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -626,6 +640,7 @@ export const GetPatientSummaryResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -717,6 +732,7 @@ export const ListAppointmentsResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -807,6 +823,7 @@ export const GetAppointmentResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -907,6 +924,7 @@ export const UpdateAppointmentResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -989,6 +1007,7 @@ export const CheckInPatientResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1065,6 +1084,7 @@ export const GetAppointmentDischargeResponse = zod.object({
       .object({
         id: zod.number(),
         mrn: zod.string(),
+        idCardNumber: zod.string(),
         fullName: zod.string(),
         fullNameAr: zod.string().optional(),
         dateOfBirth: zod.coerce.date(),
@@ -1127,6 +1147,7 @@ export const GetAppointmentDischargeResponse = zod.object({
   patient: zod.object({
     id: zod.number(),
     mrn: zod.string(),
+    idCardNumber: zod.string(),
     fullName: zod.string(),
     fullNameAr: zod.string().optional(),
     dateOfBirth: zod.coerce.date(),
@@ -1149,6 +1170,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1214,6 +1236,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1273,6 +1296,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1328,6 +1352,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1385,6 +1410,7 @@ export const GetAppointmentDischargeResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1455,6 +1481,7 @@ export const GetTodayAppointmentsResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -1537,6 +1564,7 @@ export const StartTriageResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1612,6 +1640,7 @@ export const MarkPatientReadyResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1687,6 +1716,7 @@ export const StartConsultationResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1762,6 +1792,7 @@ export const RequestDiagnosticsResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1837,6 +1868,7 @@ export const PendingPaymentResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1912,6 +1944,7 @@ export const CompleteAppointmentResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -1989,6 +2022,7 @@ export const ListMedicalRecordsResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2089,6 +2123,7 @@ export const GetMedicalRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2180,6 +2215,7 @@ export const UpdateMedicalRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2303,6 +2339,7 @@ export const ListPrescriptionsResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2391,6 +2428,7 @@ export const GetPrescriptionResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2457,6 +2495,7 @@ export const ListXrayImagesResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2533,6 +2572,7 @@ export const GetXrayRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2608,6 +2648,7 @@ export const UpdateXrayRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2672,6 +2713,7 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2752,6 +2794,7 @@ export const GetUltrasoundRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2828,6 +2871,7 @@ export const UpdateUltrasoundRecordResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2895,6 +2939,7 @@ export const ListLabTestsResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -2969,6 +3014,7 @@ export const GetLabTestResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3041,6 +3087,7 @@ export const UpdateLabTestResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3105,6 +3152,7 @@ export const ListInvoicesResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3168,6 +3216,7 @@ export const GetInvoiceResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3229,6 +3278,7 @@ export const UpdateInvoiceResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3279,6 +3329,7 @@ export const PayInvoiceResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3332,6 +3383,7 @@ export const GetDailyBillingSummaryResponse = zod.object({
         .object({
           id: zod.number(),
           mrn: zod.string(),
+          idCardNumber: zod.string(),
           fullName: zod.string(),
           fullNameAr: zod.string().optional(),
           dateOfBirth: zod.coerce.date(),
@@ -3383,6 +3435,7 @@ export const ListOperationsResponseItem = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3456,6 +3509,7 @@ export const GetOperationResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),
@@ -3526,6 +3580,7 @@ export const UpdateOperationResponse = zod.object({
     .object({
       id: zod.number(),
       mrn: zod.string(),
+      idCardNumber: zod.string(),
       fullName: zod.string(),
       fullNameAr: zod.string().optional(),
       dateOfBirth: zod.coerce.date(),

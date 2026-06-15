@@ -58,11 +58,11 @@ beforeAll(async () => {
   // One patient per clinic. These INSERTs happen with RLS dormant (no tenant
   // context), so both succeed regardless of clinic.
   await db.insert(patientsTable).values({
-    clinicId: clinicAId, mrn: "MRN-RLS-A", fullName: "RLS Patient A",
+    clinicId: clinicAId, mrn: "MRN-RLS-A", idCardNumber: "ID-RLS-A", fullName: "RLS Patient A",
     dateOfBirth: "1990-01-01", gender: "male", phone: "+1-555-2001",
   });
   await db.insert(patientsTable).values({
-    clinicId: clinicBId, mrn: "MRN-RLS-B", fullName: "RLS Patient B",
+    clinicId: clinicBId, mrn: "MRN-RLS-B", idCardNumber: "ID-RLS-B", fullName: "RLS Patient B",
     dateOfBirth: "1991-02-02", gender: "female", phone: "+1-555-2002",
   });
 
@@ -147,7 +147,7 @@ describe("Row Level Security — active inside runInTenantContext", () => {
       runInTenantContext(
         { userId: 1, clinicId: clinicAId, role: "super_admin" },
         async (tx) => tx.insert(patientsTable).values({
-          clinicId: clinicBId, mrn: "MRN-RLS-CROSS", fullName: "Cross Write",
+          clinicId: clinicBId, mrn: "MRN-RLS-CROSS", idCardNumber: "ID-RLS-CROSS", fullName: "Cross Write",
           dateOfBirth: "1990-01-01", gender: "male", phone: "+1-555-3000",
         }),
       ),

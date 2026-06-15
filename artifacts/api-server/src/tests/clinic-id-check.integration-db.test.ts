@@ -40,7 +40,7 @@ describe("clinic_id CHECK constraint (real Postgres)", () => {
   it("rejects INSERT into patients with clinic_id = 0", async () => {
     await expectDbReject(
       (harness.db as any).insert(patientsTable).values({
-        clinicId: 0, mrn: "MRN-CHK-0", fullName: "Check 0", dateOfBirth: "1990-01-01",
+        clinicId: 0, mrn: "MRN-CHK-0", idCardNumber: "ID-CHK-0", fullName: "Check 0", dateOfBirth: "1990-01-01",
         gender: "male", phone: "+1-555-9000",
       }),
       /patients_clinic_id_positive|check constraint/i,
@@ -50,7 +50,7 @@ describe("clinic_id CHECK constraint (real Postgres)", () => {
   it("rejects INSERT into patients with clinic_id = -1", async () => {
     await expectDbReject(
       (harness.db as any).insert(patientsTable).values({
-        clinicId: -1, mrn: "MRN-CHK-NEG", fullName: "Check Neg", dateOfBirth: "1990-01-01",
+        clinicId: -1, mrn: "MRN-CHK-NEG", idCardNumber: "ID-CHK-NEG", fullName: "Check Neg", dateOfBirth: "1990-01-01",
         gender: "male", phone: "+1-555-9001",
       }),
       /patients_clinic_id_positive|check constraint/i,
@@ -60,7 +60,7 @@ describe("clinic_id CHECK constraint (real Postgres)", () => {
   it("accepts INSERT into patients with clinic_id = 1 (positive)", async () => {
     // clinic id 1 is seeded by migration 0000.
     const [row] = await (harness.db as any).insert(patientsTable).values({
-      clinicId: 1, mrn: "MRN-CHK-POS", fullName: "Check Pos", dateOfBirth: "1990-01-01",
+      clinicId: 1, mrn: "MRN-CHK-POS", idCardNumber: "ID-CHK-POS", fullName: "Check Pos", dateOfBirth: "1990-01-01",
       gender: "male", phone: "+1-555-9002",
     }).returning();
     expect(row.clinicId).toBe(1);
@@ -114,7 +114,7 @@ describe("clinic_id has no DEFAULT after migration 0027 (real Postgres)", () => 
     // to catch at runtime, so we deliberately bypass the compile-time guard here.
     await expectDbReject(
       (harness.db as any).insert(patientsTable).values({
-        mrn: "MRN-NODEF-1", fullName: "No Default", dateOfBirth: "1990-01-01",
+        mrn: "MRN-NODEF-1", idCardNumber: "ID-NODEF-1", fullName: "No Default", dateOfBirth: "1990-01-01",
         gender: "male", phone: "+1-555-9100",
       }),
       /null value in column "clinic_id"|not-null|23502/i,

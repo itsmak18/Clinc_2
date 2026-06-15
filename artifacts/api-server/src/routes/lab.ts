@@ -13,7 +13,8 @@ router.use("/lab", requireRole("super_admin", "admin", "doctor", "nurse", "lab_s
 
 router.get("/lab/tests", asyncHandler(async (req: AuthRequest, res) => {
   const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-  res.json(await listLabTests(req, { status, patientId, limit, cursor }));
+  const result = await listLabTests(req, { status, patientId, limit, cursor });
+  res.json(result.data);
 }));
 
 router.post("/lab/tests",

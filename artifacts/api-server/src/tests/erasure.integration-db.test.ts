@@ -55,7 +55,7 @@ beforeAll(async () => {
   }).returning({ id: t.usersTable.id });
 
   [{ id: patientId }] = await db.insert(t.patientsTable).values({
-    clinicId, mrn: "MRN-ERASE", fullName: "Erase Me", dateOfBirth: "1980-05-05",
+    clinicId, mrn: "MRN-ERASE", idCardNumber: "ID-ERASE", fullName: "Erase Me", dateOfBirth: "1980-05-05",
     gender: "male", phone: "+1-555-9999", allergies: "penicillin",
   }).returning({ id: t.patientsTable.id });
 

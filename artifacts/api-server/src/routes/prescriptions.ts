@@ -23,7 +23,8 @@ router.get(
   requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
     const { patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-    res.json(await listPrescriptions(req, { patientId, limit, cursor }));
+    const result = await listPrescriptions(req, { patientId, limit, cursor });
+    res.json(result.data);
   }),
 );
 

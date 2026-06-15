@@ -70,9 +70,9 @@ async function seed() {
   console.log("Creating patients...");
   const today = new Date();
   const [p1, p2, p3] = await db.insert(patientsTable).values([
-    { clinicId, mrn: "MRN001001", fullName: "Mohammed Al-Qahtani", fullNameAr: "محمد القحطاني", dateOfBirth: "1985-03-15", gender: "male", phone: "+966501112233", bloodType: "O+", address: "Riyadh, Saudi Arabia", allergies: "Penicillin" },
-    { clinicId, mrn: "MRN001002", fullName: "Hessa Al-Otaibi", fullNameAr: "حصة العتيبي", dateOfBirth: "1992-07-22", gender: "female", phone: "+966502223344", bloodType: "A-", address: "Jeddah, Saudi Arabia" },
-    { clinicId, mrn: "MRN001003", fullName: "Abdullah Al-Harbi", fullNameAr: "عبدالله الحربي", dateOfBirth: "1978-11-05", gender: "male", phone: "+966503334455", bloodType: "B+", address: "Dammam, Saudi Arabia", allergies: "Sulfa drugs" },
+    { clinicId, mrn: "MRN001001", idCardNumber: "1012345678", fullName: "Mohammed Al-Qahtani", fullNameAr: "محمد القحطاني", dateOfBirth: "1985-03-15", gender: "male", phone: "+966501112233", bloodType: "O+", address: "Riyadh, Saudi Arabia", allergies: "Penicillin" },
+    { clinicId, mrn: "MRN001002", idCardNumber: "2023456789", fullName: "Hessa Al-Otaibi", fullNameAr: "حصة العتيبي", dateOfBirth: "1992-07-22", gender: "female", phone: "+966502223344", bloodType: "A-", address: "Jeddah, Saudi Arabia" },
+    { clinicId, mrn: "MRN001003", idCardNumber: "1034567890", fullName: "Abdullah Al-Harbi", fullNameAr: "عبدالله الحربي", dateOfBirth: "1978-11-05", gender: "male", phone: "+966503334455", bloodType: "B+", address: "Dammam, Saudi Arabia", allergies: "Sulfa drugs" },
   ]).returning();
   console.log("Patients created.");
 
