@@ -9,7 +9,7 @@ const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 interface SearchResults {
   patients: Array<{ id: number; fullName: string; mrn: string; phone?: string | null; dateOfBirth?: string | null }>;
   appointments: Array<{ id: number; reason: string; status: string; scheduledAt: string; patientName?: string | null; patientMrn?: string | null }>;
-  records: Array<{ id: number; diagnosis: string; chiefComplaint: string; createdAt: string; patientName?: string | null; patientId: number }>;
+  records: Array<{ id: number; chiefComplaint: string; createdAt: string; patientName?: string | null; patientId: number }>;
 }
 
 export default function GlobalSearch() {
@@ -173,8 +173,8 @@ export default function GlobalSearch() {
                         <FileText className="w-3.5 h-3.5 text-green-600" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{r.diagnosis}</div>
-                        <div className="text-xs text-muted-foreground">{r.patientName} · {r.chiefComplaint}</div>
+                        <div className="text-sm font-medium truncate">{r.chiefComplaint || "Medical record"}</div>
+                        <div className="text-xs text-muted-foreground">{r.patientName}</div>
                       </div>
                       <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(r.createdAt)}</span>
                     </button>

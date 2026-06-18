@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Request, Response, NextFunction } from "express";
-import { safeParseInt, validateParamInt } from "../lib/validators";
+import { safeParseInt, validateParamInt, escapeLike } from "../lib/validators";
 
 // ── safeParseInt ──────────────────────────────────────────────────────────────
 
@@ -73,6 +73,30 @@ describe("safeParseInt", () => {
     // parseInt("1 OR 1=1") = 1 (parseInt stops at space) — this is VALID (returns 1)
     // Documenting actual behaviour to prevent future confusion
     expect(safeParseInt("1 OR 1=1")).toBe(1);
+  });
+});
+
+// ── escapeLike ─────────────────────────────────────────────────────────────────
+
+describe("escapeLike", () => {
+  it("leaves plain text untouched", () => {
+    expect(escapeLike("john smith")).toBe("john smith");
+  });
+
+  it("escapes percent (match-all wildcard) to a literal", () => {
+    expect(escapeLike("50%")).toBe("50\\%");
+  });
+
+  it("escapes underscore (single-char wildcard) to a literal", () => {
+    expect(escapeLike("a_b")).toBe("a\\_b");
+  });
+
+  it("escapes a backslash so it can't smuggle an escape sequence", () => {
+    expect(escapeLike("a\\b")).toBe("a\\\\b");
+  });
+
+  it("escapes an all-wildcard probe so it matches literally, not everything", () => {
+    expect(escapeLike("%%")).toBe("\\%\\%");
   });
 });
 

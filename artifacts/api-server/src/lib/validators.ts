@@ -27,6 +27,20 @@ export function validateParamInt(paramName: string) {
 }
 
 /**
+ * Escape LIKE/ILIKE metacharacters in user-supplied search input.
+ *
+ * The value is always passed as a bound parameter (Drizzle `ilike`), so this is
+ * NOT about SQL injection — it prevents a caller from injecting LIKE wildcards
+ * (`%` match-all, `_` single-char) that skew/broaden results, and blunts the
+ * cost of a `%`/`_`-heavy pattern. Postgres ILIKE uses `\` as the default escape
+ * character, so a `\`-prefix on each metachar makes it match literally — no
+ * `ESCAPE` clause required.
+ */
+export function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
  * Validates a UUID string (v4 format). Returns null if not a valid UUID.
  */
 export function safeParseUUID(value: any): string | null {
