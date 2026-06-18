@@ -9,6 +9,7 @@ import {
 import { eq, isNull, ilike, or, and, sql, desc, lt, inArray } from "drizzle-orm";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope } from "../lib/scope";
+import { escapeLike } from "../lib/validators";
 import { encrypt, decrypt, encryptNullable, decryptNullable } from "../lib/field-encryption";
 import { NotFoundError, ForbiddenError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
@@ -57,7 +58,7 @@ export async function listPatients(
   }
 
   if (params.search) {
-    const q = `%${params.search}%`;
+    const q = `%${escapeLike(params.search.slice(0, 100))}%`;
     conditions.push(or(
       ilike(patientsTable.fullName, q),
       ilike(patientsTable.fullNameAr, q),

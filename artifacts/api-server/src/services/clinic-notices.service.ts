@@ -11,8 +11,8 @@ import type { AuthRequest } from "../middlewares/auth";
 
 const createNoticeSchema = z.object({
   title: z.string().min(5).max(200),
-  content: z.string().min(10),
-  reason: z.string().min(20),
+  content: z.string().min(10).max(5000),
+  reason: z.string().min(20).max(1000),
 });
 
 export async function listClinicNotices(
@@ -47,7 +47,7 @@ export async function listClinicNotices(
 export async function createClinicNotice(req: AuthRequest, body: unknown) {
   const parsed = createNoticeSchema.safeParse(body);
   if (!parsed.success) {
-    throw new ValidationError("title (5â€“200 chars), content (10+ chars), reason (20+ chars) required");
+    throw new ValidationError("title (5â€“200 chars), content (10â€“5000 chars), reason (20â€“1000 chars) required");
   }
 
   return runInTenantContext(req.user!, async (tx) => {
