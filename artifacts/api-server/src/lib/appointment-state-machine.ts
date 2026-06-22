@@ -23,9 +23,10 @@
  *    ↓ [diagnostics]     doctor / admin / super_admin          → awaiting_diagnostics
  *    ↓ [payment]         doctor / nurse / front_desk / admin   → pending_payment
  *  awaiting_diagnostics
+ *    ↓ [reconsult]       doctor / admin / super_admin           → in_consultation
  *    ↓ [payment]         doctor / nurse / front_desk / admin   → pending_payment
  *  pending_payment
- *    ↓ [complete]        front_desk / admin / super_admin      → completed
+ *    ↓ [complete]        doctor / front_desk / admin / super_admin → completed
  *  completed             (terminal)
  *  cancelled             (terminal)
  *  no_show               (terminal)
@@ -49,6 +50,7 @@ export type AppointmentAction =
   | "ready"
   | "consult"
   | "diagnostics"
+  | "reconsult"
   | "payment"
   | "complete"
   | "cancel"
@@ -90,6 +92,13 @@ export const TRANSITIONS: Record<AppointmentAction, Transition> = {
     to: "awaiting_diagnostics",
     allowedRoles: ["super_admin", "admin", "doctor"],
   },
+  reconsult: {
+    // Doctor resumes the consult after diagnostics results land. The machine is
+    // otherwise forward-only; this is the one sanctioned reversal.
+    from: ["awaiting_diagnostics"],
+    to: "in_consultation",
+    allowedRoles: ["super_admin", "admin", "doctor"],
+  },
   payment: {
     from: ["in_consultation", "awaiting_diagnostics"],
     to: "pending_payment",
@@ -98,7 +107,9 @@ export const TRANSITIONS: Record<AppointmentAction, Transition> = {
   complete: {
     from: ["pending_payment"],
     to: "completed",
-    allowedRoles: ["super_admin", "admin", "front_desk"],
+    // doctor may close out a checkout visit (closes the appointment; the invoice
+    // lifecycle is independent — billing still settles it separately).
+    allowedRoles: ["super_admin", "admin", "doctor", "front_desk"],
   },
   cancel: {
     from: ["scheduled", "checked_in", "in_triage", "ready_for_doctor", "in_consultation", "awaiting_diagnostics", "pending_payment"],

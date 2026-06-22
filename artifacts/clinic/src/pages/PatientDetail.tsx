@@ -9,6 +9,9 @@ import PatientTimeline from "@/components/PatientTimeline";
 import ChangeHistoryCard from "@/components/ChangeHistory";
 import PatientConsentCard from "@/components/PatientConsentCard";
 import BreakGlassButton from "@/components/BreakGlassButton";
+import PatientVisitActions from "@/components/PatientVisitActions";
+import NurseVitalsCard from "@/components/NurseVitalsCard";
+import DiagnosticResultDialog, { type DiagnosticKind } from "@/components/DiagnosticResultDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -16,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatDateTime, formatCurrency, calcAge } from "@/lib/api";
-import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, AlertTriangle, Activity, Edit2, ShieldOff } from "lucide-react";
+import { ArrowLeft, User, CalendarDays, FileText, Scan, FlaskConical, AlertTriangle, Activity, Edit2, ShieldOff, Eye, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BLOOD_TYPES } from "@/lib/constants";
 
@@ -29,7 +32,23 @@ export default function PatientDetail() {
   const params = useParams<{ id: string }>();
   const patientId = parseInt(params.id ?? "0");
 
+  // Minimum-necessary: mirror the backend summary projection so a role never
+  // sees an empty card for a module it has no access to. Keep in sync with
+  // SUMMARY_SECTIONS in patients.service.ts.
+  const role = user?.role || "";
+  const can = {
+    records: ["super_admin", "admin", "doctor"].includes(role),
+    xrays:   ["super_admin", "admin", "doctor", "xray_staff"].includes(role),
+    labs:    ["super_admin", "admin", "doctor", "lab_staff"].includes(role),
+    balance: ["super_admin", "admin", "front_desk"].includes(role),
+    // Contact PII (address/phone/emergency contact) — front desk owns it;
+    // clinical staff (nurse/doctor) don't need it. Mirrors REDACTED_PATIENT_FIELDS.
+    contact: ["super_admin", "admin", "front_desk"].includes(role),
+  };
+
   const [showEdit, setShowEdit] = useState(false);
+  // Diagnostic result/image popup (x-ray / ultrasound / lab).
+  const [viewDiag, setViewDiag] = useState<{ kind: DiagnosticKind; record: any } | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -56,7 +75,7 @@ export default function PatientDetail() {
 
   const { data: medicalRecords } = useListMedicalRecords(
     { patientId },
-    { query: { enabled: !!patientId, queryKey: getListMedicalRecordsQueryKey({ patientId }) } }
+    { query: { enabled: !!patientId && can.records, queryKey: getListMedicalRecordsQueryKey({ patientId }) } }
   );
 
   useEffect(() => {
@@ -106,7 +125,7 @@ export default function PatientDetail() {
     updateMutation.mutate({ patientId, data: form as any });
   };
 
-  const canEdit = ["super_admin", "admin", "nurse", "front_desk"].includes(user?.role || "");
+  const canEdit = ["super_admin", "admin", "front_desk"].includes(user?.role || "");
 
   if (isLoading) return <div className="flex items-center justify-center h-full text-[var(--ink-muted)]">{t("loading")}</div>;
   if ((error as any)?.status === 403) {
@@ -134,6 +153,7 @@ export default function PatientDetail() {
           <p className="text-[12px] text-[var(--ink-muted)] font-mono">MRN: {patient.mrn}</p>
         </div>
         <div className="flex gap-2 shrink-0">
+          {role === "doctor" && <PatientVisitActions patientId={patientId} appointments={recentAppointments as any} />}
           <BreakGlassButton patientId={patientId} />
           {canEdit && (
             <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowEdit(true)} data-testid="button-edit-patient">
@@ -168,12 +188,12 @@ export default function PatientDetail() {
             { label: t("mrn"),              value: <span className="font-mono font-semibold text-[var(--teal-600)]">{patient.mrn}</span> },
             { label: t("gender"),           value: <span className="text-[var(--ink)]">{t(patient.gender as any)}</span> },
             { label: t("dateOfBirth"),      value: <span className="text-[var(--ink)]">{formatDate(patient.dateOfBirth)} ({calcAge(patient.dateOfBirth)})</span> },
-            { label: t("phone"),            value: <span className="text-[var(--ink)]">{patient.phone}</span> },
+            ...(can.contact ? [{ label: t("phone"), value: <span className="text-[var(--ink)]">{patient.phone}</span> }] : []),
             { label: t("bloodType"),        value: <span className="text-[var(--ink)]">{patient.bloodType || "-"}</span> },
             { label: t("allergies"),        value: <span className="text-[var(--ink)]">{patient.allergies || "-"}</span> },
-            { label: t("address"),          value: <span className="text-[var(--ink)]">{patient.address || "-"}</span> },
-            { label: t("emergencyContact"), value: <span className="text-[var(--ink)]">{patient.emergencyContact || "-"}</span> },
-            { label: t("outstandingBalance"), value: <span className={cn("font-semibold", outstandingBalance > 0 ? "text-[var(--rose-500)]" : "text-[var(--ink)]")}>${formatCurrency(outstandingBalance)}</span> },
+            ...(can.contact ? [{ label: t("address"), value: <span className="text-[var(--ink)]">{patient.address || "-"}</span> }] : []),
+            ...(can.contact ? [{ label: t("emergencyContact"), value: <span className="text-[var(--ink)]">{patient.emergencyContact || "-"}</span> }] : []),
+            ...(can.balance ? [{ label: t("outstandingBalance"), value: <span className={cn("font-semibold", outstandingBalance > 0 ? "text-[var(--rose-500)]" : "text-[var(--ink)]")}>${formatCurrency(outstandingBalance)}</span> }] : []),
             { label: t("status"),           value: <span className={cn("badge text-xs", patient.isActive ? "badge-teal" : "")}>{patient.isActive ? t("active") : t("inactive")}</span> },
           ].map(({ label, value }) => (
             <div key={label}>
@@ -199,7 +219,9 @@ export default function PatientDetail() {
         {/* Overview Tab */}
         <TabsContent value="overview" className="mt-4">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {/* Appointments */}
+            {/* Appointments — hidden for doctors (they work from the clinical
+                record, not the patient's booking history with other doctors). */}
+            {role !== "doctor" && (
             <div className="card">
               <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-[var(--teal-600)]" />
@@ -221,13 +243,22 @@ export default function PatientDetail() {
                 }
               </div>
             </div>
+            )}
 
-            {/* Medical Records */}
-            <div className="card">
+            {role === "nurse" && <NurseVitalsCard patientId={patientId} />}
+
+            {/* Medical Records — full-width row at the bottom; x-ray/lab sit on top. */}
+            {can.records && (
+            <div className="card order-last xl:col-span-2">
               <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
                 <FileText className="w-4 h-4 text-[var(--teal-600)]" />
                 <span className="font-semibold text-[13px] text-[var(--ink)]">{t("recentMedicalRecords")}</span>
                 <span className="badge text-xs ms-auto">{medicalRecords?.length ?? recentRecords?.length ?? 0}</span>
+                <button className="btn btn-ghost btn-sm h-6 px-1.5 text-[var(--teal-600)]"
+                  onClick={() => setLocation(`/medical-records?patientId=${patientId}`)}
+                  aria-label={t("newRequest")} title={t("newRequest")} data-testid="button-new-record">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="card-pad space-y-2">
                 {!(medicalRecords ?? recentRecords)?.length
@@ -252,52 +283,73 @@ export default function PatientDetail() {
                 }
               </div>
             </div>
+            )}
 
             {/* X-Rays */}
+            {can.xrays && (
             <div className="card">
               <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
                 <Scan className="w-4 h-4 text-[var(--teal-600)]" />
                 <span className="font-semibold text-[13px] text-[var(--ink)]">{t("xrayHistory")}</span>
                 <span className="badge text-xs ms-auto">{recentXrays?.length ?? 0}</span>
+                <button className="btn btn-ghost btn-sm h-6 px-1.5 text-[var(--teal-600)]"
+                  onClick={() => setLocation(`/xray?patientId=${patientId}`)}
+                  aria-label={t("newRequest")} title={t("newRequest")} data-testid="button-order-xray">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="card-pad space-y-2">
                 {!recentXrays?.length
                   ? <p className="text-xs text-[var(--ink-muted)]">{t("noXrays")}</p>
                   : recentXrays.map((x, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs border-b border-[var(--line)]/40 pb-2">
+                    <div key={i} role="button" tabIndex={0}
+                      onClick={() => setViewDiag({ kind: "xray", record: x })}
+                      className="flex items-center gap-2 text-xs border-b border-[var(--line)]/40 pb-2 cursor-pointer hover:bg-[var(--surface-2)] rounded px-1 -mx-1">
                       <div className="flex-1">
                         <p className="font-medium text-[var(--ink)]">{x.bodyPart}</p>
                         <p className="text-[var(--ink-muted)]">{formatDate(x.createdAt)}</p>
                       </div>
                       <StatusBadge status={x.status} />
+                      <Eye className="w-3.5 h-3.5 text-[var(--ink-faint)] flex-shrink-0" />
                     </div>
                   ))
                 }
               </div>
             </div>
+            )}
 
             {/* Lab Tests */}
+            {can.labs && (
             <div className="card">
               <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
                 <FlaskConical className="w-4 h-4 text-[var(--teal-600)]" />
                 <span className="font-semibold text-[13px] text-[var(--ink)]">{t("labTests")}</span>
                 <span className="badge text-xs ms-auto">{recentLabTests?.length ?? 0}</span>
+                <button className="btn btn-ghost btn-sm h-6 px-1.5 text-[var(--teal-600)]"
+                  onClick={() => setLocation(`/lab?patientId=${patientId}`)}
+                  aria-label={t("newRequest")} title={t("newRequest")} data-testid="button-order-lab">
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
               </div>
               <div className="card-pad space-y-2">
                 {!recentLabTests?.length
                   ? <p className="text-xs text-[var(--ink-muted)]">{t("noRecords")}</p>
                   : recentLabTests.map((l, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs border-b border-[var(--line)]/40 pb-2">
+                    <div key={i} role="button" tabIndex={0}
+                      onClick={() => setViewDiag({ kind: "lab", record: l })}
+                      className="flex items-center gap-2 text-xs border-b border-[var(--line)]/40 pb-2 cursor-pointer hover:bg-[var(--surface-2)] rounded px-1 -mx-1">
                       <div className="flex-1">
                         <p className="font-medium text-[var(--ink)]">{l.testName}</p>
                         <p className="text-[var(--ink-muted)]">{formatDate(l.createdAt)}</p>
                       </div>
                       <StatusBadge status={l.status} />
+                      <Eye className="w-3.5 h-3.5 text-[var(--ink-faint)] flex-shrink-0" />
                     </div>
                   ))
                 }
               </div>
             </div>
+            )}
           </div>
         </TabsContent>
 
@@ -426,6 +478,12 @@ export default function PatientDetail() {
           <ChangeHistoryCard entityType="patient" entityId={patientId} />
         </div>
       )}
+
+      <DiagnosticResultDialog
+        kind={viewDiag?.kind ?? "xray"}
+        record={viewDiag?.record ?? null}
+        onClose={() => setViewDiag(null)}
+      />
     </div>
   );
 }

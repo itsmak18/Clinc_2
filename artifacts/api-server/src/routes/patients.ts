@@ -22,7 +22,9 @@ router.get("/patients",
 );
 
 router.post("/patients",
-  requireRole("super_admin", "admin", "nurse", "front_desk"),
+  // Registration is an intake duty (front desk / admin), not a clinical one.
+  // Nurses keep read + edit; they do not create patients.
+  requireRole("super_admin", "admin", "front_desk"),
   validate(CreatePatientBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const patient = await createPatient(req, req.body);
@@ -40,7 +42,10 @@ router.get("/patients/:patientId",
 );
 
 router.patch("/patients/:patientId",
-  requireRole("super_admin", "admin", "nurse", "front_desk"),
+  // Demographic edits are an intake duty (front desk / admin). Nurse removed
+  // 2026-06-21 alongside contact-PII redaction — a role that can't see
+  // address/phone must not be able to blank them through the edit form.
+  requireRole("super_admin", "admin", "front_desk"),
   validate(UpdatePatientBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const patientId = safeParseInt(req.params.patientId);

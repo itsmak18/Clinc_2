@@ -6,15 +6,26 @@ import {
   appointmentsTable, patientsTable, usersTable, notificationsTable,
   medicalRecordsTable, prescriptionsTable, xrayRecordsTable, labTestsTable, invoicesTable,
 } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc, lt, inArray, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, lt, inArray, notInArray, isNull } from "drizzle-orm";
 import { logAudit, auditSnapshot } from "../lib/audit";
-import { emitToUser } from "../lib/sse";
+import { emitToUser, emitToClinic } from "../lib/sse";
+import { logger } from "../lib/logger";
+import { isAutoAdvanceFlowEnabled } from "../lib/auth-constants";
 import { isDoctorScoped, getDoctorPatientScope, invalidateDoctorScope, recordDoctorPatientLink } from "../lib/scope";
 import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
-import { validateTransition, type AppointmentStatus } from "../lib/appointment-state-machine";
+import { validateTransition, type AppointmentStatus, type AppointmentAction } from "../lib/appointment-state-machine";
 import { checkDoctorAvailability } from "../lib/schedule-validator";
-import { NotFoundError, ValidationError, ConflictError } from "./errors";
+import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
+
+/**
+ * Map a failed state-machine transition to a domain error so asyncHandler emits
+ * the intended status (409 invalid-state / 403 role). A plain Error carrying a
+ * `.status` prop is NOT recognized by asyncHandler and surfaces as a 500.
+ */
+function transitionError(result: { status: 409 | 403; error: string }): Error {
+  return result.status === 403 ? new ForbiddenError(result.error) : new ConflictError(result.error);
+}
 
 export async function listAppointments(
   req: AuthRequest,
@@ -66,14 +77,16 @@ export async function listAppointments(
       scheduledAt: appointmentsTable.scheduledAt,
       reason: appointmentsTable.reason,
       status: appointmentsTable.status,
+      bookingSource: appointmentsTable.bookingSource,
+      triagePriority: appointmentsTable.triagePriority,
       notes: appointmentsTable.notes,
       cancellationReason: appointmentsTable.cancellationReason,
       checkedInAt: appointmentsTable.checkedInAt,
       triageStartedAt: appointmentsTable.triageStartedAt,
       consultationStartedAt: appointmentsTable.consultationStartedAt,
       createdAt: appointmentsTable.createdAt,
-      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn },
-      doctor: { id: usersTable.id, fullName: usersTable.fullName },
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, dateOfBirth: patientsTable.dateOfBirth, phone: patientsTable.phone, insuranceProvider: patientsTable.insuranceProvider },
+      doctor: { id: usersTable.id, fullName: usersTable.fullName, specialty: usersTable.specialty },
     }).from(appointmentsTable)
       .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
       .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
@@ -184,6 +197,17 @@ export async function getAppointmentFlow(req: AuthRequest) {
 
 export async function getTodayAppointments(req: AuthRequest) {
   const { start, end } = todayBoundary(getClinicTimezone(req));
+  // A doctor's Today queue is THEIR daily worklist — only appointments where they
+  // are the assigned doctor. nurse / front_desk run the whole clinic queue and
+  // legitimately see everyone's, so the scope filter is doctor-only.
+  const conditions: any[] = [
+    eq(appointmentsTable.clinicId, req.user!.clinicId),
+    gte(appointmentsTable.scheduledAt, start),
+    lte(appointmentsTable.scheduledAt, end),
+  ];
+  if (isDoctorScoped(req.user?.role)) {
+    conditions.push(eq(appointmentsTable.doctorId, req.user!.userId));
+  }
   const appointments = await runInTenantContext(req.user!, async (tx) => {
     return tx.select({
       id: appointmentsTable.id,
@@ -198,11 +222,7 @@ export async function getTodayAppointments(req: AuthRequest) {
     }).from(appointmentsTable)
       .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
       .leftJoin(usersTable, eq(appointmentsTable.doctorId, usersTable.id))
-      .where(and(
-        eq(appointmentsTable.clinicId, req.user!.clinicId),
-        gte(appointmentsTable.scheduledAt, start),
-        lte(appointmentsTable.scheduledAt, end)
-      ))
+      .where(and(...conditions))
       .orderBy(appointmentsTable.scheduledAt);
   });
 
@@ -285,12 +305,31 @@ export async function patchAppointment(req: AuthRequest, id: number, body: Recor
 export async function cancelAppointment(req: AuthRequest, id: number, cancellationReason?: string) {
   return runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(appointmentsTable.id, id), eq(appointmentsTable.clinicId, req.user!.clinicId)];
+
+    // Load first so a missing / cross-tenant id is a clean 404 — the previous
+    // blind UPDATE returned no row and then threw a raw TypeError on appt.id.
+    const [existing] = await tx.select().from(appointmentsTable).where(and(...conditions));
+    if (!existing) throw new NotFoundError("appointment", id);
+
+    // Route cancellation through the state machine so terminal states
+    // (completed / cancelled / no_show) and role rules are enforced uniformly.
+    // This DELETE path previously bypassed validateTransition entirely, letting
+    // a completed visit be flipped back to cancelled.
+    const transition = validateTransition("cancel", existing.status as AppointmentStatus, req.user!.role);
+    if (!transition.ok) throw transitionError(transition);
+
+    // Compare-and-swap on the validated status (see transitionAppointment).
     const [appt] = await tx.update(appointmentsTable)
       .set({ status: "cancelled", cancellationReason: cancellationReason || null, updatedAt: new Date() })
-      .where(and(...conditions))
+      .where(and(...conditions, eq(appointmentsTable.status, existing.status)))
       .returning();
-    await logAudit(req, "CANCEL", "appointment", appt.id, { cancellationReason });
+    if (!appt) {
+      throw new ConflictError("Appointment state changed concurrently. Refresh and retry.");
+    }
+
+    await logAudit(req, "CANCEL", "appointment", appt.id, { cancellationReason }, auditSnapshot(existing), auditSnapshot(appt));
     await invalidateDoctorScope(appt.doctorId);
+    emitToClinic(req.user!.clinicId, "appointment.transition", { appointmentId: appt.id, status: appt.status });
   });
 }
 
@@ -307,20 +346,92 @@ export async function transitionAppointment(
     if (!existing) throw new NotFoundError("appointment", id);
 
     const transition = validateTransition(action as any, existing.status as AppointmentStatus, req.user!.role);
-    if (!transition.ok) {
-      throw Object.assign(new Error(transition.error ?? "Transition not allowed"), {
-        status: transition.status,
-        detail: transition.detail,
-      });
-    }
+    if (!transition.ok) throw transitionError(transition);
 
+    // Compare-and-swap: the UPDATE only matches while status is still what we
+    // validated against. If a concurrent request advanced (or changed) the row
+    // between our SELECT and this UPDATE, 0 rows return → 409 (prevents the
+    // lost-update / conflicting-transition race; no version column needed).
     const [appt] = await tx.update(appointmentsTable)
       .set({ status: transition.toStatus, updatedAt: new Date(), ...extraFields })
-      .where(and(...conditions))
+      .where(and(...conditions, eq(appointmentsTable.status, existing.status)))
       .returning();
+    if (!appt) {
+      throw new ConflictError(
+        `Appointment state changed concurrently (expected '${existing.status}'). Refresh and retry.`,
+      );
+    }
+
+    // Cross-role real-time: nudge every board in the clinic to refresh. IDs +
+    // status only (no PHI). Covers triage/ready/consult/diagnostics/reconsult/
+    // payment/complete AND the Phase 2 auto-advances (which route through here).
+    emitToClinic(req.user!.clinicId, "appointment.transition", { appointmentId: appt.id, status: appt.status });
 
     return { appt, existing };
   });
+}
+
+/**
+ * Find the patient's single in-flight (non-terminal) visit in this clinic.
+ * Returns the appointment id, or `null` when there are 0 or >1 candidates — we
+ * never guess which visit to advance. Backs the auto-advance triggers for the
+ * source rows that carry no `appointmentId` (ultrasound, invoices, rapid vitals).
+ */
+export async function resolveActiveVisit(req: AuthRequest, patientId: number): Promise<number | null> {
+  return runInTenantContext(req.user!, async (tx) => {
+    const rows = await tx.select({ id: appointmentsTable.id })
+      .from(appointmentsTable)
+      .where(and(
+        eq(appointmentsTable.clinicId, req.user!.clinicId),
+        eq(appointmentsTable.patientId, patientId),
+        notInArray(appointmentsTable.status, ["completed", "cancelled", "no_show"]),
+      ));
+    return rows.length === 1 ? rows[0].id : null;
+  });
+}
+
+/**
+ * Best-effort patient-flow projection: advance a visit through one or more
+ * state-machine actions as a side effect of a clinical write (vitals saved,
+ * study ordered, invoice created), so the "extra" states cost zero manual clicks.
+ *
+ *  - flag-gated (`AUTO_ADVANCE_FLOW`); off → no-op.
+ *  - idempotent: an action whose `from` no longer matches (already advanced) is
+ *    skipped, never surfaced as a 409.
+ *  - NON-FATAL: it never throws. A status nudge that fails (concurrent change,
+ *    role gate, DB hiccup, vanished row) must not break the clinical write — the
+ *    manual transition endpoints stay the source of truth.
+ *  - safe under ambiguity: with no single active visit, it does nothing.
+ *
+ * Routes through `transitionAppointment`, so the CAS + audit guarantees hold and
+ * the `getAppointmentFlow` wait-time timestamps are preserved.
+ */
+export async function autoAdvanceVisit(
+  req: AuthRequest,
+  opts: { patientId: number; appointmentId?: number | null; actions: AppointmentAction[] },
+): Promise<void> {
+  if (!isAutoAdvanceFlowEnabled()) return;
+  try {
+    const apptId = opts.appointmentId ?? await resolveActiveVisit(req, opts.patientId);
+    if (!apptId) return;
+    for (const action of opts.actions) {
+      try {
+        // Preserve the wait-time timestamps getAppointmentFlow keys off of.
+        const extra =
+          action === "triage" ? { triageStartedAt: new Date() } :
+          action === "consult" ? { consultationStartedAt: new Date() } : {};
+        await transitionAppointment(req, apptId, action, extra);
+      } catch (err) {
+        // Invalid-from (already advanced), lost CAS race, role gate, or a vanished
+        // row are all expected for a best-effort nudge — try the next action
+        // rather than aborting the chain.
+        if (err instanceof ConflictError || err instanceof ForbiddenError || err instanceof NotFoundError) continue;
+        throw err;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, patientId: opts.patientId, actions: opts.actions }, "auto-advance flow nudge failed (non-fatal)");
+  }
 }
 
 export async function checkinAppointment(req: AuthRequest, id: number) {
@@ -333,10 +444,15 @@ export async function checkinAppointment(req: AuthRequest, id: number) {
       throw new ConflictError(`Cannot check in: appointment is already '${existing.status}'`);
     }
 
+    // CAS on the validated status closes the TOCTOU gap between the check above
+    // and this write (two staff clicking "check in" at once → one wins, one 409s).
     const [appt] = await tx.update(appointmentsTable)
       .set({ status: "checked_in", checkedInAt: new Date(), updatedAt: new Date() })
-      .where(and(...conditions))
+      .where(and(...conditions, eq(appointmentsTable.status, "scheduled")))
       .returning();
+    if (!appt) {
+      throw new ConflictError("Cannot check in: appointment state changed concurrently. Refresh and retry.");
+    }
 
     const notifData = {
       clinicId: req.user!.clinicId,
@@ -349,6 +465,7 @@ export async function checkinAppointment(req: AuthRequest, id: number) {
     emitToUser(appt.doctorId, "notification", notif);
 
     await logAudit(req, "CHECK_IN", "appointment", appt.id);
+    emitToClinic(req.user!.clinicId, "appointment.transition", { appointmentId: appt.id, status: appt.status });
     return appt;
   });
 }

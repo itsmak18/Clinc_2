@@ -35,6 +35,24 @@ describe("auditSnapshot", () => {
     expect(snap.allergies).toBeNull();
   });
 
+  it("redacts sensitive-but-unencrypted PII (staff home address)", () => {
+    const snap = auditSnapshot({
+      id: 7,
+      fullName: "Jane Roe",
+      addressLine: "12 Clinic St",
+      city: "Amman",
+      region: "Amman Governorate",
+      postalCode: "11118",
+      country: "Jordan",
+    })!;
+    expect(snap.addressLine).toBe("[redacted]");
+    expect(snap.city).toBe("[redacted]");
+    expect(snap.region).toBe("[redacted]");
+    expect(snap.postalCode).toBe("[redacted]");
+    expect(snap.country).toBe("[redacted]");
+    expect(snap.fullName).toBe("Jane Roe");
+  });
+
   it("omits noisy/secret columns", () => {
     const snap = auditSnapshot({
       id: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,

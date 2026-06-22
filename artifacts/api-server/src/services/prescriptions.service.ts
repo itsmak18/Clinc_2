@@ -2,8 +2,9 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { prescriptionsTable, patientsTable, usersTable } from "@workspace/db";
+import { prescriptionsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
+import { emitToUser } from "../lib/sse";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
@@ -55,7 +56,7 @@ export async function listPrescriptions(
       notes: prescriptionsTable.notes,
       notesAr: prescriptionsTable.notesAr,
       createdAt: prescriptionsTable.createdAt,
-      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, dateOfBirth: patientsTable.dateOfBirth, gender: patientsTable.gender },
       doctor: { id: usersTable.id, fullName: usersTable.fullName },
     }).from(prescriptionsTable)
       .leftJoin(patientsTable, eq(prescriptionsTable.patientId, patientsTable.id))
@@ -122,6 +123,36 @@ export async function getPrescription(req: AuthRequest, id: number) {
 
   void logRead(req, "prescription", id);
   return decryptPrescription(prescription);
+}
+
+export async function sendPrescriptionToPharmacy(req: AuthRequest, id: number) {
+  // Verify the prescription exists in this clinic and is not voided.
+  const [rx] = await db.select({ id: prescriptionsTable.id })
+    .from(prescriptionsTable)
+    .where(and(eq(prescriptionsTable.id, id), eq(prescriptionsTable.clinicId, req.user!.clinicId), isNull(prescriptionsTable.deletedAt)));
+  if (!rx) throw new NotFoundError("prescription", id);
+
+  // Fan out to every active pharmacist in the clinic.
+  const pharmacists = await db.select({ id: usersTable.id })
+    .from(usersTable)
+    .where(and(eq(usersTable.clinicId, req.user!.clinicId), eq(usersTable.role, "pharmacist"), eq(usersTable.isActive, true)));
+
+  if (pharmacists.length > 0) {
+    await db.insert(notificationsTable).values(
+      pharmacists.map((p) => ({
+        clinicId: req.user!.clinicId,
+        userId: p.id,
+        title: "New prescription to fill",
+        message: `Prescription #${id} was sent to the pharmacy.`,
+        type: "general" as const,
+      })),
+    );
+    // SSE carries IDs only — no PHI (clients fetch the record via the API).
+    for (const p of pharmacists) emitToUser(p.id, "notification", { prescriptionId: id });
+  }
+
+  await logAudit(req, "SEND_TO_PHARMACY", "prescription", id, { pharmacistsNotified: pharmacists.length } as object);
+  return { sent: true, pharmacistsNotified: pharmacists.length };
 }
 
 export async function voidPrescription(req: AuthRequest, id: number, reason: string) {

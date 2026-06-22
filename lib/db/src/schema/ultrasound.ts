@@ -1,11 +1,13 @@
-import { pgTable, serial, text, integer, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, pgEnum, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { clinicsTable } from "./clinics";
 
-export const ultrasoundStatusEnum = pgEnum("ultrasound_status", ["pending", "uploaded", "reviewed"]);
+// Workflow: requested → in_progress → completed (renamed from pending/uploaded/
+// reviewed in migration 0038 via ALTER TYPE … RENAME VALUE).
+export const ultrasoundStatusEnum = pgEnum("ultrasound_status", ["requested", "in_progress", "completed"]);
 
 export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   id: serial("id").primaryKey(),
@@ -18,9 +20,13 @@ export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   bodyPartAr: text("body_part_ar"),
   imageUrl: text("image_url"),
   imageFileName: text("image_file_name"),
+  // Additional images beyond the cover (imageUrl). Studies can hold several photos.
+  images: jsonb("images").$type<{ url: string; fileName?: string; caption?: string }[]>(),
+  // Ties together exams created in the same request/visit (e.g. abdominal + pelvic).
+  orderGroupId: text("order_group_id"),
   report: text("report"),
   reportAr: text("report_ar"),
-  status: ultrasoundStatusEnum("status").notNull().default("pending"),
+  status: ultrasoundStatusEnum("status").notNull().default("requested"),
   notes: text("notes"),
   notesAr: text("notes_ar"),
   deletedAt: timestamp("deleted_at"),
@@ -30,6 +36,7 @@ export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   index("ultrasound_clinic_idx").on(t.clinicId),
   index("ultrasound_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
   index("ultrasound_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
+  index("ultrasound_order_group_idx").on(t.clinicId, t.orderGroupId),
 ]);
 
 export const insertUltrasoundRecordSchema = createInsertSchema(ultrasoundRecordsTable).omit({

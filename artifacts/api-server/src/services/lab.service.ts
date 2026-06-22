@@ -9,6 +9,7 @@ import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
+import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 export async function listLabTests(
@@ -49,8 +50,9 @@ export async function listLabTests(
       status: labTestsTable.status,
       notes: labTestsTable.notes,
       notesAr: labTestsTable.notesAr,
+      orderGroupId: labTestsTable.orderGroupId,
       createdAt: labTestsTable.createdAt,
-      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, dateOfBirth: patientsTable.dateOfBirth, gender: patientsTable.gender },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
     }).from(labTestsTable)
       .leftJoin(patientsTable, eq(labTestsTable.patientId, patientsTable.id))
@@ -68,7 +70,7 @@ export async function listLabTests(
 
 export async function createLabTest(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; testName: string; testNameAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string },
+  data: { patientId: number | string; requestedById: number | string; testName: string; testNameAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string; orderGroupId?: string },
 ) {
   if (!data.patientId || !data.requestedById || !data.testName) {
     throw new ValidationError("Missing required fields");
@@ -79,8 +81,12 @@ export async function createLabTest(
     testNameAr: data.testNameAr,
     notes: data.notes, notesAr: data.notesAr,
     appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
+    orderGroupId: data.orderGroupId || null,
   }).returning();
   await logAudit(req, "CREATE", "lab_test", test.id);
+  // Ordering a study from a consultation auto-advances the visit to
+  // awaiting_diagnostics (best-effort, no-ops if the visit isn't in_consultation).
+  await autoAdvanceVisit(req, { patientId: Number(data.patientId), appointmentId: test.appointmentId, actions: ["diagnostics"] });
   return test;
 }
 
@@ -129,7 +135,9 @@ export async function updateLabTest(
       clinicId: req.user!.clinicId,
       userId: test.requestedById,
       title: "Lab Results Ready",
-      message: `${test.testName} results are ready for review`,
+      // F-4: keep clinical descriptors (test name) off the SSE/Redis wire — the
+      // title carries the category; the client fetches details via the API.
+      message: "Results are ready for review",
       type: "lab_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);

@@ -68,13 +68,14 @@ describe("Patient registration create-path (real Postgres)", () => {
   it("POST /api/patients with idCardNumber → 201 and assigns a generated MRN (generateMRN regression)", async () => {
     const cookie = await adminCookie();
     const res = await postPatient(
-      { idCardNumber: "REG-IT-1001", fullName: "Reg IT One", dateOfBirth: "1990-01-01", gender: "male", phone: "+966500000101" },
+      // idCardNumber must be digits-only, ≥11 (createPatient: /^\d{11,}$/).
+      { idCardNumber: "10000001001", fullName: "Reg IT One", dateOfBirth: "1990-01-01", gender: "male", phone: "+966500000101" },
       cookie,
     );
     expect(res.status).toBe(201);
     // The whole point: generateMRN ran without throwing → MRN-YYYYMM-NNNNN.
     expect(res.body.mrn).toMatch(/^MRN-\d{6}-\d{5}$/);
-    expect(res.body.idCardNumber).toBe("REG-IT-1001");
+    expect(res.body.idCardNumber).toBe("10000001001");
   });
 
   it("POST /api/patients without idCardNumber → 400 VALIDATION_ERROR", async () => {
@@ -89,7 +90,7 @@ describe("Patient registration create-path (real Postgres)", () => {
 
   it("POST /api/patients with a duplicate idCardNumber in the same clinic → 409 CONFLICT", async () => {
     const cookie = await adminCookie();
-    const body = { idCardNumber: "REG-IT-DUP", fullName: "Reg IT Dup A", dateOfBirth: "1990-01-01", gender: "male", phone: "+966500000103" };
+    const body = { idCardNumber: "10000001099", fullName: "Reg IT Dup A", dateOfBirth: "1990-01-01", gender: "male", phone: "+966500000103" };
 
     const first = await postPatient(body, cookie);
     expect(first.status).toBe(201);

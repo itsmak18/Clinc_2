@@ -1,4 +1,4 @@
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import type { AuthRequest } from "../middlewares/auth";
 
 const DEFAULT_TZ = process.env.CLINIC_TZ ?? "Europe/Istanbul";
@@ -36,6 +36,15 @@ export function todayBoundary(tz: string = DEFAULT_TZ): { start: Date; end: Date
     start: fromZonedTime(zonedStartOfDay(zoned), tz),
     end:   fromZonedTime(zonedEndOfDay(zoned),   tz),
   };
+}
+
+/**
+ * Today's date as `yyyy-MM-dd` in clinic timezone (NOT UTC). Use this for any
+ * "default to today" date string so the day window matches the clinic's
+ * business day rather than the UTC calendar day.
+ */
+export function clinicDateString(tz: string = DEFAULT_TZ): string {
+  return formatInTimeZone(new Date(), tz, "yyyy-MM-dd");
 }
 
 /**

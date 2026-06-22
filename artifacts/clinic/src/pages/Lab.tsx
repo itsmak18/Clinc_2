@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { useListLabTests, useCreateLabTest, useUpdateLabTest, useListPatients, useListUsers, getListLabTestsQueryKey, getListPatientsQueryKey, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useState, useEffect } from "react";
+import { useListLabTests, useCreateLabTest, useUpdateLabTest, useListPatients, getListLabTestsQueryKey, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
+import PatientSearchSelect from "@/components/PatientSearchSelect";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { openPrintWindow, labReportHtml, type LabParam } from "@/lib/print";
-import { Plus, ClipboardList, Trash2, Printer, ChevronDown, ChevronUp } from "lucide-react";
+import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
+import { Plus, ClipboardList, Trash2, Printer, ChevronDown, ChevronUp, ShieldCheck, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const COMMON_TESTS = ["CBC", "Lipid Panel", "HbA1c", "Blood Glucose", "Liver Function", "Kidney Function", "Thyroid Panel", "Urinalysis", "Coagulation Panel"];
@@ -36,13 +39,25 @@ const emptyParam = (): LabParam => ({ name: "", value: "", unit: "", refRange: "
 
 export default function Lab() {
   const { t } = useI18n();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [showArCreate, setShowArCreate] = useState(false);
-  const [form, setForm] = useState({ patientId: "", requestedById: "", testName: "", testNameAr: "", notes: "", notesAr: "" });
+  // Create dialog: shared patient + notes, plus one line per test (multi-add).
+  const [patientId, setPatientId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [notesAr, setNotesAr] = useState("");
+
+  // Deep-link from the patient page (/lab?patientId=N): open the create dialog
+  // pre-filled for that patient.
+  useEffect(() => {
+    const pid = new URLSearchParams(window.location.search).get("patientId");
+    if (pid) { setPatientId(pid); setShowCreate(true); }
+  }, []);
+  const [lines, setLines] = useState<{ testName: string; testNameAr: string }[]>([{ testName: "", testNameAr: "" }]);
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [inlineParams, setInlineParams] = useState<LabParam[]>([emptyParam()]);
@@ -52,19 +67,32 @@ export default function Lab() {
   const filterParams = { status: filterStatus as any || undefined };
   const { data: tests, isLoading } = useListLabTests(filterParams, { query: { queryKey: getListLabTestsQueryKey(filterParams) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
-  const { data: doctors } = useListUsers({ role: "doctor" as any }, { query: { queryKey: getListUsersQueryKey({ role: "doctor" as any }) } });
+
+  function resetCreate() {
+    setPatientId(""); setNotes(""); setNotesAr(""); setLines([{ testName: "", testNameAr: "" }]); setShowArCreate(false);
+  }
 
   const createMutation = useCreateLabTest({
     mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() });
-        setShowCreate(false);
-        setForm({ patientId: "", requestedById: "", testName: "", testNameAr: "", notes: "", notesAr: "" });
-        toast({ title: t("labTestCreated") });
-      },
       onError: () => toast({ title: t("failed"), variant: "destructive" }),
     },
   });
+
+  async function handleCreate() {
+    const items = lines.filter(l => l.testName.trim());
+    const missing = [!patientId && t("patient"), !user?.id && t("requestedBy"), !items.length && t("testName")].filter(Boolean);
+    if (missing.length) { toast({ title: t("fillRequiredFields"), description: missing.join(", "), variant: "destructive" }); return; }
+    const orderGroupId = items.length > 1 ? newOrderGroupId() : undefined;
+    try {
+      for (const it of items) {
+        await createMutation.mutateAsync({ data: { patientId: parseInt(patientId), requestedById: user!.id, testName: it.testName, testNameAr: it.testNameAr || undefined, notes: notes || undefined, notesAr: notesAr || undefined, orderGroupId } as any });
+      }
+      queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() });
+      setShowCreate(false);
+      resetCreate();
+      toast({ title: items.length > 1 ? `${items.length} ${t("labTestsCreated")}` : t("labTestCreated") });
+    } catch { /* onError already surfaced the failure */ }
+  }
 
   const updateMutation = useUpdateLabTest({
     mutation: {
@@ -109,6 +137,7 @@ export default function Lab() {
     flag === "H" ? "text-[var(--rose-600)] font-bold" : flag === "L" ? "text-blue-600 font-bold" : "text-[var(--teal-700)]";
 
   const allTests = tests ?? [];
+  const groupCounts = countByOrderGroup(allTests as any);
   const pendingCount = allTests.filter(t => t.status === "requested" || t.status === "in_progress").length;
 
   const sortedFiltered = [...allTests]
@@ -151,8 +180,16 @@ export default function Lab() {
           isLoading={isLoading}
           data={sortedFiltered}
           emptyMessage={t("noLabTests")}
+          onRowClick={openInline}
           expandedRow={expandedId ? (row) => row.id === expandedId ? (
             <div className="p-4 bg-[var(--surface-2)] border-t border-[var(--line)] space-y-4">
+              <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs">
+                <div><span className="text-[var(--ink-muted)]">{t("patient")}: </span><span className="font-medium text-[var(--ink)]">{row.patient?.fullName || `#${row.patientId}`}</span></div>
+                {row.patient?.mrn && <div><span className="text-[var(--ink-muted)]">{t("mrn")}: </span><span className="font-mono text-[var(--ink)]">{row.patient.mrn}</span></div>}
+                {(row.patient as any)?.dateOfBirth && <div><span className="text-[var(--ink-muted)]">{t("dateOfBirth")}: </span><span className="text-[var(--ink)]">{formatDate((row.patient as any).dateOfBirth)}</span></div>}
+                {(row.patient as any)?.gender && <div><span className="text-[var(--ink-muted)]">{t("gender")}: </span><span className="text-[var(--ink)] capitalize">{(row.patient as any).gender}</span></div>}
+                {row.requestedBy?.fullName && <div><span className="text-[var(--ink-muted)]">{t("requestedBy")}: </span><span className="text-[var(--ink)]">{row.requestedBy.fullName}</span></div>}
+              </div>
               {/* Parameter grid */}
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -262,7 +299,14 @@ export default function Lab() {
                 </div>
               ),
             },
-            { key: "test",      header: t("testName"),     render: l => <span className="text-[13px] font-medium text-[var(--ink)]">{l.testName}</span> },
+            { key: "test",      header: t("testName"),     render: l => (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium text-[var(--ink)]">{l.testName}</span>
+                {(l as any).orderGroupId && groupCounts[(l as any).orderGroupId] > 1 && (
+                  <span className="badge badge-blue text-[10px] gap-0.5" title={t("partOfOrder")}><Layers className="w-2.5 h-2.5" />{groupCounts[(l as any).orderGroupId]}</span>
+                )}
+              </div>
+            ) },
             { key: "requested", header: t("requestedBy"),  render: l => <span className="text-[13px] text-[var(--ink)]">{l.requestedBy?.fullName || `#${l.requestedById}`}</span> },
             {
               key: "results",
@@ -312,26 +356,45 @@ export default function Lab() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("patient")} *</Label>
-              <Select value={form.patientId} onValueChange={v => setForm(f => ({ ...f, patientId: v }))}>
-                <SelectTrigger><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
-                <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
-              </Select>
+              <PatientSearchSelect
+                testId="select-patient"
+                value={patientId}
+                onChange={setPatientId}
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t("requestedBy")} *</Label>
-              <Select value={form.requestedById} onValueChange={v => setForm(f => ({ ...f, requestedById: v }))}>
-                <SelectTrigger><SelectValue placeholder={t("selectDoctor")} /></SelectTrigger>
-                <SelectContent>{doctors?.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.fullName}</SelectItem>)}</SelectContent>
-              </Select>
+              {/* Requester is locked to the signed-in user — not selectable, for any role. */}
+              <div className="flex h-9 items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-3 text-sm text-[var(--ink)]">
+                <ShieldCheck className="w-3.5 h-3.5 text-[var(--teal-600)] flex-shrink-0" />
+                <span className="truncate">{user?.fullName}</span>
+                <span className="text-[var(--ink-muted)] text-xs">({t("you")})</span>
+              </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">{t("testName")} *</Label>
-              <Input value={form.testName} onChange={e => setForm(f => ({ ...f, testName: e.target.value }))} placeholder="CBC, Lipid Panel, HbA1c..." list="common-tests" data-testid="input-test-name" />
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">{t("testsLabel")} *</Label>
+                {lines.length > 1 && <span className="badge badge-blue text-[10px] gap-0.5"><Layers className="w-2.5 h-2.5" />{lines.length}</span>}
+              </div>
+              {lines.map((ln, i) => (
+                <div key={i} className="space-y-1 rounded-md border border-[var(--line)] p-2">
+                  <div className="flex gap-2 items-center">
+                    <Input value={ln.testName} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, testName: e.target.value } : l))} placeholder="CBC, Lipid Panel, HbA1c..." list="common-tests" data-testid={`input-test-name-${i}`} className="h-8 text-sm" />
+                    <button type="button" className="btn btn-ghost btn-sm h-8 w-8 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)] flex-shrink-0" onClick={() => setLines(ls => ls.length === 1 ? ls : ls.filter((_, idx) => idx !== i))} disabled={lines.length === 1} aria-label={t("remove")}><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                  {showArCreate && (
+                    <Input value={ln.testNameAr} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, testNameAr: e.target.value } : l))} placeholder={t("testNameAr")} className="h-8 text-sm text-right" dir="rtl" />
+                  )}
+                </div>
+              ))}
               <datalist id="common-tests">{COMMON_TESTS.map(n => <option key={n} value={n} />)}</datalist>
+              <button type="button" className="btn btn-outline btn-sm h-7 text-xs gap-1" onClick={() => setLines(ls => [...ls, { testName: "", testNameAr: "" }])} data-testid="button-add-test">
+                <Plus className="w-3 h-3" /> {t("addAnother")}
+              </button>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">{t("notes")}</Label>
-              <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
+              <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} />
             </div>
             {/* Arabic fields toggle */}
             <button
@@ -344,12 +407,8 @@ export default function Lab() {
             {showArCreate && (
               <div className="space-y-3 border border-[var(--line)] rounded-lg p-3 bg-[var(--surface-2)]" dir="rtl">
                 <div className="space-y-1">
-                  <Label className="text-xs">{t("testNameAr")}</Label>
-                  <Input value={form.testNameAr} onChange={e => setForm(f => ({ ...f, testNameAr: e.target.value }))} className="text-right" />
-                </div>
-                <div className="space-y-1">
                   <Label className="text-xs">{t("notesAr")}</Label>
-                  <Textarea value={form.notesAr} onChange={e => setForm(f => ({ ...f, notesAr: e.target.value }))} rows={2} className="text-right" />
+                  <Textarea value={notesAr} onChange={e => setNotesAr(e.target.value)} rows={2} className="text-right" />
                 </div>
               </div>
             )}
@@ -357,7 +416,7 @@ export default function Lab() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { patientId: parseInt(form.patientId), requestedById: parseInt(form.requestedById), testName: form.testName, testNameAr: form.testNameAr || undefined, notes: form.notes || undefined, notesAr: form.notesAr || undefined } as any })}
+                onClick={handleCreate}
                 disabled={createMutation.isPending}
                 data-testid="button-save-lab"
               >

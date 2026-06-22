@@ -27,6 +27,8 @@ export const labTestsTable = pgTable("lab_tests", {
   status: labTestStatusEnum("status").notNull().default("requested"),
   notes: text("notes"),
   notesAr: text("notes_ar"),
+  // Ties together tests ordered from the same draw/visit (e.g. CBC + Lipid + HbA1c).
+  orderGroupId: text("order_group_id"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -38,6 +40,7 @@ export const labTestsTable = pgTable("lab_tests", {
   index("lab_clinic_idx").on(t.clinicId),
   index("lab_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
   index("lab_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
+  index("lab_order_group_idx").on(t.clinicId, t.orderGroupId),
 ]);
 
 export const insertLabTestSchema = createInsertSchema(labTestsTable).omit({

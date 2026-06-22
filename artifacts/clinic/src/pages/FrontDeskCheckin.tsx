@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
 import StatusBadge from "@/components/StatusBadge";
+import { flowLabel } from "@/lib/appointment-flow";
 import { formatDateTime } from "@/lib/api";
 import { UserCheck, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -84,7 +85,7 @@ export default function FrontDeskCheckin() {
                     {(a.patient as any)?.mrn && (
                       <span className="text-[11px] font-mono text-[var(--ink-muted)]">{(a.patient as any).mrn}</span>
                     )}
-                    <StatusBadge status={a.status} />
+                    <StatusBadge status={a.status} label={flowLabel(t, a.status)} />
                   </div>
                   <p className="text-[12px] text-[var(--ink-muted)] mt-0.5">
                     {a.reason} · {a.doctor?.fullName} · {formatDateTime(a.scheduledAt)}

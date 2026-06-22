@@ -25,7 +25,12 @@ function safeUrl(u: string | null | undefined): string {
 export function openPrintWindow(html: string, title: string) {
   const win = window.open("", "_blank", "width=860,height=720");
   if (!win) { alert("Pop-up blocked — please allow pop-ups for this site."); return; }
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body>${html}</body></html>`);
+  // The window is about:blank, so relative image URLs (server-stored study
+  // images are served from /api/{modality}/{id}/images/{uuid}) need an explicit
+  // base to resolve against the app origin. Same-origin → the auth cookie is
+  // sent, so the authenticated download endpoint serves the bytes.
+  const base = `<base href="${escapeHtml(window.location.origin)}/">`;
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">${base}<title>${escapeHtml(title)}</title></head><body>${html}</body></html>`);
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 400);
@@ -70,6 +75,30 @@ function fmtDate(d: string | Date | null | undefined) {
   if (!d) return "-";
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
+
+export interface ReportImage { url: string; fileName?: string | null; caption?: string | null }
+
+// Builds the imaging gallery for radiology/ultrasound reports. Merges the cover
+// (imageUrl) with the extra images[] array, dedupes by URL, and renders each as an
+// embedded <img> (safe http/https only) with an optional caption.
+function imagesSectionHtml(imageUrl: string | null | undefined, images: ReportImage[] | null | undefined): string {
+  const all: ReportImage[] = [];
+  if (imageUrl) all.push({ url: imageUrl });
+  for (const im of images ?? []) if (im?.url) all.push(im);
+  const seen = new Set<string>();
+  const unique = all.filter(im => { const u = safeUrl(im.url); if (!u || seen.has(u)) return false; seen.add(u); return true; });
+  if (!unique.length) return "";
+  const cards = unique.map(im => {
+    const u = safeUrl(im.url);
+    const cap = im.caption ? `<div style="font-size:11px;color:#666;margin-top:3px">${escapeHtml(im.caption)}</div>` : "";
+    return `<div style="display:inline-block;width:48%;vertical-align:top;margin:0 2% 10px 0;text-align:center">
+      <img src="${u}" style="max-width:100%;max-height:240px;border:1px solid #e5e7eb;border-radius:4px" />
+      ${cap}
+      <div style="font-size:10px;color:#aaa;word-break:break-all;margin-top:2px"><a href="${u}">${u}</a></div>
+    </div>`;
+  }).join("");
+  return `<div class="section-title">Images (${unique.length})</div><div style="margin-bottom:12px">${cards}</div>`;
+}
 function fmtCur(v: number | string | null | undefined) {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   return new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -113,7 +142,7 @@ export function prescriptionHtml(rx: PrescriptionData): string {
 
   return `${STYLES}
     <div class="header">
-      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="clinic-name">Wateen Clinic</div>
       <div class="doc-type">Medical Prescription</div>
     </div>
     <div style="display:flex;justify-content:flex-end;font-size:12px;color:#666;margin-bottom:8px">Date: ${fmtDate(rx.createdAt)}</div>
@@ -136,6 +165,42 @@ export function prescriptionHtml(rx: PrescriptionData): string {
     <div class="footer">
       <div class="sig">
         <div class="sig-line">${escapeHtml(rx.doctor?.fullName) || "Physician"}<br>Prescribing Physician</div>
+      </div>
+    </div>`;
+}
+
+// A printable EMPTY prescription form for the physician to fill in by hand (e.g. when
+// the patient will take it to an external pharmacy). Creates no record — pure print.
+export function blankPrescriptionHtml(doctor?: { fullName?: string | null } | null): string {
+  const blankLine = `<div style="border-bottom:1px solid #bbb;height:22px"></div>`;
+  const labeledBlank = (label: string) =>
+    `<div style="margin-bottom:10px"><span style="font-size:11px;color:#888">${escapeHtml(label)}</span><div style="border-bottom:1px solid #bbb;height:20px"></div></div>`;
+  return `${STYLES}
+    <div class="header">
+      <div class="clinic-name">Wateen Clinic</div>
+      <div class="doc-type">Medical Prescription</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:8px">
+      <span>Date: ____ / ____ / ________</span>
+    </div>
+
+    <div class="section-title">Patient Information</div>
+    <div class="grid2">
+      ${labeledBlank("Name")}
+      ${labeledBlank("MRN / ID Card")}
+      ${labeledBlank("Date of Birth")}
+      ${labeledBlank("Gender")}
+    </div>
+    <div style="margin-bottom:12px"><span style="font-size:11px;color:#888">Allergies</span><div style="border-bottom:1px solid #bbb;height:20px"></div></div>
+
+    <div class="section-title">Rx</div>
+    <div style="margin:8px 0 16px">
+      ${Array.from({ length: 8 }).map(() => blankLine).join("")}
+    </div>
+
+    <div class="footer">
+      <div class="sig">
+        <div class="sig-line">${escapeHtml(doctor?.fullName) || "Physician"}<br>Prescribing Physician</div>
       </div>
     </div>`;
 }
@@ -175,7 +240,7 @@ export function labReportHtml(d: LabReportData): string {
       .flag-L{background:#eff6ff;color:#1d4ed8}
     </style>
     <div class="header">
-      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="clinic-name">Wateen Clinic</div>
       <div class="doc-type">Laboratory Report</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
@@ -219,12 +284,13 @@ interface XrayReportData {
   findingsAr?: string | null;
   impressionAr?: string | null;
   imageUrl?: string | null;
+  images?: ReportImage[] | null;
 }
 
 export function xrayReportHtml(d: XrayReportData): string {
   return `${STYLES}
     <div class="header">
-      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="clinic-name">Wateen Clinic</div>
       <div class="doc-type">Radiology Report</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
@@ -239,7 +305,7 @@ export function xrayReportHtml(d: XrayReportData): string {
     <div class="section-title">Examination</div>
     <p style="font-size:14px;font-weight:600;margin-bottom:4px">${escapeHtml(d.bodyPart) || "Unknown area"}</p>
     ${d.bodyPartAr ? `<p class="ar-block" style="font-size:13px;margin-bottom:12px">${escapeHtml(d.bodyPartAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
-    ${safeUrl(d.imageUrl) ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${safeUrl(d.imageUrl)}">${safeUrl(d.imageUrl)}</a></p>` : ""}
+    ${imagesSectionHtml(d.imageUrl, d.images)}
     <div class="section-title">Findings</div>
     <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
     ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
@@ -263,12 +329,13 @@ interface UltrasoundReportData {
   findingsAr?: string | null;
   impressionAr?: string | null;
   imageUrl?: string | null;
+  images?: ReportImage[] | null;
 }
 
 export function ultrasoundReportHtml(d: UltrasoundReportData): string {
   return `${STYLES}
     <div class="header">
-      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="clinic-name">Wateen Clinic</div>
       <div class="doc-type">Ultrasound Report</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
@@ -289,7 +356,7 @@ export function ultrasoundReportHtml(d: UltrasoundReportData): string {
         ${d.bodyPartAr ? `<div class="ar-block">${escapeHtml(d.bodyPartAr)}</div>` : ""}
       </div>
     </div>
-    ${safeUrl(d.imageUrl) ? `<p style="font-size:11px;color:#888;margin-bottom:12px">Image: <a href="${safeUrl(d.imageUrl)}">${safeUrl(d.imageUrl)}</a></p>` : ""}
+    ${imagesSectionHtml(d.imageUrl, d.images)}
     <div class="section-title">Findings</div>
     <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
     ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
@@ -341,7 +408,7 @@ export function invoiceHtml(inv: InvoiceData): string {
 
   return `${STYLES}
     <div class="header">
-      <div class="clinic-name">MediCore Clinic System</div>
+      <div class="clinic-name">Wateen Clinic</div>
       <div class="doc-type">Invoice</div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">

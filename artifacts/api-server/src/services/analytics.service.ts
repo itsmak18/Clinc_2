@@ -143,26 +143,39 @@ async function computeKPIsForDoctorIds(
     apptsByDoctor.get(a.doctorId)!.add(a.patientId);
   }
 
-  const revenueByDoctor = new Map<number, number>();
-  for (const [doctorId, patientSet] of apptsByDoctor) {
-    if (patientSet.size === 0) {
-      revenueByDoctor.set(doctorId, 0);
-      continue;
-    }
-    const [row] = await tx
-      .select({ total: sql<string>`COALESCE(SUM(${invoicesTable.total}), 0)`.as("total") })
+  // Revenue per patient in ONE grouped query, then fan out to each doctor by their
+  // patient set. Was an N+1 (one SUM query per doctor); the result is identical because
+  // a doctor's revenue = Σ over their patients of that patient's paid-invoice total.
+  const allPatientIds = [...new Set<number>(appts.map((a: any) => a.patientId))];
+  const revenueByPatient = new Map<number, number>();
+  if (allPatientIds.length > 0) {
+    const invRows = await tx
+      .select({
+        patientId: invoicesTable.patientId,
+        total: sql<string>`COALESCE(SUM(${invoicesTable.total}), 0)`.as("total"),
+      })
       .from(invoicesTable)
       .where(
         and(
           eq(invoicesTable.clinicId, clinicId),
           eq(invoicesTable.status, "paid"),
           isNull(invoicesTable.deletedAt),
-          inArray(invoicesTable.patientId, Array.from(patientSet)),
+          inArray(invoicesTable.patientId, allPatientIds),
           gte(invoicesTable.paidAt, start),
           lte(invoicesTable.paidAt, end),
         ),
-      );
-    revenueByDoctor.set(doctorId, Number(row?.total ?? 0));
+      )
+      .groupBy(invoicesTable.patientId);
+    for (const r of invRows as Array<{ patientId: number; total: string }>) {
+      revenueByPatient.set(r.patientId, Number(r.total));
+    }
+  }
+
+  const revenueByDoctor = new Map<number, number>();
+  for (const [doctorId, patientSet] of apptsByDoctor) {
+    let sum = 0;
+    for (const p of patientSet) sum += revenueByPatient.get(p) ?? 0;
+    revenueByDoctor.set(doctorId, sum);
   }
 
   for (const doctorId of doctorIds) {

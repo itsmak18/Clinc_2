@@ -21,9 +21,16 @@ router.get("/appointments", asyncHandler(async (req: AuthRequest, res) => {
   res.json(await listAppointments(req, { status, date, doctorId, patientId, limit, cursor }));
 }));
 
-router.post("/appointments", validate(CreateAppointmentBody), asyncHandler(async (req: AuthRequest, res) => {
-  res.status(201).json(await createAppointment(req, req.body));
-}));
+router.post("/appointments",
+  // Booking is an intake duty: front desk / admin, plus doctors (follow-ups).
+  // Nurses run the clinical flow via the status transitions below, not creation;
+  // lab/xray inherit the group read-gate but must not create appointments.
+  requireRole("super_admin", "admin", "doctor", "front_desk"),
+  validate(CreateAppointmentBody),
+  asyncHandler(async (req: AuthRequest, res) => {
+    res.status(201).json(await createAppointment(req, req.body));
+  }),
+);
 
 router.get("/appointments/flow",
   requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"),
@@ -113,6 +120,17 @@ router.post("/appointments/:appointmentId/diagnostics",
   }),
 );
 
+router.post("/appointments/:appointmentId/reconsult",
+  requireRole("super_admin", "admin", "doctor"),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const id = safeParseInt(req.params.appointmentId);
+    if (!id) throw new ValidationError("Invalid appointment ID");
+    const { appt } = await transitionAppointment(req, id, "reconsult");
+    await logAudit(req, "RECONSULT", "appointment", appt.id);
+    res.json(appt);
+  }),
+);
+
 router.post("/appointments/:appointmentId/payment",
   requireRole("super_admin", "admin", "doctor", "nurse", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
@@ -125,12 +143,26 @@ router.post("/appointments/:appointmentId/payment",
 );
 
 router.post("/appointments/:appointmentId/complete",
-  requireRole("super_admin", "admin", "front_desk"),
+  requireRole("super_admin", "admin", "doctor", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
     const id = safeParseInt(req.params.appointmentId);
     if (!id) throw new ValidationError("Invalid appointment ID");
     const { appt } = await transitionAppointment(req, id, "complete");
     await logAudit(req, "COMPLETE", "appointment", appt.id);
+    res.json(appt);
+  }),
+);
+
+// Manual no-show: front desk marks a scheduled patient who didn't arrive, without
+// waiting on the hourly cron. Same state-machine transition the cron uses, but
+// with request context so it gets a normal audit row + real-time SSE refresh.
+router.post("/appointments/:appointmentId/no-show",
+  requireRole("super_admin", "admin", "front_desk"),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const id = safeParseInt(req.params.appointmentId);
+    if (!id) throw new ValidationError("Invalid appointment ID");
+    const { appt } = await transitionAppointment(req, id, "no_show");
+    await logAudit(req, "NO_SHOW", "appointment", appt.id);
     res.json(appt);
   }),
 );

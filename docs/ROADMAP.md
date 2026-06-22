@@ -1,5 +1,23 @@
 # Roadmap
 
+> As of 2026-06-22: **Zero-trust audit hardening — codeable medium-and-above findings closed (working tree, uncommitted).** Source-first re-audit (overall ≈8.5→8.7). 29 new real-Postgres tests + targeted fixes; tsc 0, esbuild clean, no regressions. See CHANGELOG (2026-06-22) + HEALTH_STATUS note. **Closed:**
+> - ✅ **F-Z1 / F-014 — jti replay defense formally DISARMED (not armed).** Arming would regress: the live `privileged` routes (`PATCH`/`DELETE /users/:id`, admin reset) use the reused session cookie, so consuming its jti rejects the 2nd admin action in a session. Pinned by a kernel invariant test (`policy.unit.test.ts` "READS but never CONSUMES the jti") + **ADR-007 §4 correction** (the "zero routes use privileged scope" claim was stale — three now do). Supersedes the "author ADR-014 to arm" recommendation.
+> - ✅ **Imaging integration-db tests** — `imaging-attachments` (upload/scope/download/delete), `imaging-quota`, `imaging-orphan-reconcile` (+ `services-catalog`, `vitals-scope`, `login-mint`). Advances the ADR-012 test-breadth item (imaging done; break-glass-e2e still open).
+> - ✅ **CSP report retention enforced** — daily purge cron + `CSP_REPORT_RETENTION_DAYS` (was "90-day retention recommended; not enforced").
+> - ✅ **Orphaned imaging files reclaimed** — daily reconciler + `IMAGING_ORPHAN_GRACE_HOURS`, with an empty-live-set circuit breaker (defense vs a future non-dormant-RLS regression).
+> - ✅ **Per-clinic imaging quota** — `IMAGING_CLINIC_QUOTA_BYTES` (opt-in, default off).
+> - ✅ **JWT mints `timezone` + real `clinicId`** — closes the multi-clinic date-math fallback + resolved-user session-audit (LOGIN_SUCCESS/PENDING/LOGOUT) landing in clinic 1.
+>
+> **Still open / next:**
+> - ⏳ **F-M4 streaming uploads (deferred, deliberate)** — quota done; replacing the 25 MB in-memory buffer with streaming AES-GCM is a PHI-envelope crypto refactor on a low-frequency endpoint with no evidence of memory pressure. Revisit on a Node-RSS / event-loop-lag alert correlated with imaging uploads.
+> - ⏳ **Commit + CI-gate the working tree** — all of the above is uncommitted alongside the larger feature WIP; the full suite + `pnpm audit` + codegen-diff must run green in CI. This is the single lever from 8.7 → 9.
+> - ⏳ **Doc-only:** `.claude/CLAUDE.md:239` jti row still says "jti consumed on first use" (misleading — harness-blocked agent edit; needs a manual one-line paste to match ADR-007).
+
+> As of 2026-06-21: **X-Ray / Ultrasound imaging — real server upload/download + workflow rename shipped.** Files now upload to a server volume (`IMAGING_STORAGE_DIR`), AES-256-GCM encrypted at rest, served via an authenticated/doctor-scoped/audited download endpoint (`imaging_attachments` table + `imaging-attachments.service.ts`); status renamed `requested → in_progress → completed` (migration 0038 `RENAME VALUE`). Erasure now purges image files + the `images` jsonb. 500 api / 51 clinic tests green; E2E + encryption-at-rest smoke verified. See CHANGELOG. **Follow-ups:**
+> - ⏳ **Offsite the imaging tar** — the backup container snapshots `imaging_data` into `/backups` daily, but `backup-verify.mjs`'s `OFFSITE_UPLOAD_COMMAND` rsync currently targets the DB dump only. Wire the imaging tarball into the offsite push (or document that `/backups` itself is rsynced) so a site-loss DR recovers studies, not just metadata.
+> - ⏳ **Imaging integration-db test** — fold upload/download/erasure into the real-Postgres suite (overlaps the ADR-012 "imaging" item below).
+> - 💡 **DICOM** — current pipeline is PNG/JPEG/WEBP (browser-renderable). A DICOM viewer + `.dcm` ingest is a separate future feature.
+
 > As of 2026-06-14: **Independent principal zero-trust re-audit — 8.4/10, no open criticals.** Full report [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + task-level plan `../HANDOFF.md`. **Next actions:**
 > - ⏳ **F-Z1 (Medium, security) — arm or formally disarm the jti replay defense** (`policy.ts:169` checks `isJtiUsed()` but prod never calls `markJtiUsed()` → unarmed). Recommend arming for break-glass activate / step-up / admin-reset / erasure execute; author **ADR-014**.
 > - ⏳ **Phase 0 go-live drills:** stand up staging (+`STAGING_URL`), verify **live** alert/probe delivery (`amtool` + blackbox), restore drill on real hardware (record RTO).
@@ -145,7 +163,8 @@ Closes the four operational gaps that left the platform blind in production: ale
   - ✅ **audit_logs monthly partitioning (2026-06-02)** — Migration 0021 converts `audit_logs` to RANGE PARTITION BY month (2026-01→2036-12, 132 partitions + DEFAULT). Composite PK (id, created_at). RLS re-applied, medicore_app grants re-applied, row-count verified, legacy table dropped. `audit_partition_months_remaining` Prometheus gauge + `AuditPartitionLow` alert (< 24 months). ADR-009-audit-partitioning.md. F-01 non-superuser boundary maintained (no runtime DDL by medicore_app).
   - ✅ **Restore drill enhanced (2026-06-02)** — `backup-verify.mjs --restore` now includes audit integrity check (queries `audit_integrity_checks` for mismatches after restore). Quarterly drill procedure documented in RUNBOOK §12 with measured RTO tracking.
   - Deferred: **SSE → Redis Streams** (trigger: patient portal pushing connections to thousands — current Pub/Sub fan-out already multi-replica correct).
-- **Read replicas** — Separate analytics DB for reports; prevent report queries from degrading clinical workflows.
+- **Read replicas** — Separate analytics DB for reports; prevent report queries from degrading clinical workflows. (Reports now aggregate in SQL over arbitrary ranges as of 2026-06-19 — heavier read load makes this more relevant.)
+- **Reports — surface unused server data (2026-06-19 follow-up)** — `appointmentsSummary` already returns `byStatus` + daily `byDay`, but the UI renders only `byDoctor`. Add an appointment-status breakdown + a daily-volume trend chart (data is free; no backend change).
 
 ## Quality & Testing Track — Planned (decisions locked 2026-05-31)
 

@@ -53,9 +53,14 @@ const BACKEND_CONTRACT: Record<string, Contract> = {
   "/ultrasound":       { roles: ["super_admin", "admin", "doctor", "nurse", "xray_staff"],               source: "ultrasound.ts:12 router.use(/ultrasound) gate" },
   "/lab":              { roles: ["super_admin", "admin", "doctor", "nurse", "lab_staff"],                source: "lab.ts:12 router.use(/lab) gate" },
   "/billing":          { roles: ["super_admin", "admin", "front_desk", "billing_manager"],              source: "billing.ts:16 GET /billing/invoices" },
+  "/reconciliation":   { roles: ["super_admin"],                                                         source: "billing.ts GET /billing/reconciliation requireRole(super_admin)" },
+  "/service-prices":   { roles: ["super_admin", "admin", "billing_manager", "front_desk"],               source: "services-catalog.ts GET /services-catalog requireRole" },
   "/operations":       { roles: ["super_admin", "admin", "doctor", "nurse"],                             source: "operations.ts:15 GET /operations" },
   "/inventory":        { roles: ["super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"],  source: "inventory.ts:22 GET /inventory" },
-  "/reports":          { roles: ["super_admin", "admin", "doctor"],                                      source: "reports.ts:8 router.use(/reports) gate" },
+  // reports: per-endpoint requireRole (2026-06-19) — appointments super_admin/admin/doctor
+  // (doctor self-scoped), revenue super_admin/admin/billing_manager, diagnostics
+  // super_admin/admin/doctor/billing_manager. Page-visible to the union of those sets.
+  "/reports":          { roles: ["super_admin", "admin", "doctor", "billing_manager"],                  source: "reports.ts requireRole per endpoint (appointments/revenue/diagnostics)" },
   "/notifications":    { roles: "ANY_AUTH",                                                              source: "notifications.ts:53 GET /notifications (requireAuth)" },
   "/users":            { roles: ["super_admin", "admin", "front_desk", "nurse"],                         source: "users.ts:20 GET /users" },
   "/audit":            { roles: ["super_admin", "compliance_officer"],                                   source: "audit.ts:8 router.use(/audit-logs) gate" },

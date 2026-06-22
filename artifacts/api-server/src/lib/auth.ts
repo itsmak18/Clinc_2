@@ -32,6 +32,11 @@ export interface TokenPayload {
   username: string;
   role: string;
   clinicId?: number;
+  /** Per-clinic IANA timezone (clinics.timezone), minted at login so server-side
+   *  date math (report day-windows, no-show boundaries) uses the clinic's
+   *  business day instead of the single env CLINIC_TZ fallback. Optional: legacy
+   *  tokens issued before this claim existed fall back to env in getClinicTimezone. */
+  timezone?: string;
   fph?: string;
   /** Phase 2: device_unverified — true when login was allowed on a new device
    *  without email confirmation (non-privileged roles, capability-gated session).

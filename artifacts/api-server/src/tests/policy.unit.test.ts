@@ -275,6 +275,29 @@ describe("jti replay (privileged scope)", () => {
     expect(d.ok).toBe(true);
     expect(d.trace.find(s => s.op === "jti")).toBeUndefined();
   });
+
+  it("[INVARIANT] evaluate() READS but never CONSUMES the jti — two privileged requests with the same session token both pass", async () => {
+    // The clinic_token is a reused session cookie: the SAME jti rides every
+    // request for the session's lifetime. The live privileged routes (PATCH/
+    // DELETE /users/:id, POST /users/:id/reset-password) authenticate with that
+    // cookie. If evaluate() ever called markJtiUsed(), the SECOND privileged
+    // action in a session (e.g. editing two users) would fail closed as a replay
+    // (1006). Pin that the kernel only READS isJtiUsed and NEVER marks — jti
+    // single-use is reserved for future short-TTL ONE-SHOT tokens that call
+    // markJtiUsed themselves AFTER the operation (ADR-007). Anyone "activating"
+    // F-H3 by marking the session jti here will trip this test.
+    const markSpy = vi.spyOn(runtime.revocationStore, "markJtiUsed");
+    const post = () => evaluate(
+      makeReq({ method: "POST", headers: { "x-csrf-token": "csrfval" } }),
+      "privileged",
+    );
+    const d1 = await post();
+    const d2 = await post();
+    expect(d1.ok).toBe(true);
+    expect(d2.ok).toBe(true);
+    expect(markSpy).not.toHaveBeenCalled();
+    expect(await runtime.revocationStore.isJtiUsed(PRIV.jti)).toBe(false);
+  });
 });
 
 // ── Fingerprint ────────────────────────────────────────────────────────────

@@ -34,6 +34,8 @@ export const vitalsSchema = z
     respiratoryRate:        z.number().int().min(5).max(60),
     weight:                 z.number().min(0.5).max(500),
     height:                 z.number().min(20).max(250),
+    glucose:                z.number().min(0).max(100),
+    pain:                   z.number().int().min(0).max(10),
   })
   .partial()
   .strict()  // Reject unknown keys — prevents PHI injection via extra fields

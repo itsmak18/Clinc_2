@@ -266,8 +266,8 @@ appointment_status: scheduled → checked_in → in_triage → ready_for_doctor 
                     (also: cancelled, no_show)
 booking_source:     online | phone | walk_in          ← on appointments table, default walk_in
 triage_priority:    normal | urgent | critical         ← on appointments table, default normal
-xray_status:        pending → uploaded → reviewed
-ultrasound_status:  pending → uploaded → reviewed
+xray_status:        requested → in_progress → completed   ← renamed from pending/uploaded/reviewed (migration 0038)
+ultrasound_status:  requested → in_progress → completed   ← renamed from pending/uploaded/reviewed (migration 0038)
 lab_test_status:    requested → in_progress → completed | cancelled
 invoice_status:     pending → paid | cancelled
 operation_status:   scheduled → in_progress → completed | cancelled
@@ -318,6 +318,13 @@ AUDIT_VERIFY_WINDOW_DAYS=7     # Daily integrity cron re-derives + compares the 
                               #   so tampering is caught daily, not just at the
                               #   quarterly restore drill. Plus verifyChainLinkage
                               #   walks prevHash==prior rootHash. Default 7.
+IMAGING_STORAGE_DIR=          # Where uploaded X-ray/ultrasound image files are written
+                              #   (AES-256-GCM encrypted at rest via FIELD_ENCRYPTION_KEY).
+                              #   Default ./storage/imaging (dev, gitignored). Prod = the
+                              #   imaging_data Docker volume (/data/imaging), mounted into
+                              #   api+worker and read-only into backup. MUST join the backup
+                              #   set. Never served via express.static — only the authenticated
+                              #   GET /{xray|ultrasound}/:id/images/:attId endpoint reads it.
 REVOCATION_READ_GRACE_MS=30000 # ADR-010: read-scope revocation bounded fail-open window.
                               #   Reads degrade only within this window of last healthy
                               #   store contact; sustained outage fails closed. 0 = always

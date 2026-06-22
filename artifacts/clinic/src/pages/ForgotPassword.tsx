@@ -34,7 +34,7 @@ export default function ForgotPassword() {
           <div className="w-8 h-8 rounded bg-[var(--teal-600)] flex items-center justify-center">
             <Activity className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold text-[var(--ink)]">MediCore</span>
+          <span className="font-bold text-[var(--ink)]">Wateen Clinic</span>
         </div>
 
         <h1 className="text-2xl font-bold text-[var(--ink)] mb-1">Forgot password</h1>

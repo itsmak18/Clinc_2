@@ -9,6 +9,7 @@ import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
+import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 export async function listXrays(
@@ -45,13 +46,15 @@ export async function listXrays(
       bodyPart: xrayRecordsTable.bodyPart,
       bodyPartAr: xrayRecordsTable.bodyPartAr,
       imageUrl: xrayRecordsTable.imageUrl,
+      images: xrayRecordsTable.images,
+      orderGroupId: xrayRecordsTable.orderGroupId,
       report: xrayRecordsTable.report,
       reportAr: xrayRecordsTable.reportAr,
       status: xrayRecordsTable.status,
       notes: xrayRecordsTable.notes,
       notesAr: xrayRecordsTable.notesAr,
       createdAt: xrayRecordsTable.createdAt,
-      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, dateOfBirth: patientsTable.dateOfBirth, gender: patientsTable.gender },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
     }).from(xrayRecordsTable)
       .leftJoin(patientsTable, eq(xrayRecordsTable.patientId, patientsTable.id))
@@ -69,7 +72,7 @@ export async function listXrays(
 
 export async function createXray(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string },
+  data: { patientId: number | string; requestedById: number | string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string; appointmentId?: number | string; orderGroupId?: string },
 ) {
   if (!data.patientId || !data.requestedById || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
@@ -80,8 +83,12 @@ export async function createXray(
     bodyPartAr: data.bodyPartAr,
     notes: data.notes, notesAr: data.notesAr,
     appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
+    orderGroupId: data.orderGroupId || null,
   }).returning();
   await logAudit(req, "CREATE", "xray", xray.id);
+  // Ordering a study from a consultation auto-advances the visit to
+  // awaiting_diagnostics (best-effort, no-ops if the visit isn't in_consultation).
+  await autoAdvanceVisit(req, { patientId: Number(data.patientId), appointmentId: xray.appointmentId, actions: ["diagnostics"] });
   return xray;
 }
 
@@ -114,7 +121,7 @@ export async function getXray(req: AuthRequest, xrayId: number) {
 export async function updateXray(
   req: AuthRequest,
   xrayId: number,
-  data: { imageUrl?: string; imageFileName?: string; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
+  data: { imageUrl?: string; imageFileName?: string; images?: { url: string; fileName?: string; caption?: string }[]; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
 ) {
   const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
   const [xray] = await db.update(xrayRecordsTable)
@@ -123,12 +130,14 @@ export async function updateXray(
     .returning();
   if (!xray) throw new NotFoundError("xray record", xrayId);
 
-  if (data.status === "reviewed") {
+  if (data.status === "completed") {
     const notifData = {
       clinicId: req.user!.clinicId,
       userId: xray.requestedById,
       title: "X-Ray Report Ready",
-      message: `X-ray report for ${xray.bodyPart} is ready for review`,
+      // F-4: keep clinical descriptors (body part) off the SSE/Redis wire — the
+      // title carries the category; the client fetches details via the API.
+      message: "Report is ready for review",
       type: "xray_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);

@@ -7,7 +7,7 @@ import { eq, isNull, and, gte, lte } from "drizzle-orm";
 import { todayBoundary, getClinicTimezone } from "../lib/dateUtils";
 import { hashPassword, validatePasswordStrictAsync } from "../lib/password";
 import { revokeAllTokensForUser } from "../lib/auth";
-import { logAudit, logRead } from "../lib/audit";
+import { logAudit, logRead, auditSnapshot, changedFields } from "../lib/audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
@@ -16,6 +16,24 @@ const VALID_SPECIALTIES = [
   "pediatrics", "orthopedics", "ultrasound", "xray", "neurology",
   "gynecology", "ophthalmology", "psychiatry",
 ] as const;
+
+/**
+ * Authorization guard for acting ON an existing user (update / reset-password /
+ * delete / toggle-shift). The route gate only restricts who may *call* these
+ * endpoints (super_admin + admin) and the create/promote path separately blocks
+ * minting a super_admin — but nothing stopped an `admin` from acting on an
+ * existing `super_admin` (e.g. resetting their password and logging in as them,
+ * F-1). super_admin is the system's top trust tier (it bypasses every role check
+ * in the kernel), so only a super_admin may manage a super_admin.
+ *
+ * Pure + exported so the security decision is unit-tested directly, independent
+ * of the DB-mocking needed for the service functions that consume it.
+ */
+export function canManageTarget(actorRole: string, targetRole: string): boolean {
+  if (actorRole === "super_admin") return true;   // super_admin manages anyone
+  if (targetRole === "super_admin") return false; // nobody below super_admin may touch a super_admin
+  return true;                                     // admin manages all non-super_admin users
+}
 
 export const userSelect = {
   id:         usersTable.id,
@@ -27,6 +45,11 @@ export const userSelect = {
   phone:      usersTable.phone,
   specialty:  usersTable.specialty,
   department: usersTable.department,
+  addressLine: usersTable.addressLine,
+  city:        usersTable.city,
+  region:      usersTable.region,
+  postalCode:  usersTable.postalCode,
+  country:     usersTable.country,
   isActive:   usersTable.isActive,
   isOnShift:  usersTable.isOnShift,
   createdAt:  usersTable.createdAt,
@@ -88,9 +111,14 @@ export async function createUser(
     phone?: string;
     specialty?: string;
     department?: string;
+    addressLine?: string;
+    city?: string;
+    region?: string;
+    postalCode?: string;
+    country?: string;
   },
 ) {
-  const { username, password, fullName, fullNameAr, email, role, phone, specialty, department } = body;
+  const { username, password, fullName, fullNameAr, email, role, phone, specialty, department, addressLine, city, region, postalCode, country } = body;
   if (!username || !password || !fullName || !role) {
     throw new ValidationError("Missing required fields: username, password, fullName, role");
   }
@@ -121,7 +149,12 @@ export async function createUser(
         role: role as any,
         phone,
         specialty,
-        department
+        department,
+        addressLine,
+        city,
+        region,
+        postalCode,
+        country,
       })
       .returning();
 
@@ -143,13 +176,18 @@ export async function updateUser(
     isOnShift?: boolean;
     specialty?: string;
     department?: string;
+    addressLine?: string;
+    city?: string;
+    region?: string;
+    postalCode?: string;
+    country?: string;
   },
 ) {
   if (userId === req.user!.userId) {
     throw new ForbiddenError("Employees cannot edit their own profile. Please contact an administrator.");
   }
 
-  const { fullName, fullNameAr, email, role, phone, isActive, isOnShift, specialty, department } = body;
+  const { fullName, fullNameAr, email, role, phone, isActive, isOnShift, specialty, department, addressLine, city, region, postalCode, country } = body;
 
   if (role === "super_admin" && req.user!.role !== "super_admin") {
     void logAudit(req, "ESCALATION_DENIED", "user", userId, { attemptedRole: role });
@@ -165,9 +203,16 @@ export async function updateUser(
     const [before] = await tx.select(userSelect).from(usersTable).where(and(...conditions));
     if (!before) throw new NotFoundError("User not found");
 
+    // F-1: an admin must not be able to modify a super_admin (demote/deactivate/
+    // change email → password-reset takeover). Only super_admin manages super_admin.
+    if (!canManageTarget(req.user!.role, before.role)) {
+      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: before.role, action: "update_user" });
+      throw new ForbiddenError("Only a super admin can modify a super admin account");
+    }
+
     const [user] = await tx
       .update(usersTable)
-      .set({ fullName, fullNameAr, email, role: role as any, phone, isActive, isOnShift, specialty, department, updatedAt: new Date() })
+      .set({ fullName, fullNameAr, email, role: role as any, phone, isActive, isOnShift, specialty, department, addressLine, city, region, postalCode, country, updatedAt: new Date() })
       .where(and(...conditions))
       .returning();
 
@@ -177,7 +222,15 @@ export async function updateUser(
       await revokeAllTokensForUser(userId);
     }
 
-    void logAudit(req, "UPDATE", "user", user.id, { before, after: user });
+    void logAudit(
+      req,
+      "UPDATE",
+      "user",
+      user.id,
+      { fields: changedFields(before, user) },
+      auditSnapshot(before),
+      auditSnapshot(user),
+    );
     return user;
   });
 }
@@ -190,6 +243,12 @@ export async function toggleShift(req: AuthRequest, userId: number) {
       .from(usersTable)
       .where(and(...conditions));
     if (!current) throw new NotFoundError("User not found");
+
+    // F-1: only a super_admin may toggle a super_admin's shift state.
+    if (!canManageTarget(req.user!.role, current.role)) {
+      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: current.role, action: "toggle_shift" });
+      throw new ForbiddenError("Only a super admin can manage a super admin account");
+    }
 
     const newShiftState = !current.isOnShift;
     const [user] = await tx
@@ -234,6 +293,15 @@ export async function deleteUser(req: AuthRequest, userId: number) {
 
   return runInTenantContext(req.user!, async (tx) => {
     const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+
+    // F-1: resolve the target's role before mutating so an admin cannot delete a super_admin.
+    const [target] = await tx.select({ role: usersTable.role }).from(usersTable).where(and(...conditions));
+    if (!target) throw new NotFoundError("User not found");
+    if (!canManageTarget(req.user!.role, target.role)) {
+      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "delete_user" });
+      throw new ForbiddenError("Only a super admin can delete a super admin account");
+    }
+
     const [user] = await tx
       .update(usersTable)
       .set({ isActive: false, deletedAt: new Date(), updatedAt: new Date() })
@@ -254,6 +322,17 @@ export async function resetPassword(req: AuthRequest, userId: number, newPasswor
   const hash = await hashPassword(newPassword);
   return runInTenantContext(req.user!, async (tx) => {
     const conditions = [eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId), isNull(usersTable.deletedAt)];
+
+    // F-1 (primary takeover vector): an admin resetting a super_admin's password
+    // could then log in as super_admin. Resolve the target's role and refuse
+    // before writing the new hash. Only super_admin may reset a super_admin.
+    const [target] = await tx.select({ role: usersTable.role }).from(usersTable).where(and(...conditions));
+    if (!target) throw new NotFoundError("User not found");
+    if (!canManageTarget(req.user!.role, target.role)) {
+      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "reset_password" });
+      throw new ForbiddenError("Only a super admin can reset a super admin's password");
+    }
+
     const [updated] = await tx
       .update(usersTable)
       .set({ passwordHash: hash, updatedAt: new Date() })

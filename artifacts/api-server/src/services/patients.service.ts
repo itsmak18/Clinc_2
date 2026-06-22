@@ -32,15 +32,60 @@ async function generateMRN(): Promise<string> {
   return `MRN-${ym}-${String(nextval).padStart(5, "0")}`;
 }
 
-export function serializeForRole<T extends Record<string, any>>(
-  patient: T,
-  role: string,
-): Omit<T, "allergies" | "bloodType"> | T {
-  if (role === "front_desk") {
-    const { allergies, bloodType, ...personalData } = patient;
-    return personalData as Omit<T, "allergies" | "bloodType">;
+// Fields a role must NOT receive on a patient object (HIPAA minimum-necessary):
+//   front_desk → clinical (allergies/bloodType): they handle logistics, not care.
+//   nurse/doctor → contact PII (address/phone/emergencyContact): clinical staff
+//     work from identity + clinical data; contact is front-desk's domain.
+const REDACTED_PATIENT_FIELDS: Record<string, ReadonlyArray<string>> = {
+  front_desk: ["allergies", "bloodType"],
+  nurse:      ["address", "phone", "emergencyContact"],
+  doctor:     ["address", "phone", "emergencyContact"],
+};
+
+// Only oversight roles see the full national ID card number on reads. Everyone
+// else (front desk included) gets the last 4 digits only — enough to confirm a
+// match without exposing the full sensitive ID in list/detail/summary views.
+// The full value is still entered at registration and searchable server-side.
+const FULL_ID_CARD_ROLES = new Set(["super_admin", "admin"]);
+
+function maskIdCard(value: unknown): string {
+  const s = String(value ?? "");
+  return s.length > 4 ? `••••${s.slice(-4)}` : s;
+}
+
+export function serializeForRole<T extends Record<string, any>>(patient: T, role: string): T {
+  const clone: Record<string, any> = { ...patient };
+  const redact = REDACTED_PATIENT_FIELDS[role];
+  if (redact?.length) for (const f of redact) delete clone[f];
+  if (!FULL_ID_CARD_ROLES.has(role) && clone.idCardNumber != null) {
+    clone.idCardNumber = maskIdCard(clone.idCardNumber);
   }
-  return patient;
+  return clone as T;
+}
+
+/**
+ * Which patient-summary sections a role may receive. The summary is a
+ * cross-module aggregator, so it MUST obey each role's module access (HIPAA
+ * minimum-necessary) — otherwise it leaks data the role can't reach via the
+ * module pages. Aligns with the route-access matrix:
+ *   - nurse:      none — identity/allergies/appointments only (vitals are their own
+ *                 table now, so the old "MR read for vitals" rationale is gone)
+ *   - doctor:     full clinical (records/labs/xray, already doctor-scoped) — NOT billing
+ *   - front_desk: billing balance only — clinical redacted (also see serializeForRole)
+ *   - xray/lab:   their own modality only
+ */
+type SummarySection = "records" | "xrays" | "labs" | "balance";
+const SUMMARY_SECTIONS: Record<string, ReadonlyArray<SummarySection>> = {
+  super_admin: ["records", "xrays", "labs", "balance"],
+  admin:       ["records", "xrays", "labs", "balance"],
+  doctor:      ["records", "xrays", "labs"],
+  nurse:       [],
+  front_desk:  ["balance"],
+  xray_staff:  ["xrays"],
+  lab_staff:   ["labs"],
+};
+function canSeeSummarySection(role: string, section: SummarySection): boolean {
+  return (SUMMARY_SECTIONS[role] ?? []).includes(section);
 }
 
 export async function listPatients(
@@ -114,6 +159,9 @@ export async function createPatient(
   }
 
   const idCardNumber = data.idCardNumber.trim();
+  if (!/^\d{11,}$/.test(idCardNumber)) {
+    throw new ValidationError("ID card number must be digits only and at least 11 digits");
+  }
   // Pre-check the per-clinic unique ID card constraint so a duplicate returns a
   // clear ConflictError instead of a raw 23505. The DB unique index
   // (patient_clinic_idcard_uq) remains the authoritative backstop.
@@ -192,6 +240,9 @@ export async function updatePatient(
   // collision with another patient up front (DB unique index is the backstop).
   if ("idCardNumber" in updateData) {
     if (!updateData.idCardNumber) throw new ValidationError("ID card number cannot be empty");
+    if (!/^\d{11,}$/.test(updateData.idCardNumber)) {
+      throw new ValidationError("ID card number must be digits only and at least 11 digits");
+    }
     const [dup] = await db.select({ id: patientsTable.id }).from(patientsTable)
       .where(and(
         eq(patientsTable.clinicId, req.user!.clinicId),
@@ -269,17 +320,23 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
 
   if (!result) throw new NotFoundError("patient", patientId);
   void logRead(req, "patient_summary", patientId);
+  const role = req.user!.role;
   const decrypted = decryptPatient(result.patient);
-  const outstandingBalance = result.pendingInvoices
-    .filter(inv => inv.status === "pending")
-    .reduce((s, inv) => s + parseFloat(String(inv.total)), 0);
+  // Minimum-necessary projection: only return the sections this role has module
+  // access to (and run the patient itself through serializeForRole, which the
+  // summary previously skipped — leaking allergies/bloodType to front_desk).
+  const outstandingBalance = canSeeSummarySection(role, "balance")
+    ? result.pendingInvoices
+        .filter(inv => inv.status === "pending")
+        .reduce((s, inv) => s + parseFloat(String(inv.total)), 0)
+    : 0;
 
   return {
-    patient: decrypted,
+    patient: serializeForRole(decrypted, role),
     recentAppointments: result.recentAppointments,
-    recentRecords: result.recentRecords,
-    recentXrays: result.recentXrays,
-    recentLabTests: result.recentLabTests,
+    recentRecords:  canSeeSummarySection(role, "records") ? result.recentRecords  : [],
+    recentXrays:    canSeeSummarySection(role, "xrays")   ? result.recentXrays    : [],
+    recentLabTests: canSeeSummarySection(role, "labs")    ? result.recentLabTests : [],
     outstandingBalance,
   };
 }

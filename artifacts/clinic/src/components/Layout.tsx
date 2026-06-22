@@ -22,7 +22,7 @@ const ADMIN_SECTIONS: { title: string; keys: string[] }[] = [
   { title: "Overview",    keys: ["dashboard"] },
   { title: "Clinical",    keys: ["patients", "appointments", "schedule", "triage", "medical-records"] },
   { title: "Diagnostics", keys: ["prescriptions", "xray", "ultrasound", "lab"] },
-  { title: "Operations",  keys: ["billing", "operations", "inventory", "reports"] },
+  { title: "Operations",  keys: ["billing", "reconciliation", "service-prices", "operations", "inventory", "reports"] },
   { title: "System",      keys: ["users", "audit", "settings", "notifications"] },
 ];
 
@@ -205,13 +205,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           className="flex items-center gap-2.5 flex-shrink-0 px-4 border-b border-[var(--line)]"
           style={{ height: "var(--topbar-h)" }}
         >
-          <div className="w-8 h-8 rounded-lg bg-[var(--teal-600)] flex items-center justify-center flex-shrink-0">
-            <Activity className="w-4 h-4 text-white" aria-hidden="true" />
-          </div>
+          <img
+            src="/wateen-mark.png"
+            alt="Wateen Clinic"
+            className="w-8 h-8 flex-shrink-0 object-contain"
+            aria-hidden="true"
+          />
           <div>
-            <div className="text-[13px] font-bold text-[var(--ink)] leading-tight">MediCore</div>
+            <div className="text-[13px] font-bold text-[var(--ink)] leading-tight">Wateen</div>
             <div className="eyebrow text-[9px] text-[var(--ink-muted)] leading-tight tracking-widest">
-              CLINIC SYSTEM
+              CLINIC
             </div>
           </div>
         </div>
@@ -310,7 +313,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {/* Page title */}
           <div className="flex-1 min-w-0">
             <h1 className="h3 truncate leading-tight">
-              {currentNav ? t(currentNav.labelKey as any) : "MediCore"}
+              {currentNav ? t(currentNav.labelKey as any) : "Wateen Clinic"}
             </h1>
           </div>
 

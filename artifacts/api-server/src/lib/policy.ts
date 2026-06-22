@@ -275,11 +275,12 @@ export async function evaluate(
   }
   step("tenancy", true);
 
-  // TODO(phase6): include `timezone` from the JWT payload once `auth.service.ts`
-  // login mints it (looked up from `clinics.timezone`). Until then,
-  // `getClinicTimezone(req)` in `lib/dateUtils.ts` falls back to env CLINIC_TZ.
+  // `timezone` is minted into the JWT at login (auth.service.ts looks it up from
+  // clinics.timezone) and threaded to req.user here. getClinicTimezone(req) in
+  // lib/dateUtils.ts uses it, falling back to env CLINIC_TZ for legacy tokens
+  // issued before this claim existed.
   return pass(
-    { userId: payload.userId, username: payload.username, role, clinicId, timezone: (payload as any).timezone },
+    { userId: payload.userId, username: payload.username, role, clinicId, timezone: payload.timezone },
     { sessionTtl: extractTokenTtl(rawToken) },
   );
 }
