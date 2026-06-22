@@ -29,6 +29,12 @@ export const usersTable = pgTable("users", {
   phone: text("phone"),
   specialty: text("specialty"),
   department: text("department"),
+  // Home address (staff personal data — not PHI)
+  addressLine: text("address_line"),
+  city: text("city"),
+  region: text("region"),
+  postalCode: text("postal_code"),
+  country: text("country"),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

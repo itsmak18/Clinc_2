@@ -226,10 +226,10 @@ export async function evaluateDeviceTrust(
       const link = buildVerificationLink(rawToken);
       await sendEmail({
         to: inp.email,
-        subject: "MediCore — verify this device to continue signing in",
+        subject: "Wateen Clinic — verify this device to continue signing in",
         text:
           `Hi ${inp.username},\n\n` +
-          `A new device tried to sign in to your MediCore account from IP ${inp.ipAddress}.\n` +
+          `A new device tried to sign in to your Wateen Clinic account from IP ${inp.ipAddress}.\n` +
           `If this was you, click to verify and complete sign-in (link expires in 15 min):\n\n${link}\n\n` +
           `If this was NOT you, ignore this email and notify the compliance officer.`,
         tag: "device_verify",
@@ -252,10 +252,10 @@ export async function evaluateDeviceTrust(
   if (isEmailVerifyEnabled() && inp.email) {
     await sendEmail({
       to: inp.email,
-      subject: "MediCore — new device signed in to your account",
+      subject: "Wateen Clinic — new device signed in to your account",
       text:
         `Hi ${inp.username},\n\n` +
-        `A new device just signed in to MediCore from IP ${inp.ipAddress}.\n` +
+        `A new device just signed in to Wateen Clinic from IP ${inp.ipAddress}.\n` +
         `If this was you, you don't need to do anything — the device will be trusted automatically in 24 hours.\n\n` +
         `If this was NOT you, click here immediately to revoke the session and lock the account:\n` +
         `${buildVerificationLink("WASNT_ME_PLACEHOLDER")}\n`,

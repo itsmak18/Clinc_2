@@ -68,3 +68,7 @@ credentials-backup.md
 # Database backup dumps — contain PHI, must never be committed
 backups/
 *.sql.gz
+
+# Uploaded imaging files (X-ray / ultrasound) — local dev store (IMAGING_STORAGE_DIR
+# default ./storage/imaging). Encrypted at rest, but still PHI; never commit.
+storage/

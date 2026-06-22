@@ -127,8 +127,13 @@ describe("validateTransition — role restrictions (403)", () => {
     if (!result.ok) expect(result.status).toBe(403);
   });
 
-  it("doctor cannot complete an appointment (must be front_desk/admin)", () => {
+  it("doctor CAN complete a pending_payment appointment (closes the visit; invoice settled separately)", () => {
     const result = validateTransition("complete", "pending_payment", "doctor");
+    expect(result.ok).toBe(true);
+  });
+
+  it("nurse cannot complete an appointment (not in the complete role list)", () => {
+    const result = validateTransition("complete", "pending_payment", "nurse");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(403);
   });
@@ -200,5 +205,31 @@ describe("validateTransition — result shape", () => {
         validFromStates: expect.arrayContaining(["ready_for_doctor"]),
       });
     }
+  });
+});
+
+// ── reconsult: the one sanctioned reversal ────────────────────────────────────
+
+describe("validateTransition — reconsult (awaiting_diagnostics → in_consultation)", () => {
+  it("doctor can reconsult from awaiting_diagnostics", () => {
+    const result = validateTransition("reconsult", "awaiting_diagnostics", "doctor");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.toStatus).toBe("in_consultation");
+  });
+
+  it("cannot reconsult from in_consultation (already there → 409)", () => {
+    const result = validateTransition("reconsult", "in_consultation", "doctor");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(409);
+  });
+
+  it("nurse cannot reconsult (403)", () => {
+    const result = validateTransition("reconsult", "awaiting_diagnostics", "nurse");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(403);
+  });
+
+  it("super_admin can reconsult", () => {
+    expect(validateTransition("reconsult", "awaiting_diagnostics", "super_admin").ok).toBe(true);
   });
 });

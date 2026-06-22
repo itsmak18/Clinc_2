@@ -1,0 +1,2 @@
+ALTER TABLE "operations" ADD COLUMN "requested_by_id" integer;--> statement-breakpoint
+ALTER TABLE "operations" ADD CONSTRAINT "operations_requested_by_id_users_id_fk" FOREIGN KEY ("requested_by_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;

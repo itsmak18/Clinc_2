@@ -50,7 +50,7 @@ export default function AccountDevices() {
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-1 text-[var(--ink)]">Your devices</h1>
       <p className="text-sm text-[var(--ink-muted)] mb-6">
-        Devices that have signed in to your MediCore account recently. Revoke
+        Devices that have signed in to your Wateen Clinic account recently. Revoke
         anything you don&apos;t recognise.
       </p>
 

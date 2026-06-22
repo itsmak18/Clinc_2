@@ -5,6 +5,7 @@ import usersRouter from "./users";
 import patientsRouter from "./patients";
 import appointmentsRouter from "./appointments";
 import medicalRecordsRouter from "./medical_records";
+import vitalsRouter from "./vitals";
 import clinicNoticesRouter from "./clinic_notices";
 import prescriptionsRouter from "./prescriptions";
 import xrayRouter from "./xray";
@@ -27,6 +28,7 @@ import passwordResetRouter from "./password-reset";
 import cspReportRouter from "./csp-report";
 import jwksRouter from "./jwks";
 import analyticsRouter from "./analytics";
+import servicesCatalogRouter from "./services-catalog";
 
 const router: IRouter = Router();
 
@@ -43,6 +45,7 @@ router.use(usersRouter);
 router.use(patientsRouter);
 router.use(appointmentsRouter);
 router.use(medicalRecordsRouter);
+router.use(vitalsRouter);
 router.use(clinicNoticesRouter);
 router.use(prescriptionsRouter);
 router.use(xrayRouter);
@@ -61,5 +64,6 @@ router.use(consentRouter);
 router.use(breakGlassRouter);
 router.use(erasureRouter);
 router.use(analyticsRouter);
+router.use(servicesCatalogRouter);
 
 export default router;

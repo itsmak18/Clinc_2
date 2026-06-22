@@ -1,4 +1,4 @@
-﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -9,6 +9,7 @@ import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
+import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 export async function listUltrasounds(
@@ -49,13 +50,15 @@ export async function listUltrasounds(
       bodyPart: ultrasoundRecordsTable.bodyPart,
       bodyPartAr: ultrasoundRecordsTable.bodyPartAr,
       imageUrl: ultrasoundRecordsTable.imageUrl,
+      images: ultrasoundRecordsTable.images,
+      orderGroupId: ultrasoundRecordsTable.orderGroupId,
       report: ultrasoundRecordsTable.report,
       reportAr: ultrasoundRecordsTable.reportAr,
       status: ultrasoundRecordsTable.status,
       notes: ultrasoundRecordsTable.notes,
       notesAr: ultrasoundRecordsTable.notesAr,
       createdAt: ultrasoundRecordsTable.createdAt,
-      patient: { id: patientsTable.id, fullName: patientsTable.fullName },
+      patient: { id: patientsTable.id, fullName: patientsTable.fullName, mrn: patientsTable.mrn, dateOfBirth: patientsTable.dateOfBirth, gender: patientsTable.gender },
       requestedBy: { id: usersTable.id, fullName: usersTable.fullName },
     }).from(ultrasoundRecordsTable)
       .leftJoin(patientsTable, eq(ultrasoundRecordsTable.patientId, patientsTable.id))
@@ -73,7 +76,7 @@ export async function listUltrasounds(
 
 export async function createUltrasound(
   req: AuthRequest,
-  data: { patientId: number | string; requestedById: number | string; examType: string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string },
+  data: { patientId: number | string; requestedById: number | string; examType: string; bodyPart: string; bodyPartAr?: string; notes?: string; notesAr?: string; orderGroupId?: string },
 ) {
   if (!data.patientId || !data.requestedById || !data.examType || !data.bodyPart) {
     throw new ValidationError("Missing required fields");
@@ -82,8 +85,12 @@ export async function createUltrasound(
     clinicId: req.user!.clinicId,
     patientId: Number(data.patientId), requestedById: Number(data.requestedById),
     examType: data.examType as any, bodyPart: data.bodyPart, bodyPartAr: data.bodyPartAr, notes: data.notes, notesAr: data.notesAr,
+    orderGroupId: data.orderGroupId || null,
   }).returning();
   await logAudit(req, "CREATE", "ultrasound", record.id);
+  // Ultrasound rows carry no appointmentId - resolve the patient's active visit
+  // and advance it to awaiting_diagnostics (best-effort, skip-on-ambiguity).
+  await autoAdvanceVisit(req, { patientId: Number(data.patientId), actions: ["diagnostics"] });
   return record;
 }
 
@@ -116,7 +123,7 @@ export async function getUltrasound(req: AuthRequest, id: number) {
 export async function updateUltrasound(
   req: AuthRequest,
   id: number,
-  data: { imageUrl?: string; imageFileName?: string; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
+  data: { imageUrl?: string; imageFileName?: string; images?: { url: string; fileName?: string; caption?: string }[]; report?: string; reportAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string; bodyPartAr?: string },
 ) {
   const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
   const [record] = await db.update(ultrasoundRecordsTable)
@@ -125,12 +132,14 @@ export async function updateUltrasound(
     .returning();
   if (!record) throw new NotFoundError("ultrasound record", id);
 
-  if (data.status === "reviewed") {
+  if (data.status === "completed") {
     const notifData = {
       clinicId: req.user!.clinicId,
       userId: record.requestedById,
       title: "Ultrasound Report Ready",
-      message: `Ultrasound report for ${record.examType} â€” ${record.bodyPart} is ready for review`,
+      // F-4: keep clinical descriptors (exam type / body part) off the SSE/Redis
+      // wire - the title carries the category; the client fetches via the API.
+      message: "Report is ready for review",
       type: "ultrasound_ready" as const,
     };
     const [notif] = await db.insert(notificationsTable).values(notifData).returning().catch(() => [null]);

@@ -2,12 +2,13 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable } from "@workspace/db";
-import { eq, isNull, desc, gte, lte, and, sql, inArray } from "drizzle-orm";
-import { getTimezoneOffset } from "date-fns-tz";
+import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable, usersTable } from "@workspace/db";
+import { eq, isNull, desc, gte, lte, and, or, sql, inArray } from "drizzle-orm";
+import { dayBoundary, clinicDateString, getClinicTimezone } from "../lib/dateUtils";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { itemsSchema } from "../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
+import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 // Per-clinic atomic counter — avoids leaking cross-tenant invoice volume via
@@ -82,6 +83,19 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
     if (!isNaN(pid)) conditions.push(eq(invoicesTable.patientId, pid));
   }
 
+  // Front desk works the current day's cash: show today's invoices PLUS any
+  // still-unpaid (pending) invoice from a prior day, so nothing payable gets
+  // stranded. Older paid/cancelled invoices are hidden. billing_manager / admin
+  // / super_admin keep the full history.
+  if (req.user!.role === "front_desk") {
+    const tz = getClinicTimezone(req);
+    const { start, end } = dayBoundary(clinicDateString(tz), tz);
+    conditions.push(or(
+      and(gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end)),
+      eq(invoicesTable.status, "pending"),
+    ));
+  }
+
   const rows = await runInTenantContext(req.user!, async (tx) =>
     tx.select({
       id: invoicesTable.id,
@@ -109,7 +123,7 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
 
 export async function createInvoice(
   req: AuthRequest,
-  data: { patientId: number; items: unknown[]; discount?: number; notes?: string },
+  data: { patientId: number; items: unknown[]; discount?: number; notes?: string; markPaid?: boolean },
 ) {
   const createdById = req.user!.userId;
   // patientId + non-empty items are validated at the route by
@@ -125,14 +139,34 @@ export async function createInvoice(
   }
   const subtotal = parsedItems.data.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
   const discount = data.discount ?? 0;
+  // F-5: bound the discount. The OpenAPI schema types it as a bare number, so without
+  // this a negative discount inflates the total (overcharge) and a discount > subtotal
+  // yields a negative total (usable to mask cash skimming in daily reconciliation).
+  if (!Number.isFinite(discount) || discount < 0) {
+    throw new ValidationError("Discount must be a non-negative number");
+  }
+  if (discount > subtotal) {
+    throw new ValidationError("Discount cannot exceed the invoice subtotal");
+  }
   const total = subtotal - discount;
   const invoiceNumber = await generateInvoiceNumber(req.user!.clinicId);
+
+  // Point-of-sale: when markPaid, the invoice is created already paid (front desk
+  // collects at the counter). This deliberately bypasses the separate pay step +
+  // its SoD/anti-fraud gate, which only apply to the pending → pay-later flow.
+  const paidNow = data.markPaid === true;
 
   const [invoice] = await db.insert(invoicesTable).values({
     clinicId: req.user!.clinicId,
     invoiceNumber, patientId: data.patientId, createdById,
     subtotal: String(subtotal), discount: String(discount),
     total: String(total), notes: data.notes,
+    status: paidNow ? "paid" : "pending",
+    // Use DB now() (not a JS Date) so paid_at lands in the same time frame as
+    // the DB-managed created_at/updated_at columns. Mixing app `new Date()` and
+    // `defaultNow()` in a `timestamp` (no-tz) column stored the two ~3h apart,
+    // which dropped paid invoices out of the reconciliation day window.
+    paidAt: paidNow ? sql`now()` : null,
   }).returning();
 
   await db.insert(invoiceItemsTable).values(
@@ -145,7 +179,11 @@ export async function createInvoice(
     })),
   );
 
-  await logAudit(req, "CREATE", "invoice", invoice.id);
+  await logAudit(req, "CREATE", "invoice", invoice.id, paidNow ? { markPaid: true } : undefined);
+  if (paidNow) await logAudit(req, "PAY", "invoice", invoice.id, { atCreation: true });
+  // Billing the visit moves it to checkout (best-effort; no-ops unless the
+  // patient's single active visit is in_consultation/awaiting_diagnostics).
+  await autoAdvanceVisit(req, { patientId: data.patientId, actions: ["payment"] });
   return { ...invoice, items: parsedItems.data };
 }
 
@@ -221,7 +259,7 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
   const payConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
 
   const [updated] = await db.update(invoicesTable)
-    .set({ status: "paid", paidAt: new Date(), updatedAt: new Date() })
+    .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
     .where(and(...payConditions))
     .returning();
 
@@ -233,12 +271,9 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
 }
 
 export async function getDailySummary(req: AuthRequest, dateStr?: string) {
-  const date = dateStr || new Date().toISOString().split("T")[0];
-  const CLINIC_TZ = process.env.CLINIC_TZ ?? "Europe/Istanbul";
-  const start = new Date(`${date}T00:00:00`);
-  start.setTime(start.getTime() - getTimezoneOffset(CLINIC_TZ, start));
-  const end = new Date(`${date}T23:59:59.999`);
-  end.setTime(end.getTime() - getTimezoneOffset(CLINIC_TZ, end));
+  const tz = getClinicTimezone(req);
+  const date = dateStr || clinicDateString(tz);
+  const { start, end } = dayBoundary(date, tz);
 
   const conditions: any[] = [isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end), eq(invoicesTable.clinicId, req.user!.clinicId)];
 
@@ -250,5 +285,70 @@ export async function getDailySummary(req: AuthRequest, dateStr?: string) {
     totalInvoices:   invoices.length,
     paidInvoices:    invoices.filter(i => i.status === "paid").length,
     pendingInvoices: invoices.filter(i => i.status === "pending").length,
+  };
+}
+
+/**
+ * End-of-day reconciliation (Z-report). super_admin only (gated at the route).
+ * Two lenses: money COLLECTED today (paidAt in window — the cash-drawer list) and
+ * invoices CREATED today (createdAt in window — pending/cancelled exposure).
+ */
+export async function getBillingReconciliation(req: AuthRequest, dateStr?: string) {
+  const tz = getClinicTimezone(req);
+  const date = dateStr || clinicDateString(tz);
+  const { start, end } = dayBoundary(date, tz);
+
+  const createdInWindow = and(gte(invoicesTable.createdAt, start), lte(invoicesTable.createdAt, end));
+  const paidInWindow = and(gte(invoicesTable.paidAt, start), lte(invoicesTable.paidAt, end));
+
+  const rows = await db.select({
+    id:            invoicesTable.id,
+    invoiceNumber: invoicesTable.invoiceNumber,
+    status:        invoicesTable.status,
+    total:         invoicesTable.total,
+    createdAt:     invoicesTable.createdAt,
+    paidAt:        invoicesTable.paidAt,
+    patientName:   patientsTable.fullName,
+    createdByName: usersTable.fullName,
+  })
+    .from(invoicesTable)
+    .leftJoin(patientsTable, eq(invoicesTable.patientId, patientsTable.id))
+    .leftJoin(usersTable, eq(invoicesTable.createdById, usersTable.id))
+    .where(and(
+      isNull(invoicesTable.deletedAt),
+      eq(invoicesTable.clinicId, req.user!.clinicId),
+      or(createdInWindow, paidInWindow),
+    ))
+    .orderBy(desc(invoicesTable.paidAt));
+
+  const num = (v: unknown) => parseFloat(String(v)) || 0;
+  const inWin = (d: Date | null | undefined) => !!d && new Date(d) >= start && new Date(d) <= end;
+  const sum = (arr: typeof rows) => arr.reduce((s, r) => s + num(r.total), 0);
+
+  const created = rows.filter(r => inWin(r.createdAt));
+  const paidToday = rows.filter(r => r.status === "paid" && inWin(r.paidAt));
+  const invoicedToday = created.filter(r => r.status !== "cancelled");
+  const pendingToday = created.filter(r => r.status === "pending");
+  const cancelledToday = created.filter(r => r.status === "cancelled");
+
+  void logRead(req, "invoice", undefined);
+  await logAudit(req, "RECONCILIATION_VIEW", "invoice", undefined, { date });
+
+  return {
+    date,
+    summary: {
+      collectedTotal:   sum(paidToday),     collectedCount:   paidToday.length,
+      invoicedTotal:    sum(invoicedToday), invoicedCount:    invoicedToday.length,
+      outstandingTotal: sum(pendingToday),  outstandingCount: pendingToday.length,
+      cancelledTotal:   sum(cancelledToday),cancelledCount:   cancelledToday.length,
+    },
+    payments: paidToday.map(r => ({
+      id: r.id,
+      invoiceNumber: r.invoiceNumber,
+      patientName: r.patientName,
+      total: num(r.total),
+      paidAt: r.paidAt,
+      createdByName: r.createdByName,
+    })),
   };
 }

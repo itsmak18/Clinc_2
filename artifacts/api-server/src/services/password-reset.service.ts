@@ -72,10 +72,10 @@ export async function issueSelfServiceReset(username: string): Promise<void> {
 
   await sendEmail({
     to: user.email,
-    subject: "MediCore — reset your password",
+    subject: "Wateen Clinic — reset your password",
     text:
       `Hi ${user.fullName},\n\n` +
-      `Someone (hopefully you) requested a password reset for your MediCore account.\n` +
+      `Someone (hopefully you) requested a password reset for your Wateen Clinic account.\n` +
       `Click the link below within 30 minutes to choose a new password:\n\n${buildResetLink(rawToken)}\n\n` +
       `If you did NOT request this, ignore this email — your password will remain unchanged.`,
     tag: "password_reset",

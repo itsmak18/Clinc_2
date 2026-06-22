@@ -275,6 +275,13 @@ services:
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
       DB_POOL_MAX:     ${DB_POOL_MAX:-40}
+      # Uploaded X-ray / ultrasound image files (AES-256-GCM encrypted at rest).
+      # Persisted on the imaging_data volume — read_only rootfs does not apply to
+      # mounted volumes. MUST be included in the backup set (see backup service).
+      IMAGING_STORAGE_DIR: /data/imaging
+    # imaging_data is writable even though the rootfs is read-only (volume mount).
+    volumes:
+      - imaging_data:/data/imaging
     entrypoint: ["sh", "-c"]
     # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
     # $$( ) escapes so command-substitution happens inside the container at run time.
@@ -361,6 +368,11 @@ services:
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
       DB_POOL_MAX:     ${DB_POOL_MAX:-40}
+      # Same imaging volume as api — the erasure path purges image files, and
+      # mounting it keeps the worker able to operate on them if moved here later.
+      IMAGING_STORAGE_DIR: /data/imaging
+    volumes:
+      - imaging_data:/data/imaging
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -741,6 +753,13 @@ services:
             echo "[backup] Starting daily backup at $$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             if node scripts/backup-verify.mjs; then
               LAST_RUN_DAY="$$CURRENT_DAY"
+              # Snapshot the encrypted imaging files alongside the DB dump so a
+              # restore recovers studies, not just metadata. Files are already
+              # AES-256-GCM ciphertext; tar is for bundling/retention. Prune to
+              # the same retention window as DB dumps.
+              tar czf "/backups/imaging-$$CURRENT_DAY.tar.gz" -C /data/imaging . 2>/dev/null \
+                && echo "[backup] imaging snapshot OK" || echo "[backup] imaging snapshot skipped (empty?)"
+              find /backups -name 'imaging-*.tar.gz' -mtime +$${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
               sh /opt/monitoring/backup-metrics.sh || echo "[backup] textfile write failed"
               echo "[backup] Daily backup SUCCESS"
             else
@@ -762,6 +781,7 @@ services:
     volumes:
       - backup_data:/backups
       - backup_metrics:/metrics
+      - imaging_data:/data/imaging:ro   # read-only — snapshot the encrypted study files
       - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
       # GPG keyring is read-only — the backup container only needs the recipient
       # PUBLIC key to encrypt. The private key lives on the restore host only
@@ -806,6 +826,9 @@ volumes:
   backup_metrics:     # Shared volume between backup container and node_exporter
                       # textfile collector. backup-metrics.sh writes backup.prom here;
                       # node_exporter reads it for BackupStale + BackupMissingTextfile alerts.
+  imaging_data:       # Uploaded X-ray / ultrasound image files (AES-256-GCM at rest).
+                      # Mounted rw into api+worker, ro into backup. Mount a host
+                      # path or NFS in prod for durability beyond container lifetime.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 # All files: mode 0600 owned by the deploy user. Never check into git.

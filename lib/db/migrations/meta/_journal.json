@@ -218,6 +218,62 @@
       "when": 1781532675674,
       "tag": "0030_unknown_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1781572325414,
+      "tag": "0031_overrated_johnny_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1781642882614,
+      "tag": "0032_tense_trish_tilby",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1781644356926,
+      "tag": "0033_left_rhodey",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1781647710598,
+      "tag": "0034_overrated_hercules",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1781814494132,
+      "tag": "0035_noisy_violations",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1781831903141,
+      "tag": "0036_fuzzy_carmella_unuscione",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1781955813808,
+      "tag": "0037_hesitant_blockbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1782060566046,
+      "tag": "0038_acoustic_the_enforcers",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Metric from "@/components/Metric";
 import { SkeletonMetric } from "@/components/ui/skeleton";
 import StatusBadge from "@/components/StatusBadge";
+import { flowLabel } from "@/lib/appointment-flow";
 import { formatDate, formatDateTime } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -58,8 +59,8 @@ export default function DoctorDashboard() {
   );
 
   const { data: xrayResults } = useListXrayImages(
-    { status: "uploaded" },
-    { query: { queryKey: getListXrayImagesQueryKey({ status: "uploaded" }) } },
+    { status: "completed" },
+    { query: { queryKey: getListXrayImagesQueryKey({ status: "completed" }) } },
   );
 
   const { data: notifications } = useListNotifications(
@@ -153,20 +154,27 @@ export default function DoctorDashboard() {
           ) : (
             <div className="space-y-2">
               {queue.map(apt => {
-                const isActionable =
-                  apt.status === "ready_for_doctor" ||
-                  apt.status === "in_consultation" ||
-                  apt.status === "completed";
-
+                // The next action per status. awaiting_diagnostics → Resume Consult
+                // and pending_payment → View open the patient page, where the
+                // visit-action bar (PatientVisitActions) offers the real step.
                 let actionLabel = "";
                 if (apt.status === "ready_for_doctor") actionLabel = t("startConsultation");
                 else if (apt.status === "in_consultation") actionLabel = t("continueConsultation");
+                else if (apt.status === "awaiting_diagnostics") actionLabel = t("resumeConsult");
+                else if (apt.status === "pending_payment") actionLabel = t("viewRecord");
                 else if (apt.status === "completed") actionLabel = t("viewRecord");
+
+                // Every row is openable so no patient is a dead end.
+                const openPatient = () => setLocation(`/patients/${apt.patientId}`);
 
                 return (
                   <div
                     key={apt.id}
-                    className="flex items-center gap-3 p-2.5 rounded-lg border border-[var(--line)] text-[13px]"
+                    role="button"
+                    tabIndex={0}
+                    onClick={openPatient}
+                    onKeyDown={e => { if (e.key === "Enter") openPatient(); }}
+                    className="flex items-center gap-3 p-2.5 rounded-lg border border-[var(--line)] text-[13px] cursor-pointer hover:bg-[var(--surface-2)] transition-colors"
                   >
                     <span className="text-[11px] text-[var(--ink-muted)] font-mono w-10 flex-shrink-0">
                       {fmtTime(apt.scheduledAt)}
@@ -177,14 +185,14 @@ export default function DoctorDashboard() {
                       </p>
                       <p className="text-[11px] text-[var(--ink-muted)] truncate">{apt.reason}</p>
                     </div>
-                    <StatusBadge status={apt.status} />
-                    {isActionable && (
+                    <StatusBadge status={apt.status} label={flowLabel(t, apt.status)} />
+                    {actionLabel && (
                       <button
                         className={cn(
                           "btn btn-sm flex-shrink-0 gap-1",
                           apt.status === "ready_for_doctor" ? "btn-primary" : "btn-outline",
                         )}
-                        onClick={() => setLocation(`/patients/${apt.patientId}`)}
+                        onClick={e => { e.stopPropagation(); openPatient(); }}
                       >
                         {actionLabel}
                         <ArrowRight className="w-3 h-3" />

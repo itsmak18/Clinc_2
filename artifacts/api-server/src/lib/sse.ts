@@ -6,6 +6,12 @@ import { sseConnectionsGauge } from "./metrics";
 const clients = new Map<number, Set<Response>>();
 let totalConnections = 0;
 
+// Clinic-scoped fan-out for board-refresh broadcasts (cross-role real-time).
+// Keyed by clinicId; `resClinic` is the reverse index so removeSSEClient (which
+// only gets userId+res) can clean up without a clinicId argument.
+const clinicClients = new Map<number, Set<Response>>();
+const resClinic = new Map<Response, number>();
+
 // Safety nets; not expected to hit at current scale (~20 internal users).
 const MAX_CONNECTIONS = parseInt(process.env.SSE_MAX_CONNECTIONS ?? "500", 10);
 const MAX_PER_USER    = parseInt(process.env.SSE_MAX_PER_USER    ?? "10",  10);
@@ -46,7 +52,7 @@ function appendToReplayBuffer(userId: number, entry: BufferedEvent): void {
  * lastEventId: if the reconnecting client sent Last-Event-ID, replay any
  * buffered events newer than that ID before flushing the connection header.
  */
-export function addSSEClient(userId: number, res: Response, lastEventId?: number): boolean {
+export function addSSEClient(userId: number, res: Response, lastEventId?: number, clinicId?: number): boolean {
   if (totalConnections >= MAX_CONNECTIONS) return false;
   let set = clients.get(userId);
   if (!set) {
@@ -59,11 +65,19 @@ export function addSSEClient(userId: number, res: Response, lastEventId?: number
       try { oldest.end(); } catch { /* already closed */ }
       set.delete(oldest);
       totalConnections--;
+      unregisterClinic(oldest);
     }
   }
   set.add(res);
   totalConnections++;
   sseConnectionsGauge.set(totalConnections);
+
+  if (clinicId !== undefined) {
+    let cset = clinicClients.get(clinicId);
+    if (!cset) { cset = new Set(); clinicClients.set(clinicId, cset); }
+    cset.add(res);
+    resClinic.set(res, clinicId);
+  }
 
   // Replay missed events if the client sent Last-Event-ID.
   if (lastEventId !== undefined && lastEventId > 0) {
@@ -81,12 +95,24 @@ export function addSSEClient(userId: number, res: Response, lastEventId?: number
   return true;
 }
 
+// Remove a connection from the clinic fan-out index (no-op if it never joined one).
+function unregisterClinic(res: Response): void {
+  const cid = resClinic.get(res);
+  if (cid === undefined) return;
+  const cset = clinicClients.get(cid);
+  cset?.delete(res);
+  if (cset && cset.size === 0) clinicClients.delete(cid);
+  resClinic.delete(res);
+}
+
 export function removeSSEClient(userId: number, res: Response): void {
   const set = clients.get(userId);
-  if (!set) return;
-  if (set.delete(res)) totalConnections--;
-  if (set.size === 0) clients.delete(userId);
-  sseConnectionsGauge.set(totalConnections);
+  if (set) {
+    if (set.delete(res)) totalConnections--;
+    if (set.size === 0) clients.delete(userId);
+    sseConnectionsGauge.set(totalConnections);
+  }
+  unregisterClinic(res);
 }
 
 const SSE_CHANNEL = "medicore_sse_events";
@@ -94,7 +120,22 @@ const SSE_CHANNEL = "medicore_sse_events";
 // Module-level subscription — one handler for all SSE fan-out regardless of adapter.
 runtime.eventBus.subscribe(SSE_CHANNEL, (message) => {
   try {
-    const { userId, event, data } = JSON.parse(message);
+    const parsed = JSON.parse(message);
+
+    // Clinic broadcast: a board-refresh hint to every connection in the clinic.
+    // IDs-only payload, no per-user replay buffer (a missed refresh self-heals on
+    // the next poll/reconnect, so the ring buffer isn't worth the per-user churn).
+    if (parsed.clinicId != null && parsed.userId == null) {
+      const cset = clinicClients.get(parsed.clinicId);
+      if (!cset || cset.size === 0) return;
+      const payload = `event: ${parsed.event}\ndata: ${JSON.stringify(parsed.data)}\n\n`;
+      for (const res of cset) {
+        try { res.write(payload); } catch { cset.delete(res); }
+      }
+      return;
+    }
+
+    const { userId, event, data } = parsed;
     const set = clients.get(userId);
 
     const eventId = nextEventId(userId);
@@ -119,6 +160,19 @@ export function emitToUser(userId: number, event: string, data: unknown): void {
   const message = JSON.stringify({ userId, event, data });
   runtime.eventBus.publish(SSE_CHANNEL, message).catch((err) => {
     logger.error({ err }, "Failed to publish SSE event");
+  });
+}
+
+/**
+ * Broadcast a board-refresh hint to EVERY SSE connection in a clinic — the
+ * cross-role real-time path (appointment transitions) so other role boards
+ * update live instead of polling every 30s. Goes through the eventBus so all API
+ * replicas fan out. Payload MUST be IDs-only (no PHI) — see the SSE PHI rule.
+ */
+export function emitToClinic(clinicId: number, event: string, data: unknown): void {
+  const message = JSON.stringify({ clinicId, event, data });
+  runtime.eventBus.publish(SSE_CHANNEL, message).catch((err) => {
+    logger.error({ err }, "Failed to publish SSE clinic broadcast");
   });
 }
 
@@ -154,6 +208,8 @@ export function closeAllSSEClients(): number {
     }
   }
   clients.clear();
+  clinicClients.clear();
+  resClinic.clear();
   totalConnections = 0;
   sseConnectionsGauge.set(0);
   return closed;

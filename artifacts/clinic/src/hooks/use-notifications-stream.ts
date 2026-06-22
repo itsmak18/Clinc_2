@@ -1,6 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getListNotificationsQueryKey } from "@workspace/api-client-react";
+import {
+  getListNotificationsQueryKey,
+  getListAppointmentsQueryKey,
+  getGetTodayAppointmentsQueryKey,
+  getGetNurseDashboardQueryKey,
+} from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 
@@ -64,6 +69,15 @@ export function useNotificationsStream() {
         } catch {
           // ignore parse errors
         }
+      });
+
+      // Cross-role real-time: any appointment transition in the clinic (manual
+      // or Phase 2 auto-advance) refreshes the flow boards live, replacing the
+      // 30s poll. Payload is IDs-only; the boards refetch full rows themselves.
+      es.addEventListener("appointment.transition", () => {
+        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetTodayAppointmentsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetNurseDashboardQueryKey() });
       });
 
       // Server sends this during graceful shutdown with a per-connection jitter

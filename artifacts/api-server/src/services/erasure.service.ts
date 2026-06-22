@@ -5,10 +5,13 @@ import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import {
   erasureRequestsTable, patientsTable, medicalRecordsTable,
   prescriptionsTable, labTestsTable, xrayRecordsTable,
-  ultrasoundRecordsTable, appointmentsTable,
+  ultrasoundRecordsTable, appointmentsTable, vitalsTable,
+  imagingAttachmentsTable,
 } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
+import { logger } from "../lib/logger";
+import { deleteImageFile } from "../lib/imaging-storage";
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
@@ -119,6 +122,9 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
     // Per-entity counts of rows actually scrubbed, so the audit record reflects
     // exactly what was erased (F-P3-1 — the old hard-coded list overstated it).
     const erasedCounts: Record<string, number> = {};
+    // Physical image files to hard-delete AFTER the DB transaction commits
+    // (filesystem unlink cannot participate in the SQL transaction).
+    const imageFilesToPurge: string[] = [];
 
     // We already run inside a transaction block in runInTenantContext,
     // so nested transaction creates savepoints.
@@ -186,12 +192,13 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: labTestsTable.id });
       erasedCounts.lab_tests = lab.length;
 
-      // X-ray records — report + image (URL/filename) + notes are plaintext PHI.
+      // X-ray records — report + image (URL/filename/jsonb) + notes are plaintext PHI.
       const xray = await nestedTx.update(xrayRecordsTable).set({
         report: null,
         reportAr: null,
         imageUrl: null,
         imageFileName: null,
+        images: null,
         notes: null,
         notesAr: null,
         deletedAt: now,
@@ -206,6 +213,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         reportAr: null,
         imageUrl: null,
         imageFileName: null,
+        images: null,
         notes: null,
         notesAr: null,
         deletedAt: now,
@@ -213,6 +221,28 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
       }).where(and(eq(ultrasoundRecordsTable.patientId, patientId), eq(ultrasoundRecordsTable.clinicId, clinicId), isNull(ultrasoundRecordsTable.deletedAt)))
         .returning({ id: ultrasoundRecordsTable.id });
       erasedCounts.ultrasound_records = us.length;
+
+      // Imaging attachments — soft-delete the metadata rows and collect the
+      // storage keys so the encrypted bytes on disk are purged after commit.
+      // Hard-deleting the file is what makes the imaging PHI irrecoverable (the
+      // iv/tag envelope lives on the row, so the bytes alone are useless once gone).
+      const atts = await nestedTx.update(imagingAttachmentsTable).set({
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(imagingAttachmentsTable.patientId, patientId), eq(imagingAttachmentsTable.clinicId, clinicId), isNull(imagingAttachmentsTable.deletedAt)))
+        .returning({ storageKey: imagingAttachmentsTable.storageKey });
+      for (const a of atts) imageFilesToPurge.push(a.storageKey);
+      erasedCounts.imaging_attachments = atts.length;
+
+      // Vitals — encrypted JSONB PHI + free-text notes; overwrite + soft-delete.
+      const vit = await nestedTx.update(vitalsTable).set({
+        vitals: null,
+        notes: null,
+        deletedAt: now,
+        updatedAt: now,
+      }).where(and(eq(vitalsTable.patientId, patientId), eq(vitalsTable.clinicId, clinicId), isNull(vitalsTable.deletedAt)))
+        .returning({ id: vitalsTable.id });
+      erasedCounts.vitals = vit.length;
 
       // Appointments — reason/notes/cancellationReason are free-text that can hold
       // PHI. Scrub them but keep the workflow shell (status/timestamps) for the
@@ -237,6 +267,17 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         updatedAt: now,
       }).where(and(eq(erasureRequestsTable.id, requestId), eq(erasureRequestsTable.clinicId, clinicId)));
     });
+
+    // Purge the encrypted image bytes from disk now the DB rows are committed.
+    // Best-effort: a failed unlink (already-gone/permissions) is logged, not
+    // fatal — the metadata + jsonb pointers are already scrubbed.
+    for (const key of imageFilesToPurge) {
+      try {
+        await deleteImageFile(key);
+      } catch (err) {
+        logger.error({ err, requestId, storageKey: key }, "erasure_image_unlink_failed");
+      }
+    }
 
     // Immutable audit entry outside the transaction — must survive even if something goes wrong post-tx.
     // erasedEntities is derived from rows actually scrubbed (accurate evidence).

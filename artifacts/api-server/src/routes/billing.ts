@@ -7,6 +7,7 @@ import { ValidationError } from "../services/errors";
 import { safeParseInt } from "../lib/validators";
 import {
   listInvoices, createInvoice, getInvoice, updateInvoice, cancelInvoice, payInvoice, getDailySummary,
+  getBillingReconciliation,
 } from "../services/billing.service";
 
 const router = Router();
@@ -76,6 +77,14 @@ router.get("/billing/daily-summary",
   requireRole("super_admin", "admin", "billing_manager"),
   asyncHandler(async (req: AuthRequest, res) => {
     res.json(await getDailySummary(req, req.query.date as string | undefined));
+  }),
+);
+
+// End-of-day reconciliation / Z-report — super_admin only.
+router.get("/billing/reconciliation",
+  requireRole("super_admin"),
+  asyncHandler(async (req: AuthRequest, res) => {
+    res.json(await getBillingReconciliation(req, req.query.date as string | undefined));
   }),
 );
 

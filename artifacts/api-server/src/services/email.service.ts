@@ -29,7 +29,7 @@ export interface EmailSendResult {
 }
 
 const FROM_ADDRESS =
-  process.env.EMAIL_FROM_ADDRESS ?? "MediCore <no-reply@medicore.local>";
+  process.env.EMAIL_FROM_ADDRESS ?? "Wateen Clinic <no-reply@medicore.local>";
 
 export async function sendEmail(msg: EmailMessage): Promise<EmailSendResult> {
   const apiKey = process.env.RESEND_API_KEY;

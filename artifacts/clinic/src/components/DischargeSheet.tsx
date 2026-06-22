@@ -136,7 +136,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
           <div ref={printRef} className="text-[11px] leading-relaxed">
             {/* Header */}
             <div className="header text-center border-b-2 border-primary pb-3 mb-4">
-              <h1 className="text-xl font-black text-primary tracking-wide">MediCore</h1>
+              <h1 className="text-xl font-black text-primary tracking-wide">Wateen Clinic</h1>
               <p className="text-xs text-muted-foreground">Clinic Management System — Visit Summary</p>
               <p className="text-[10px] text-muted-foreground mt-1">
                 Appointment #{appt?.id} · {appt?.scheduledAt ? formatDateTime(appt.scheduledAt) : ""}
@@ -351,7 +351,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             </div>
 
             <div className="footer text-center mt-5 pt-3 border-t border-border/30 text-[9px] text-muted-foreground">
-              This document is a confidential medical record. MediCore Clinic Management System — {new Date().getFullYear()}
+              This document is a confidential medical record. Wateen Clinic Management System — {new Date().getFullYear()}
             </div>
           </div>
         )}

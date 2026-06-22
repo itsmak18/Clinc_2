@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Users, CalendarDays, FileText, Pill, Scan, FlaskConical,
   Receipt, Scissors, Package, BarChart3, Bell, Shield, Settings,
-  Activity, UserCog, Waves, CalendarRange, Stethoscope, ClipboardList, UserCheck, Inbox, TrendingUp
+  Activity, UserCog, Waves, CalendarRange, Stethoscope, ClipboardList, UserCheck, Inbox, TrendingUp, Calculator, Tag
 } from "lucide-react";
 import type { UserRole } from "@/hooks/auth";
 
@@ -95,7 +95,9 @@ export const navItems: NavItem[] = [
     href: "/medical-records",
     icon: FileText,
     labelKey: "medicalRecords",
-    roles: ["super_admin", "admin", "doctor", "nurse"],
+    // Nurse removed 2026-06-21: vitals moved to their own table, so the nurse no
+    // longer needs clinical-record access (they keep allergies on the patient card).
+    roles: ["super_admin", "admin", "doctor"],
   },
   {
     key: "prescriptions",
@@ -133,6 +135,20 @@ export const navItems: NavItem[] = [
     roles: ["super_admin", "admin", "front_desk", "billing_manager"],
   },
   {
+    key: "reconciliation",
+    href: "/reconciliation",
+    icon: Calculator,
+    labelKey: "reconciliation",
+    roles: ["super_admin"],
+  },
+  {
+    key: "service-prices",
+    href: "/service-prices",
+    icon: Tag,
+    labelKey: "servicePrices",
+    roles: ["super_admin", "admin", "billing_manager", "front_desk"],
+  },
+  {
     key: "operations",
     href: "/operations",
     icon: Scissors,
@@ -151,7 +167,7 @@ export const navItems: NavItem[] = [
     href: "/reports",
     icon: BarChart3,
     labelKey: "reports",
-    roles: ["super_admin", "admin", "doctor"],
+    roles: ["super_admin", "admin", "doctor", "billing_manager"],
   },
   {
     key: "notifications",

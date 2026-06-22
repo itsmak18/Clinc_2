@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useListUsers, useCreateUser, useUpdateUser, useDeleteUser, useResetUserPassword, useToggleUserShift, getListUsersQueryKey } from "@workspace/api-client-react";
+import { useListUsers, useCreateUser, getListUsersQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
-import { useAuth } from "@/hooks/auth";
+import { useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import { Input } from "@/components/ui/input";
@@ -11,22 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Plus, UserX, Coffee, Clock, KeyRound } from "lucide-react";
+import { Plus, Coffee, Clock } from "lucide-react";
 
 const roles = ["super_admin", "admin", "doctor", "nurse", "front_desk", "xray_staff", "lab_staff"] as const;
 
 export default function Users() {
   const { t } = useI18n();
   const { toast } = useToast();
-  const { user: currentUser } = useAuth();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [filterRole, setFilterRole] = useState("");
-  const [form, setForm] = useState({ username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "" });
-  const [resetTarget, setResetTarget] = useState<{ id: number; fullName: string } | null>(null);
-  const [newPassword, setNewPassword] = useState("");
-  const [editingUser, setEditingUser] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ fullName: "", fullNameAr: "", email: "", role: "", phone: "", isActive: true });
+  const emptyForm = { username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "", addressLine: "", city: "", region: "", postalCode: "", country: "" };
+  const [form, setForm] = useState(emptyForm);
 
   const params = { role: filterRole as any || undefined };
   const { data: users, isLoading } = useListUsers(params, { query: { queryKey: getListUsersQueryKey(params) } });
@@ -36,67 +33,12 @@ export default function Users() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
         setShowCreate(false);
-        setForm({ username: "", password: "", fullName: "", fullNameAr: "", email: "", role: "doctor", phone: "" });
+        setForm(emptyForm);
         toast({ title: t("userCreated") });
       },
       onError: () => toast({ title: t("userCreateFailed"), variant: "destructive" }),
     },
   });
-
-  const deleteMutation = useDeleteUser({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
-        toast({ title: t("userDeactivated") });
-      },
-    },
-  });
-
-  const updateMutation = useUpdateUser({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() });
-        setEditingUser(null);
-        toast({ title: t("userUpdated") });
-      },
-      onError: (err: any) => {
-        const msg = err.response?.data?.error || t("failed");
-        toast({ title: msg, variant: "destructive" });
-      },
-    },
-  });
-
-  const handleEdit = (u: any) => {
-    setEditingUser(u);
-    setEditForm({ fullName: u.fullName, fullNameAr: u.fullNameAr || "", email: u.email || "", role: u.role, phone: u.phone || "", isActive: u.isActive });
-  };
-
-  const handleUpdate = () => {
-    if (!editingUser) return;
-    updateMutation.mutate({ userId: editingUser.id, data: editForm as any });
-  };
-
-  const canResetPasswords = currentUser?.role === "super_admin" || currentUser?.role === "admin";
-  const canManageShift = currentUser?.role === "admin" || currentUser?.role === "super_admin";
-
-  const resetPasswordMutation = useResetUserPassword({
-    mutation: {
-      onSuccess: () => { toast({ title: t("passwordResetSuccess") }); setResetTarget(null); setNewPassword(""); },
-      onError: () => toast({ title: t("passwordResetFailed"), variant: "destructive" }),
-    },
-  });
-
-  const toggleShiftMutation = useToggleUserShift({
-    mutation: {
-      onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListUsersQueryKey() }); toast({ title: t("shiftUpdated") }); },
-      onError: () => toast({ title: t("shiftUpdateFailed"), variant: "destructive" }),
-    },
-  });
-
-  const handleResetPassword = () => {
-    if (!resetTarget || !newPassword) return;
-    resetPasswordMutation.mutate({ userId: resetTarget.id, data: { newPassword } });
-  };
 
   return (
     <div className="page">
@@ -121,18 +63,19 @@ export default function Users() {
           isLoading={isLoading}
           data={users ?? []}
           emptyMessage={t("noUsersFound")}
+          onRowClick={u => setLocation(`/users/${u.id}`)}
           columns={[
             {
               key: "name",
               header: t("name"),
               render: u => (
-                <div>
+                <div data-testid={`link-profile-${u.id}`}>
                   <div className="font-medium text-[13px] text-[var(--ink)]">{u.fullName}</div>
                   <div className="text-[11px] text-[var(--ink-muted)] font-mono">@{u.username}</div>
                 </div>
               ),
             },
-            { key: "role",   header: t("role"),   render: u => <span className="badge text-xs capitalize">{t(u.role as any)}</span> },
+            { key: "role", header: t("role"), render: u => <span className="badge text-xs capitalize">{t(u.role as any)}</span> },
             {
               key: "shift",
               header: t("shift"),
@@ -144,53 +87,14 @@ export default function Users() {
                 </span>
               ),
             },
-            { key: "email",  header: t("email"),  render: u => <span className="text-[13px] text-[var(--ink-muted)]">{u.email || "—"}</span> },
-            { key: "phone",  header: t("phone"),  render: u => <span className="text-[13px] text-[var(--ink)]">{u.phone || "—"}</span> },
+            { key: "email", header: t("email"), render: u => <span className="text-[13px] text-[var(--ink-muted)]">{u.email || "—"}</span> },
+            { key: "phone", header: t("phone"), render: u => <span className="text-[13px] text-[var(--ink)]">{u.phone || "—"}</span> },
             {
               key: "status",
               header: t("status"),
               render: u => <span className={cn("badge text-xs", u.isActive ? "badge-teal" : "")}>{u.isActive ? t("active") : t("inactive")}</span>,
             },
             { key: "created", header: t("created"), render: u => <span className="text-[12px] text-[var(--ink-muted)]">{formatDate(u.createdAt)}</span> },
-            {
-              key: "actions",
-              header: t("actions"),
-              render: u => (
-                <div className="flex gap-1 flex-wrap">
-                  {canManageShift && (
-                    <button
-                      className="btn btn-ghost btn-sm h-6 text-xs px-2"
-                      disabled={toggleShiftMutation.isPending && (toggleShiftMutation.variables as any)?.userId === u.id}
-                      onClick={e => { e.stopPropagation(); toggleShiftMutation.mutate({ userId: u.id }); }}
-                    >
-                      {(u as any).isOnShift ? t("endShift") : t("startShift")}
-                    </button>
-                  )}
-                  {canResetPasswords && u.id !== currentUser?.id && (
-                    <button
-                      className="btn btn-ghost btn-sm h-6 text-xs px-2 text-[var(--amber-600)]"
-                      onClick={e => { e.stopPropagation(); setResetTarget({ id: u.id, fullName: u.fullName }); setNewPassword(""); }}
-                    >
-                      <KeyRound className="w-3 h-3 me-1" />{t("resetPwShort")}
-                    </button>
-                  )}
-                  {u.isActive && (
-                    <button className="btn btn-ghost btn-sm h-6 text-xs px-2" onClick={e => { e.stopPropagation(); handleEdit(u); }}>
-                      {t("edit")}
-                    </button>
-                  )}
-                  {u.isActive && (
-                    <button
-                      className="btn btn-ghost btn-sm h-6 text-xs px-2 text-[var(--rose-500)]"
-                      onClick={e => { e.stopPropagation(); deleteMutation.mutate({ userId: u.id }); }}
-                      data-testid={`button-deactivate-${u.id}`}
-                    >
-                      <UserX className="w-3 h-3 me-1" />{t("deactivate")}
-                    </button>
-                  )}
-                </div>
-              ),
-            },
           ]}
         />
       </div>
@@ -237,106 +141,42 @@ export default function Users() {
               <Label className="text-xs">{t("email")}</Label>
               <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} data-testid="input-email" />
             </div>
+
+            {/* Home address */}
+            <div className="pt-1 border-t border-[var(--line)]">
+              <p className="text-[11px] font-semibold text-[var(--ink-muted)] uppercase tracking-wide pt-2 pb-1">{t("homeAddress")}</p>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("addressLine")}</Label>
+                  <Input value={form.addressLine} onChange={e => setForm(f => ({ ...f, addressLine: e.target.value }))} data-testid="input-address-line" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("city")}</Label>
+                    <Input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} data-testid="input-city" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("region")}</Label>
+                    <Input value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))} data-testid="input-region" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("postalCode")}</Label>
+                    <Input value={form.postalCode} onChange={e => setForm(f => ({ ...f, postalCode: e.target.value }))} data-testid="input-postal-code" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t("country")}</Label>
+                    <Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} data-testid="input-country" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button className="btn btn-primary btn-sm" onClick={() => createMutation.mutate({ data: form as any })} disabled={createMutation.isPending} data-testid="button-save-user">
                 {createMutation.isPending ? t("loading") : t("save")}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Reset Password */}
-      <Dialog open={!!resetTarget} onOpenChange={v => { if (!v) { setResetTarget(null); setNewPassword(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[var(--amber-500)]" /> {t("resetPassword")}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-[var(--ink-muted)]">
-              {t("resetPasswordInstruction")} <span className="font-semibold text-[var(--ink)]">{resetTarget?.fullName}</span>.
-            </p>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("newPasswordLabel")} *</Label>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                placeholder={t("enterNewPasswordPlaceholder")}
-                onKeyDown={e => e.key === "Enter" && handleResetPassword()}
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-1">
-              <button className="btn btn-outline btn-sm" onClick={() => { setResetTarget(null); setNewPassword(""); }}>{t("cancel")}</button>
-              <button
-                className="btn btn-sm bg-[var(--amber-500)] text-white"
-                onClick={handleResetPassword}
-                disabled={!newPassword || resetPasswordMutation.isPending}
-              >
-                {resetPasswordMutation.isPending ? t("loading") : t("resetPassword")}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit User */}
-      <Dialog open={!!editingUser} onOpenChange={v => !v && setEditingUser(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{t("editStaffMember")}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">{t("name")} (EN) *</Label>
-                <Input value={editForm.fullName} onChange={e => setEditForm(f => ({ ...f, fullName: e.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("name")} (AR)</Label>
-                <Input value={editForm.fullNameAr} onChange={e => setEditForm(f => ({ ...f, fullNameAr: e.target.value }))} dir="rtl" />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">{t("role")} *</Label>
-                <Select
-                  value={editForm.role}
-                  onValueChange={v => setEditForm(f => ({ ...f, role: v }))}
-                  disabled={editingUser?.id === currentUser?.id || (currentUser?.role !== "super_admin" && currentUser?.role !== "admin")}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{roles.map(r => <SelectItem key={r} value={r}>{t(r as any)}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("phone")}</Label>
-                <Input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("email")}</Label>
-              <Input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
-            </div>
-            {(currentUser?.role === "admin" || currentUser?.role === "super_admin") && (
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="editIsActive"
-                  checked={editForm.isActive}
-                  onChange={e => setEditForm(f => ({ ...f, isActive: e.target.checked }))}
-                  disabled={editingUser?.id === currentUser?.id}
-                  className="w-4 h-4 rounded border-[var(--line)]"
-                />
-                <Label htmlFor="editIsActive" className="text-sm cursor-pointer">{t("active")}</Label>
-              </div>
-            )}
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn btn-outline btn-sm" onClick={() => setEditingUser(null)}>{t("cancel")}</button>
-              <button className="btn btn-primary btn-sm" onClick={handleUpdate} disabled={updateMutation.isPending}>
-                {updateMutation.isPending ? t("loading") : t("save")}
               </button>
             </div>
           </div>

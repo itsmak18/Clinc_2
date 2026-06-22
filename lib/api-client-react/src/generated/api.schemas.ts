@@ -36,6 +36,11 @@ export interface User {
   isActive: boolean;
   isOnShift: boolean;
   phone?: string | null;
+  addressLine?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
   createdAt: string;
 }
 
@@ -150,6 +155,11 @@ export interface CreateUserBody {
   email?: string;
   role: CreateUserBodyRole;
   phone?: string;
+  addressLine?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export type UpdateUserBodyRole =
@@ -172,6 +182,11 @@ export interface UpdateUserBody {
   role?: UpdateUserBodyRole;
   isActive?: boolean;
   phone?: string;
+  addressLine?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
 }
 
 export interface UserPasswordResetBody {
@@ -340,13 +355,19 @@ export interface MedicalRecord {
   createdAt: string;
 }
 
+export interface MediaImage {
+  url: string;
+  fileName?: string;
+  caption?: string;
+}
+
 export type XrayRecordStatus =
   (typeof XrayRecordStatus)[keyof typeof XrayRecordStatus];
 
 export const XrayRecordStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
 
 export interface XrayRecord {
@@ -360,6 +381,8 @@ export interface XrayRecord {
   bodyPartAr?: string | null;
   imageUrl?: string | null;
   imageFileName?: string | null;
+  images?: MediaImage[] | null;
+  orderGroupId?: string | null;
   report?: string | null;
   reportAr?: string | null;
   status: XrayRecordStatus;
@@ -391,6 +414,7 @@ export interface LabTest {
   status: LabTestStatus;
   notes?: string | null;
   notesAr?: string | null;
+  orderGroupId?: string | null;
   createdAt: string;
 }
 
@@ -564,6 +588,39 @@ export interface PatientFlow {
   refreshedAt: string;
 }
 
+/**
+ * Structured vital signs (split BP) — matches the backend vitalsSchema guard.
+ */
+export interface VitalsMeasurements {
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  heartRate?: number;
+  temperature?: number;
+  oxygenSaturation?: number;
+  respiratoryRate?: number;
+  weight?: number;
+  height?: number;
+  glucose?: number;
+  pain?: number;
+}
+
+export interface VitalRecord {
+  id: string;
+  patientId: number;
+  appointmentId?: number | null;
+  recordedById: number;
+  vitals?: VitalsMeasurements | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface CreateVitalsBody {
+  patientId: number;
+  appointmentId?: number;
+  notes?: string;
+  vitals?: VitalsMeasurements;
+}
+
 export interface CreateMedicalRecordBody {
   patientId: number;
   doctorId: number;
@@ -598,6 +655,26 @@ export interface CreatePrescriptionBody {
   notesAr?: string;
 }
 
+/**
+ * Metadata for a server-stored X-ray / ultrasound image file.
+ */
+export interface ImagingAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  caption?: string | null;
+  /** Authenticated download endpoint for the bytes. */
+  url: string;
+  createdAt: string;
+}
+
+export interface ImageUploadBody {
+  /** The binary image file (PNG/JPEG/WEBP), sent as a multipart field. */
+  file: string;
+  caption?: string;
+}
+
 export interface CreateXrayBody {
   patientId: number;
   requestedById: number;
@@ -605,21 +682,23 @@ export interface CreateXrayBody {
   bodyPartAr?: string;
   notes?: string;
   notesAr?: string;
+  orderGroupId?: string;
 }
 
 export type UpdateXrayBodyStatus =
   (typeof UpdateXrayBodyStatus)[keyof typeof UpdateXrayBodyStatus];
 
 export const UpdateXrayBodyStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
 
 export interface UpdateXrayBody {
   performedById?: number;
   imageUrl?: string;
   imageFileName?: string;
+  images?: MediaImage[];
   report?: string;
   reportAr?: string;
   status?: UpdateXrayBodyStatus;
@@ -632,9 +711,9 @@ export type UltrasoundRecordStatus =
   (typeof UltrasoundRecordStatus)[keyof typeof UltrasoundRecordStatus];
 
 export const UltrasoundRecordStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
 
 export interface UltrasoundRecord {
@@ -649,6 +728,8 @@ export interface UltrasoundRecord {
   bodyPartAr?: string | null;
   imageUrl?: string | null;
   imageFileName?: string | null;
+  images?: MediaImage[] | null;
+  orderGroupId?: string | null;
   report?: string | null;
   reportAr?: string | null;
   status: UltrasoundRecordStatus;
@@ -665,21 +746,23 @@ export interface CreateUltrasoundBody {
   bodyPartAr?: string;
   notes?: string;
   notesAr?: string;
+  orderGroupId?: string;
 }
 
 export type UpdateUltrasoundBodyStatus =
   (typeof UpdateUltrasoundBodyStatus)[keyof typeof UpdateUltrasoundBodyStatus];
 
 export const UpdateUltrasoundBodyStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
 
 export interface UpdateUltrasoundBody {
   performedById?: number;
   imageUrl?: string;
   imageFileName?: string;
+  images?: MediaImage[];
   report?: string;
   reportAr?: string;
   status?: UpdateUltrasoundBodyStatus;
@@ -695,6 +778,7 @@ export interface CreateLabTestBody {
   testNameAr?: string;
   notes?: string;
   notesAr?: string;
+  orderGroupId?: string;
 }
 
 export type UpdateLabTestBodyStatus =
@@ -727,6 +811,8 @@ export interface CreateInvoiceBody {
   items: InvoiceItemInput[];
   discount?: number;
   notes?: string;
+  /** Point-of-sale flow — when true the invoice is created already paid (status=paid, paidAt=now), skipping the separate pending → pay step. */
+  markPaid?: boolean;
 }
 
 export type UpdateInvoiceBodyStatus =
@@ -758,10 +844,84 @@ export interface DailyBillingSummary {
   cashReceipts: Invoice[];
 }
 
+export type BillingReconciliationSummary = {
+  collectedTotal: number;
+  collectedCount: number;
+  invoicedTotal: number;
+  invoicedCount: number;
+  outstandingTotal: number;
+  outstandingCount: number;
+  cancelledTotal: number;
+  cancelledCount: number;
+};
+
+export type BillingReconciliationPaymentsItem = {
+  id: number;
+  invoiceNumber: string;
+  patientName?: string | null;
+  total: number;
+  paidAt?: string | null;
+  createdByName?: string | null;
+};
+
+export interface BillingReconciliation {
+  date: string;
+  summary: BillingReconciliationSummary;
+  payments: BillingReconciliationPaymentsItem[];
+}
+
+export interface ServiceCatalogItem {
+  id: number;
+  name: string;
+  nameAr?: string | null;
+  description?: string | null;
+  defaultPrice: string;
+  category?: string | null;
+  code?: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface CreateServiceBody {
+  name: string;
+  nameAr?: string;
+  description?: string;
+  defaultPrice: number;
+  category?: string;
+  code?: string;
+}
+
+export interface UpdateServiceBody {
+  name?: string;
+  nameAr?: string;
+  description?: string;
+  defaultPrice?: number;
+  category?: string;
+  code?: string;
+  active?: boolean;
+}
+
+export interface SeedServicesResult {
+  inserted: number;
+}
+
+export interface DoctorSummary {
+  id: number;
+  fullName: string;
+  fullNameAr?: string | null;
+  specialty?: string | null;
+}
+
+export interface StaffAssignedItem {
+  userId: number;
+  role?: string;
+}
+
 export type OperationStatus =
   (typeof OperationStatus)[keyof typeof OperationStatus];
 
 export const OperationStatus = {
+  requested: "requested",
   scheduled: "scheduled",
   in_progress: "in_progress",
   completed: "completed",
@@ -772,13 +932,15 @@ export interface Operation {
   id: number;
   patientId: number;
   surgeonId: number;
+  requestedById?: number | null;
   patient?: Patient;
   surgeon?: User;
+  requestedBy?: User;
   procedureName: string;
   scheduledAt: string;
   operatingRoom: string;
   status: OperationStatus;
-  staffAssigned: number[];
+  staffAssigned: StaffAssignedItem[];
   notes?: string | null;
   createdAt: string;
 }
@@ -789,7 +951,7 @@ export interface CreateOperationBody {
   procedureName: string;
   scheduledAt: string;
   operatingRoom: string;
-  staffAssigned?: number[];
+  staffAssigned?: StaffAssignedItem[];
   notes?: string;
 }
 
@@ -797,6 +959,7 @@ export type UpdateOperationBodyStatus =
   (typeof UpdateOperationBodyStatus)[keyof typeof UpdateOperationBodyStatus];
 
 export const UpdateOperationBodyStatus = {
+  requested: "requested",
   scheduled: "scheduled",
   in_progress: "in_progress",
   completed: "completed",
@@ -808,7 +971,7 @@ export interface UpdateOperationBody {
   scheduledAt?: string;
   operatingRoom?: string;
   status?: UpdateOperationBodyStatus;
-  staffAssigned?: number[];
+  staffAssigned?: StaffAssignedItem[];
   notes?: string;
 }
 
@@ -844,6 +1007,45 @@ export interface UpdateInventoryItemBody {
   expiryDate?: string;
   notes?: string;
   isActive?: boolean;
+}
+
+export type AdjustStockBodyReason =
+  (typeof AdjustStockBodyReason)[keyof typeof AdjustStockBodyReason];
+
+export const AdjustStockBodyReason = {
+  restock: "restock",
+  consumed: "consumed",
+  expired: "expired",
+  adjustment: "adjustment",
+} as const;
+
+export interface AdjustStockBody {
+  /** Signed change. Positive = stock in, negative = stock out. Non-zero. */
+  delta: number;
+  reason: AdjustStockBodyReason;
+  note?: string;
+}
+
+export type InventoryTransactionReason =
+  (typeof InventoryTransactionReason)[keyof typeof InventoryTransactionReason];
+
+export const InventoryTransactionReason = {
+  initial: "initial",
+  restock: "restock",
+  consumed: "consumed",
+  expired: "expired",
+  adjustment: "adjustment",
+} as const;
+
+export interface InventoryTransaction {
+  id: string;
+  delta: number;
+  quantityAfter: number;
+  reason: InventoryTransactionReason;
+  note?: string | null;
+  performedById?: number | null;
+  performedByName?: string | null;
+  createdAt: string;
 }
 
 export type NotificationType =
@@ -1195,14 +1397,39 @@ export type AppointmentReportByDoctorItem = {
   count: number;
 };
 
+export type AppointmentReportByStatusItem = {
+  status: string;
+  count: number;
+};
+
+export type AppointmentReportByDayItem = {
+  date: string;
+  count: number;
+};
+
+/**
+ * Same metrics for the immediately-preceding window of equal length (period-over-period).
+ */
+export type AppointmentReportPrevious = {
+  totalAppointments: number;
+  completed: number;
+  cancellationRate: number;
+  noShowRate: number;
+};
+
 export interface AppointmentReport {
   totalAppointments: number;
   completed: number;
   cancelled: number;
   noShow: number;
   cancellationRate: number;
+  noShowRate: number;
   averageWaitTimeMinutes: number;
   byDoctor: AppointmentReportByDoctorItem[];
+  byStatus: AppointmentReportByStatusItem[];
+  byDay: AppointmentReportByDayItem[];
+  /** Same metrics for the immediately-preceding window of equal length (period-over-period). */
+  previous: AppointmentReportPrevious;
 }
 
 export type RevenueReportByDayItem = {
@@ -1211,12 +1438,121 @@ export type RevenueReportByDayItem = {
   invoices: number;
 };
 
+export type RevenueReportTopServicesItem = {
+  name: string;
+  revenue: number;
+  count: number;
+};
+
+/**
+ * Same metrics for the immediately-preceding window of equal length (period-over-period).
+ */
+export type RevenueReportPrevious = {
+  totalRevenue: number;
+  paidInvoices: number;
+  collectionRate: number;
+};
+
 export interface RevenueReport {
   totalRevenue: number;
   totalInvoices: number;
   paidInvoices: number;
+  pendingInvoices: number;
+  cancelledInvoices: number;
+  pendingAmount: number;
+  /** paidInvoices / (paidInvoices + pendingInvoices). */
+  collectionRate: number;
   averageInvoiceValue: number;
   byDay: RevenueReportByDayItem[];
+  topServices: RevenueReportTopServicesItem[];
+  /** Same metrics for the immediately-preceding window of equal length (period-over-period). */
+  previous: RevenueReportPrevious;
+}
+
+export type DiagnosticsReportLabByStatusItem = {
+  status: string;
+  count: number;
+};
+
+export type DiagnosticsReportXrayByStatusItem = {
+  status: string;
+  count: number;
+};
+
+export type DiagnosticsReportUltrasoundByStatusItem = {
+  status: string;
+  count: number;
+};
+
+export type DiagnosticsReportTopLabTypesItem = {
+  name: string;
+  count: number;
+};
+
+export type DiagnosticsReportTopXrayBodyPartsItem = {
+  part: string;
+  count: number;
+};
+
+export type DiagnosticsReportTopUltrasoundExamTypesItem = {
+  name: string;
+  count: number;
+};
+
+export interface DiagnosticsReport {
+  totalLabTests: number;
+  labCompleted: number;
+  totalXrays: number;
+  xraysReviewed: number;
+  totalUltrasounds: number;
+  ultrasoundsReviewed: number;
+  labByStatus: DiagnosticsReportLabByStatusItem[];
+  xrayByStatus: DiagnosticsReportXrayByStatusItem[];
+  ultrasoundByStatus: DiagnosticsReportUltrasoundByStatusItem[];
+  topLabTypes: DiagnosticsReportTopLabTypesItem[];
+  topXrayBodyParts: DiagnosticsReportTopXrayBodyPartsItem[];
+  topUltrasoundExamTypes: DiagnosticsReportTopUltrasoundExamTypesItem[];
+}
+
+export type OperationsReportByStatusItem = {
+  status: string;
+  count: number;
+};
+
+export type OperationsReportBySurgeonItem = {
+  surgeonId: number;
+  surgeonName: string;
+  performed: number;
+  total: number;
+};
+
+export type OperationsReportByStaffItem = {
+  userId: number;
+  name: string;
+  role?: string | null;
+  count: number;
+};
+
+export type OperationsReportByProcedureItem = {
+  name: string;
+  count: number;
+};
+
+export type OperationsReportByDayItem = {
+  date: string;
+  count: number;
+};
+
+export interface OperationsReport {
+  totalOperations: number;
+  completed: number;
+  inProgress: number;
+  cancelled: number;
+  byStatus: OperationsReportByStatusItem[];
+  bySurgeon: OperationsReportBySurgeonItem[];
+  byStaff: OperationsReportByStaffItem[];
+  byProcedure: OperationsReportByProcedureItem[];
+  byDay: OperationsReportByDayItem[];
 }
 
 export type DoctorScheduleDayDayOfWeek =
@@ -1470,6 +1806,11 @@ export const ListAppointmentsStatus = {
   in_progress: "in_progress",
 } as const;
 
+export type ListVitalsParams = {
+  patientId?: number;
+  appointmentId?: number;
+};
+
 export type ListMedicalRecordsParams = {
   patientId?: number;
   doctorId?: number;
@@ -1485,6 +1826,11 @@ export type ListPrescriptionsParams = {
   doctorId?: number;
 };
 
+export type SendPrescriptionToPharmacy200 = {
+  sent: boolean;
+  pharmacistsNotified: number;
+};
+
 export type ListXrayImagesParams = {
   patientId?: number;
   status?: ListXrayImagesStatus;
@@ -1494,10 +1840,17 @@ export type ListXrayImagesStatus =
   (typeof ListXrayImagesStatus)[keyof typeof ListXrayImagesStatus];
 
 export const ListXrayImagesStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
+
+export type GetXrayImageFileParams = {
+  /**
+   * When present, served as an attachment (Content-Disposition) instead of inline.
+   */
+  download?: string;
+};
 
 export type ListUltrasoundRecordsParams = {
   patientId?: number;
@@ -1508,10 +1861,17 @@ export type ListUltrasoundRecordsStatus =
   (typeof ListUltrasoundRecordsStatus)[keyof typeof ListUltrasoundRecordsStatus];
 
 export const ListUltrasoundRecordsStatus = {
-  pending: "pending",
-  uploaded: "uploaded",
-  reviewed: "reviewed",
+  requested: "requested",
+  in_progress: "in_progress",
+  completed: "completed",
 } as const;
+
+export type GetUltrasoundImageFileParams = {
+  /**
+   * When present, served as an attachment (Content-Disposition) instead of inline.
+   */
+  download?: string;
+};
 
 export type ListLabTestsParams = {
   patientId?: number;
@@ -1546,6 +1906,15 @@ export const ListInvoicesStatus = {
 
 export type GetDailyBillingSummaryParams = {
   date?: string;
+};
+
+export type GetBillingReconciliationParams = {
+  date?: string;
+};
+
+export type ListServicesParams = {
+  category?: string;
+  includeInactive?: boolean;
 };
 
 export type ListOperationsParams = {
@@ -1602,6 +1971,16 @@ export type GetAppointmentReportParams = {
 };
 
 export type GetRevenueReportParams = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type GetDiagnosticsReportParams = {
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type GetOperationsReportParams = {
   dateFrom?: string;
   dateTo?: string;
 };

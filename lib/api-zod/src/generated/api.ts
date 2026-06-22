@@ -41,6 +41,11 @@ export const LoginResponse = zod.object({
     isActive: zod.boolean(),
     isOnShift: zod.boolean(),
     phone: zod.string().nullish(),
+    addressLine: zod.string().nullish(),
+    city: zod.string().nullish(),
+    region: zod.string().nullish(),
+    postalCode: zod.string().nullish(),
+    country: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
   deviceUnverified: zod
@@ -72,6 +77,11 @@ export const GetCurrentUserResponse = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -112,6 +122,11 @@ export const ListUsersResponseItem = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListUsersResponse = zod.array(ListUsersResponseItem);
@@ -135,6 +150,11 @@ export const CreateUserBody = zod.object({
     "lab_staff",
   ]),
   phone: zod.string().optional(),
+  addressLine: zod.string().optional(),
+  city: zod.string().optional(),
+  region: zod.string().optional(),
+  postalCode: zod.string().optional(),
+  country: zod.string().optional(),
 });
 
 /**
@@ -162,6 +182,11 @@ export const GetUserResponse = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -189,6 +214,11 @@ export const UpdateUserBody = zod.object({
     .optional(),
   isActive: zod.boolean().optional(),
   phone: zod.string().optional(),
+  addressLine: zod.string().optional(),
+  city: zod.string().optional(),
+  region: zod.string().optional(),
+  postalCode: zod.string().optional(),
+  country: zod.string().optional(),
 });
 
 export const UpdateUserResponse = zod.object({
@@ -209,6 +239,11 @@ export const UpdateUserResponse = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -251,9 +286,25 @@ export const GetOnShiftUsersResponseItem = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const GetOnShiftUsersResponse = zod.array(GetOnShiftUsersResponseItem);
+
+/**
+ * @summary List active doctors (accessible to clinical staff for picker dropdowns)
+ */
+export const ListDoctorsResponseItem = zod.object({
+  id: zod.number(),
+  fullName: zod.string(),
+  fullNameAr: zod.string().nullish(),
+  specialty: zod.string().nullish(),
+});
+export const ListDoctorsResponse = zod.array(ListDoctorsResponseItem);
 
 /**
  * @summary Toggle on-shift status for a user
@@ -280,6 +331,11 @@ export const ToggleUserShiftResponse = zod.object({
   isActive: zod.boolean(),
   isOnShift: zod.boolean(),
   phone: zod.string().nullish(),
+  addressLine: zod.string().nullish(),
+  city: zod.string().nullish(),
+  region: zod.string().nullish(),
+  postalCode: zod.string().nullish(),
+  country: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -478,6 +534,11 @@ export const GetPatientSummaryResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -549,6 +610,11 @@ export const GetPatientSummaryResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -615,6 +681,11 @@ export const GetPatientSummaryResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -622,9 +693,19 @@ export const GetPatientSummaryResponse = zod.object({
       bodyPartAr: zod.string().nullish(),
       imageUrl: zod.string().nullish(),
       imageFileName: zod.string().nullish(),
+      images: zod
+        .array(
+          zod.object({
+            url: zod.string(),
+            fileName: zod.string().optional(),
+            caption: zod.string().optional(),
+          }),
+        )
+        .nullish(),
+      orderGroupId: zod.string().nullish(),
       report: zod.string().nullish(),
       reportAr: zod.string().nullish(),
-      status: zod.enum(["pending", "uploaded", "reviewed"]),
+      status: zod.enum(["requested", "in_progress", "completed"]),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -673,6 +754,11 @@ export const GetPatientSummaryResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -683,6 +769,7 @@ export const GetPatientSummaryResponse = zod.object({
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
+      orderGroupId: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -765,6 +852,11 @@ export const ListAppointmentsResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -856,6 +948,11 @@ export const GetAppointmentResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -957,6 +1054,11 @@ export const UpdateAppointmentResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1040,6 +1142,11 @@ export const CheckInPatientResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1117,6 +1224,11 @@ export const GetAppointmentDischargeResponse = zod.object({
         isActive: zod.boolean(),
         isOnShift: zod.boolean(),
         phone: zod.string().nullish(),
+        addressLine: zod.string().nullish(),
+        city: zod.string().nullish(),
+        region: zod.string().nullish(),
+        postalCode: zod.string().nullish(),
+        country: zod.string().nullish(),
         createdAt: zod.coerce.date(),
       })
       .optional(),
@@ -1203,6 +1315,11 @@ export const GetAppointmentDischargeResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -1269,6 +1386,11 @@ export const GetAppointmentDischargeResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -1329,6 +1451,11 @@ export const GetAppointmentDischargeResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -1339,6 +1466,7 @@ export const GetAppointmentDischargeResponse = zod.object({
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
+      orderGroupId: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -1385,6 +1513,11 @@ export const GetAppointmentDischargeResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -1392,9 +1525,19 @@ export const GetAppointmentDischargeResponse = zod.object({
       bodyPartAr: zod.string().nullish(),
       imageUrl: zod.string().nullish(),
       imageFileName: zod.string().nullish(),
+      images: zod
+        .array(
+          zod.object({
+            url: zod.string(),
+            fileName: zod.string().optional(),
+            caption: zod.string().optional(),
+          }),
+        )
+        .nullish(),
+      orderGroupId: zod.string().nullish(),
       report: zod.string().nullish(),
       reportAr: zod.string().nullish(),
-      status: zod.enum(["pending", "uploaded", "reviewed"]),
+      status: zod.enum(["requested", "in_progress", "completed"]),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -1514,6 +1657,11 @@ export const GetTodayAppointmentsResponse = zod.object({
           isActive: zod.boolean(),
           isOnShift: zod.boolean(),
           phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
           createdAt: zod.coerce.date(),
         })
         .optional(),
@@ -1597,6 +1745,11 @@ export const StartTriageResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1673,6 +1826,11 @@ export const MarkPatientReadyResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1749,6 +1907,11 @@ export const StartConsultationResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1825,6 +1988,92 @@ export const RequestDiagnosticsResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  bookingSource: zod.enum(["online", "phone", "walk_in"]).nullish(),
+  triagePriority: zod.enum(["normal", "urgent", "critical"]).nullish(),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Resume consult from awaiting_diagnostics
+ */
+export const ReconsultAppointmentParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const ReconsultAppointmentResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      idCardNumber: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1901,6 +2150,11 @@ export const PendingPaymentResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -1977,6 +2231,11 @@ export const CompleteAppointmentResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2003,6 +2262,148 @@ export const CompleteAppointmentResponse = zod.object({
   triageStartedAt: zod.coerce.date().nullish(),
   consultationStartedAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Mark appointment as no-show
+ */
+export const MarkNoShowParams = zod.object({
+  appointmentId: zod.coerce.number(),
+});
+
+export const MarkNoShowResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      idCardNumber: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  scheduledAt: zod.coerce.date(),
+  reason: zod.string(),
+  status: zod.enum([
+    "scheduled",
+    "checked_in",
+    "in_triage",
+    "ready_for_doctor",
+    "in_consultation",
+    "awaiting_diagnostics",
+    "pending_payment",
+    "completed",
+    "cancelled",
+    "no_show",
+    "in_progress",
+  ]),
+  bookingSource: zod.enum(["online", "phone", "walk_in"]).nullish(),
+  triagePriority: zod.enum(["normal", "urgent", "critical"]).nullish(),
+  cancellationReason: zod.string().nullish(),
+  notes: zod.string().nullish(),
+  checkedInAt: zod.coerce.date().nullish(),
+  triageStartedAt: zod.coerce.date().nullish(),
+  consultationStartedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary List vital-sign records for a patient or appointment
+ */
+export const ListVitalsQueryParams = zod.object({
+  patientId: zod.coerce.number().optional(),
+  appointmentId: zod.coerce.number().optional(),
+});
+
+export const ListVitalsResponseItem = zod.object({
+  id: zod.string(),
+  patientId: zod.number(),
+  appointmentId: zod.number().nullish(),
+  recordedById: zod.number(),
+  vitals: zod
+    .object({
+      bloodPressureSystolic: zod.number().optional(),
+      bloodPressureDiastolic: zod.number().optional(),
+      heartRate: zod.number().optional(),
+      temperature: zod.number().optional(),
+      oxygenSaturation: zod.number().optional(),
+      respiratoryRate: zod.number().optional(),
+      weight: zod.number().optional(),
+      height: zod.number().optional(),
+      glucose: zod.number().optional(),
+      pain: zod.number().optional(),
+    })
+    .nullish()
+    .describe(
+      "Structured vital signs (split BP) — matches the backend vitalsSchema guard.",
+    ),
+  notes: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListVitalsResponse = zod.array(ListVitalsResponseItem);
+
+/**
+ * @summary Record vital signs (no treatment consent required)
+ */
+export const CreateVitalsBody = zod.object({
+  patientId: zod.number(),
+  appointmentId: zod.number().optional(),
+  notes: zod.string().optional(),
+  vitals: zod
+    .object({
+      bloodPressureSystolic: zod.number().optional(),
+      bloodPressureDiastolic: zod.number().optional(),
+      heartRate: zod.number().optional(),
+      temperature: zod.number().optional(),
+      oxygenSaturation: zod.number().optional(),
+      respiratoryRate: zod.number().optional(),
+      weight: zod.number().optional(),
+      height: zod.number().optional(),
+      glucose: zod.number().optional(),
+      pain: zod.number().optional(),
+    })
+    .optional()
+    .describe(
+      "Structured vital signs (split BP) — matches the backend vitalsSchema guard.",
+    ),
 });
 
 /**
@@ -2055,6 +2456,11 @@ export const ListMedicalRecordsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2156,6 +2562,11 @@ export const GetMedicalRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2248,6 +2659,11 @@ export const UpdateMedicalRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2372,6 +2788,11 @@ export const ListPrescriptionsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2461,6 +2882,11 @@ export const GetPrescriptionResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2479,11 +2905,23 @@ export const GetPrescriptionResponse = zod.object({
 });
 
 /**
+ * @summary Send a prescription to the clinic's pharmacists (in-app notification)
+ */
+export const SendPrescriptionToPharmacyParams = zod.object({
+  prescriptionId: zod.coerce.number(),
+});
+
+export const SendPrescriptionToPharmacyResponse = zod.object({
+  sent: zod.boolean(),
+  pharmacistsNotified: zod.number(),
+});
+
+/**
  * @summary List X-ray images
  */
 export const ListXrayImagesQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
+  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
 });
 
 export const ListXrayImagesResponseItem = zod.object({
@@ -2528,6 +2966,11 @@ export const ListXrayImagesResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2535,9 +2978,19 @@ export const ListXrayImagesResponseItem = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -2554,6 +3007,7 @@ export const CreateXrayRecordBody = zod.object({
   bodyPartAr: zod.string().optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
+  orderGroupId: zod.string().optional(),
 });
 
 /**
@@ -2605,6 +3059,11 @@ export const GetXrayRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2612,9 +3071,19 @@ export const GetXrayRecordResponse = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -2631,9 +3100,18 @@ export const UpdateXrayRecordBody = zod.object({
   performedById: zod.number().optional(),
   imageUrl: zod.string().optional(),
   imageFileName: zod.string().optional(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .optional(),
   report: zod.string().optional(),
   reportAr: zod.string().optional(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
+  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
   bodyPartAr: zod.string().optional(),
@@ -2681,6 +3159,11 @@ export const UpdateXrayRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2688,12 +3171,63 @@ export const UpdateXrayRecordResponse = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Upload an X-ray image file to the server
+ */
+export const UploadXrayImageParams = zod.object({
+  xrayId: zod.coerce.number(),
+});
+
+export const UploadXrayImageBody = zod.object({
+  file: zod
+    .string()
+    .describe(
+      "The binary image file (PNG\/JPEG\/WEBP), sent as a multipart field.",
+    ),
+  caption: zod.string().optional(),
+});
+
+/**
+ * @summary Download / view an X-ray image file (authenticated, audited)
+ */
+export const GetXrayImageFileParams = zod.object({
+  xrayId: zod.coerce.number(),
+  attachmentId: zod.coerce.string().uuid(),
+});
+
+export const GetXrayImageFileQueryParams = zod.object({
+  download: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "When present, served as an attachment (Content-Disposition) instead of inline.",
+    ),
+});
+
+/**
+ * @summary Delete an X-ray image file
+ */
+export const DeleteXrayImageParams = zod.object({
+  xrayId: zod.coerce.number(),
+  attachmentId: zod.coerce.string().uuid(),
 });
 
 /**
@@ -2701,7 +3235,7 @@ export const UpdateXrayRecordResponse = zod.object({
  */
 export const ListUltrasoundRecordsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
+  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
 });
 
 export const ListUltrasoundRecordsResponseItem = zod.object({
@@ -2746,6 +3280,11 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2754,9 +3293,19 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -2776,6 +3325,7 @@ export const CreateUltrasoundRecordBody = zod.object({
   bodyPartAr: zod.string().optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
+  orderGroupId: zod.string().optional(),
 });
 
 /**
@@ -2827,6 +3377,11 @@ export const GetUltrasoundRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2835,9 +3390,19 @@ export const GetUltrasoundRecordResponse = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -2854,9 +3419,18 @@ export const UpdateUltrasoundRecordBody = zod.object({
   performedById: zod.number().optional(),
   imageUrl: zod.string().optional(),
   imageFileName: zod.string().optional(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .optional(),
   report: zod.string().optional(),
   reportAr: zod.string().optional(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]).optional(),
+  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
   bodyPartAr: zod.string().optional(),
@@ -2904,6 +3478,11 @@ export const UpdateUltrasoundRecordResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2912,12 +3491,63 @@ export const UpdateUltrasoundRecordResponse = zod.object({
   bodyPartAr: zod.string().nullish(),
   imageUrl: zod.string().nullish(),
   imageFileName: zod.string().nullish(),
+  images: zod
+    .array(
+      zod.object({
+        url: zod.string(),
+        fileName: zod.string().optional(),
+        caption: zod.string().optional(),
+      }),
+    )
+    .nullish(),
+  orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["pending", "uploaded", "reviewed"]),
+  status: zod.enum(["requested", "in_progress", "completed"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Upload an ultrasound image file to the server
+ */
+export const UploadUltrasoundImageParams = zod.object({
+  ultrasoundId: zod.coerce.number(),
+});
+
+export const UploadUltrasoundImageBody = zod.object({
+  file: zod
+    .string()
+    .describe(
+      "The binary image file (PNG\/JPEG\/WEBP), sent as a multipart field.",
+    ),
+  caption: zod.string().optional(),
+});
+
+/**
+ * @summary Download / view an ultrasound image file (authenticated, audited)
+ */
+export const GetUltrasoundImageFileParams = zod.object({
+  ultrasoundId: zod.coerce.number(),
+  attachmentId: zod.coerce.string().uuid(),
+});
+
+export const GetUltrasoundImageFileQueryParams = zod.object({
+  download: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "When present, served as an attachment (Content-Disposition) instead of inline.",
+    ),
+});
+
+/**
+ * @summary Delete an ultrasound image file
+ */
+export const DeleteUltrasoundImageParams = zod.object({
+  ultrasoundId: zod.coerce.number(),
+  attachmentId: zod.coerce.string().uuid(),
 });
 
 /**
@@ -2972,6 +3602,11 @@ export const ListLabTestsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -2982,6 +3617,7 @@ export const ListLabTestsResponseItem = zod.object({
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
+  orderGroupId: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListLabTestsResponse = zod.array(ListLabTestsResponseItem);
@@ -2996,6 +3632,7 @@ export const CreateLabTestBody = zod.object({
   testNameAr: zod.string().optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
+  orderGroupId: zod.string().optional(),
 });
 
 /**
@@ -3047,6 +3684,11 @@ export const GetLabTestResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -3057,6 +3699,7 @@ export const GetLabTestResponse = zod.object({
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
+  orderGroupId: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -3120,6 +3763,11 @@ export const UpdateLabTestResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -3130,6 +3778,7 @@ export const UpdateLabTestResponse = zod.object({
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
+  orderGroupId: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -3198,6 +3847,12 @@ export const CreateInvoiceBody = zod.object({
   ),
   discount: zod.number().optional(),
   notes: zod.string().optional(),
+  markPaid: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Point-of-sale flow — when true the invoice is created already paid (status=paid, paidAt=now), skipping the separate pending → pay step.",
+    ),
 });
 
 /**
@@ -3417,6 +4072,113 @@ export const GetDailyBillingSummaryResponse = zod.object({
 });
 
 /**
+ * @summary End-of-day reconciliation (Z-report) — super_admin only
+ */
+export const GetBillingReconciliationQueryParams = zod.object({
+  date: zod.date().optional(),
+});
+
+export const GetBillingReconciliationResponse = zod.object({
+  date: zod.coerce.date(),
+  summary: zod.object({
+    collectedTotal: zod.number(),
+    collectedCount: zod.number(),
+    invoicedTotal: zod.number(),
+    invoicedCount: zod.number(),
+    outstandingTotal: zod.number(),
+    outstandingCount: zod.number(),
+    cancelledTotal: zod.number(),
+    cancelledCount: zod.number(),
+  }),
+  payments: zod.array(
+    zod.object({
+      id: zod.number(),
+      invoiceNumber: zod.string(),
+      patientName: zod.string().nullish(),
+      total: zod.number(),
+      paidAt: zod.coerce.date().nullish(),
+      createdByName: zod.string().nullish(),
+    }),
+  ),
+});
+
+/**
+ * @summary List priced services (price book)
+ */
+export const ListServicesQueryParams = zod.object({
+  category: zod.coerce.string().optional(),
+  includeInactive: zod.coerce.boolean().optional(),
+});
+
+export const ListServicesResponseItem = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  nameAr: zod.string().nullish(),
+  description: zod.string().nullish(),
+  defaultPrice: zod.string(),
+  category: zod.string().nullish(),
+  code: zod.string().nullish(),
+  active: zod.boolean(),
+  createdAt: zod.coerce.date(),
+});
+export const ListServicesResponse = zod.array(ListServicesResponseItem);
+
+/**
+ * @summary Add a priced service
+ */
+export const CreateServiceBody = zod.object({
+  name: zod.string(),
+  nameAr: zod.string().optional(),
+  description: zod.string().optional(),
+  defaultPrice: zod.number(),
+  category: zod.string().optional(),
+  code: zod.string().optional(),
+});
+
+/**
+ * @summary Populate the price book with a default set of common services (price 0)
+ */
+export const SeedDefaultServicesResponse = zod.object({
+  inserted: zod.number(),
+});
+
+/**
+ * @summary Update a priced service
+ */
+export const UpdateServiceParams = zod.object({
+  serviceId: zod.coerce.number(),
+});
+
+export const UpdateServiceBody = zod.object({
+  name: zod.string().optional(),
+  nameAr: zod.string().optional(),
+  description: zod.string().optional(),
+  defaultPrice: zod.number().optional(),
+  category: zod.string().optional(),
+  code: zod.string().optional(),
+  active: zod.boolean().optional(),
+});
+
+export const UpdateServiceResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  nameAr: zod.string().nullish(),
+  description: zod.string().nullish(),
+  defaultPrice: zod.string(),
+  category: zod.string().nullish(),
+  code: zod.string().nullish(),
+  active: zod.boolean(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Soft delete a priced service
+ */
+export const DeleteServiceParams = zod.object({
+  serviceId: zod.coerce.number(),
+});
+
+/**
  * @summary List operations/surgeries
  */
 export const ListOperationsQueryParams = zod.object({
@@ -3431,6 +4193,7 @@ export const ListOperationsResponseItem = zod.object({
   id: zod.number(),
   patientId: zod.number(),
   surgeonId: zod.number(),
+  requestedById: zod.number().nullish(),
   patient: zod
     .object({
       id: zod.number(),
@@ -3468,14 +4231,57 @@ export const ListOperationsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  requestedBy: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
   procedureName: zod.string(),
   scheduledAt: zod.coerce.date(),
   operatingRoom: zod.string(),
-  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
-  staffAssigned: zod.array(zod.number()),
+  status: zod.enum([
+    "requested",
+    "scheduled",
+    "in_progress",
+    "completed",
+    "cancelled",
+  ]),
+  staffAssigned: zod.array(
+    zod.object({
+      userId: zod.number(),
+      role: zod.string().optional(),
+    }),
+  ),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -3490,7 +4296,14 @@ export const CreateOperationBody = zod.object({
   procedureName: zod.string(),
   scheduledAt: zod.coerce.date(),
   operatingRoom: zod.string(),
-  staffAssigned: zod.array(zod.number()).optional(),
+  staffAssigned: zod
+    .array(
+      zod.object({
+        userId: zod.number(),
+        role: zod.string().optional(),
+      }),
+    )
+    .optional(),
   notes: zod.string().optional(),
 });
 
@@ -3505,6 +4318,7 @@ export const GetOperationResponse = zod.object({
   id: zod.number(),
   patientId: zod.number(),
   surgeonId: zod.number(),
+  requestedById: zod.number().nullish(),
   patient: zod
     .object({
       id: zod.number(),
@@ -3542,14 +4356,57 @@ export const GetOperationResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  requestedBy: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
   procedureName: zod.string(),
   scheduledAt: zod.coerce.date(),
   operatingRoom: zod.string(),
-  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
-  staffAssigned: zod.array(zod.number()),
+  status: zod.enum([
+    "requested",
+    "scheduled",
+    "in_progress",
+    "completed",
+    "cancelled",
+  ]),
+  staffAssigned: zod.array(
+    zod.object({
+      userId: zod.number(),
+      role: zod.string().optional(),
+    }),
+  ),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -3566,9 +4423,16 @@ export const UpdateOperationBody = zod.object({
   scheduledAt: zod.coerce.date().optional(),
   operatingRoom: zod.string().optional(),
   status: zod
-    .enum(["scheduled", "in_progress", "completed", "cancelled"])
+    .enum(["requested", "scheduled", "in_progress", "completed", "cancelled"])
     .optional(),
-  staffAssigned: zod.array(zod.number()).optional(),
+  staffAssigned: zod
+    .array(
+      zod.object({
+        userId: zod.number(),
+        role: zod.string().optional(),
+      }),
+    )
+    .optional(),
   notes: zod.string().optional(),
 });
 
@@ -3576,6 +4440,7 @@ export const UpdateOperationResponse = zod.object({
   id: zod.number(),
   patientId: zod.number(),
   surgeonId: zod.number(),
+  requestedById: zod.number().nullish(),
   patient: zod
     .object({
       id: zod.number(),
@@ -3613,14 +4478,57 @@ export const UpdateOperationResponse = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  requestedBy: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
   procedureName: zod.string(),
   scheduledAt: zod.coerce.date(),
   operatingRoom: zod.string(),
-  status: zod.enum(["scheduled", "in_progress", "completed", "cancelled"]),
-  staffAssigned: zod.array(zod.number()),
+  status: zod.enum([
+    "requested",
+    "scheduled",
+    "in_progress",
+    "completed",
+    "cancelled",
+  ]),
+  staffAssigned: zod.array(
+    zod.object({
+      userId: zod.number(),
+      role: zod.string().optional(),
+    }),
+  ),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
 });
@@ -3715,6 +4623,64 @@ export const UpdateInventoryItemResponse = zod.object({
 });
 
 /**
+ * @summary Soft delete inventory item
+ */
+export const DeleteInventoryItemParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+/**
+ * @summary Apply a signed stock movement (restock / consume / write-off)
+ */
+export const AdjustInventoryStockParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+export const AdjustInventoryStockBody = zod.object({
+  delta: zod
+    .number()
+    .describe(
+      "Signed change. Positive = stock in, negative = stock out. Non-zero.",
+    ),
+  reason: zod.enum(["restock", "consumed", "expired", "adjustment"]),
+  note: zod.string().optional(),
+});
+
+export const AdjustInventoryStockResponse = zod.object({
+  id: zod.number(),
+  name: zod.string(),
+  category: zod.string(),
+  quantity: zod.number(),
+  unit: zod.string(),
+  minimumStock: zod.number(),
+  expiryDate: zod.coerce.date().nullish(),
+  notes: zod.string().nullish(),
+  isActive: zod.boolean(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Stock movement history for an item
+ */
+export const ListInventoryTransactionsParams = zod.object({
+  itemId: zod.coerce.number(),
+});
+
+export const ListInventoryTransactionsResponseItem = zod.object({
+  id: zod.string(),
+  delta: zod.number(),
+  quantityAfter: zod.number(),
+  reason: zod.enum(["initial", "restock", "consumed", "expired", "adjustment"]),
+  note: zod.string().nullish(),
+  performedById: zod.number().nullish(),
+  performedByName: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListInventoryTransactionsResponse = zod.array(
+  ListInventoryTransactionsResponseItem,
+);
+
+/**
  * @summary List notifications for current user
  */
 export const ListNotificationsQueryParams = zod.object({
@@ -3785,6 +4751,11 @@ export const ListAuditLogsResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -3829,6 +4800,11 @@ export const GetAuditLogsByEntityResponseItem = zod.object({
       isActive: zod.boolean(),
       isOnShift: zod.boolean(),
       phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
       createdAt: zod.coerce.date(),
     })
     .optional(),
@@ -4306,6 +5282,7 @@ export const GetAppointmentReportResponse = zod.object({
   cancelled: zod.number(),
   noShow: zod.number(),
   cancellationRate: zod.number(),
+  noShowRate: zod.number(),
   averageWaitTimeMinutes: zod.number(),
   byDoctor: zod.array(
     zod.object({
@@ -4314,6 +5291,28 @@ export const GetAppointmentReportResponse = zod.object({
       count: zod.number(),
     }),
   ),
+  byStatus: zod.array(
+    zod.object({
+      status: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  byDay: zod.array(
+    zod.object({
+      date: zod.coerce.date(),
+      count: zod.number(),
+    }),
+  ),
+  previous: zod
+    .object({
+      totalAppointments: zod.number(),
+      completed: zod.number(),
+      cancellationRate: zod.number(),
+      noShowRate: zod.number(),
+    })
+    .describe(
+      "Same metrics for the immediately-preceding window of equal length (period-over-period).",
+    ),
 });
 
 /**
@@ -4328,12 +5327,136 @@ export const GetRevenueReportResponse = zod.object({
   totalRevenue: zod.number(),
   totalInvoices: zod.number(),
   paidInvoices: zod.number(),
+  pendingInvoices: zod.number(),
+  cancelledInvoices: zod.number(),
+  pendingAmount: zod.number(),
+  collectionRate: zod
+    .number()
+    .describe("paidInvoices \/ (paidInvoices + pendingInvoices)."),
   averageInvoiceValue: zod.number(),
   byDay: zod.array(
     zod.object({
       date: zod.coerce.date(),
       revenue: zod.number(),
       invoices: zod.number(),
+    }),
+  ),
+  topServices: zod.array(
+    zod.object({
+      name: zod.string(),
+      revenue: zod.number(),
+      count: zod.number(),
+    }),
+  ),
+  previous: zod
+    .object({
+      totalRevenue: zod.number(),
+      paidInvoices: zod.number(),
+      collectionRate: zod.number(),
+    })
+    .describe(
+      "Same metrics for the immediately-preceding window of equal length (period-over-period).",
+    ),
+});
+
+/**
+ * @summary Get lab / x-ray / ultrasound diagnostics report (date-filtered, aggregated)
+ */
+export const GetDiagnosticsReportQueryParams = zod.object({
+  dateFrom: zod.date().optional(),
+  dateTo: zod.date().optional(),
+});
+
+export const GetDiagnosticsReportResponse = zod.object({
+  totalLabTests: zod.number(),
+  labCompleted: zod.number(),
+  totalXrays: zod.number(),
+  xraysReviewed: zod.number(),
+  totalUltrasounds: zod.number(),
+  ultrasoundsReviewed: zod.number(),
+  labByStatus: zod.array(
+    zod.object({
+      status: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  xrayByStatus: zod.array(
+    zod.object({
+      status: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  ultrasoundByStatus: zod.array(
+    zod.object({
+      status: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  topLabTypes: zod.array(
+    zod.object({
+      name: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  topXrayBodyParts: zod.array(
+    zod.object({
+      part: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  topUltrasoundExamTypes: zod.array(
+    zod.object({
+      name: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+});
+
+/**
+ * @summary Get operations report — per-surgeon volume + OR-team participation (date-filtered, aggregated)
+ */
+export const GetOperationsReportQueryParams = zod.object({
+  dateFrom: zod.date().optional(),
+  dateTo: zod.date().optional(),
+});
+
+export const GetOperationsReportResponse = zod.object({
+  totalOperations: zod.number(),
+  completed: zod.number(),
+  inProgress: zod.number(),
+  cancelled: zod.number(),
+  byStatus: zod.array(
+    zod.object({
+      status: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  bySurgeon: zod.array(
+    zod.object({
+      surgeonId: zod.number(),
+      surgeonName: zod.string(),
+      performed: zod.number(),
+      total: zod.number(),
+    }),
+  ),
+  byStaff: zod.array(
+    zod.object({
+      userId: zod.number(),
+      name: zod.string(),
+      role: zod.string().nullish(),
+      count: zod.number(),
+    }),
+  ),
+  byProcedure: zod.array(
+    zod.object({
+      name: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+  byDay: zod.array(
+    zod.object({
+      date: zod.string(),
+      count: zod.number(),
     }),
   ),
 });
@@ -4651,6 +5774,11 @@ export const VerifyDeviceResponse = zod.object({
     isActive: zod.boolean(),
     isOnShift: zod.boolean(),
     phone: zod.string().nullish(),
+    addressLine: zod.string().nullish(),
+    city: zod.string().nullish(),
+    region: zod.string().nullish(),
+    postalCode: zod.string().nullish(),
+    country: zod.string().nullish(),
     createdAt: zod.coerce.date(),
   }),
 });

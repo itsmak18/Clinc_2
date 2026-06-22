@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   useListAppointments, useCreateAppointment, useCheckInPatient, useCancelAppointment,
-  useStartTriage, useStartConsultation, useRequestDiagnostics, usePendingPayment, useCompleteAppointment,
+  useStartTriage, useStartConsultation, useRequestDiagnostics, useReconsultAppointment, usePendingPayment, useCompleteAppointment, useMarkNoShow,
   useListPatients, useListUsers,
   getListAppointmentsQueryKey, getListPatientsQueryKey, getListUsersQueryKey,
   useGetTodayAppointments, getGetTodayAppointmentsQueryKey,
@@ -15,6 +15,7 @@ import DischargeSheet from "@/components/DischargeSheet";
 import DayScheduleView from "@/components/DayScheduleView";
 import GlobalSearch from "@/components/GlobalSearch";
 import SearchSelect from "@/components/SearchSelect";
+import PatientSearchSelect from "@/components/PatientSearchSelect";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -100,8 +101,10 @@ export default function Appointments() {
     triage:      useStartTriage(),
     consult:     useStartConsultation(),
     diagnostics: useRequestDiagnostics(),
+    reconsult:   useReconsultAppointment(),
     payment:     usePendingPayment(),
     complete:    useCompleteAppointment(),
+    noShow:      useMarkNoShow(),
   } as const;
 
   type TransitionKey = keyof typeof transitionHooks;
@@ -188,9 +191,11 @@ export default function Appointments() {
           >
             <Download className="w-3.5 h-3.5" /> {t("exportCsv")}
           </button>
-          <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
-            <Plus className="w-3.5 h-3.5" /> {t("newAppointment")}
-          </button>
+          {["super_admin", "admin", "doctor", "front_desk"].includes(role || "") && (
+            <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-new-appointment">
+              <Plus className="w-3.5 h-3.5" /> {t("newAppointment")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -252,6 +257,13 @@ export default function Appointments() {
                           <UserCheck className="w-3 h-3" />{t("checkIn")}
                         </button>
                       )}
+                      {a.status === "scheduled" && isFrontDesk && (
+                        <button className="btn btn-ghost btn-sm h-6 text-xs px-2 text-[var(--amber-600)]" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "noShow", t("markedNoShow")); }}
+                          data-testid={`button-noshow-${a.id}`}>
+                          {t("markNoShow")}
+                        </button>
+                      )}
                       {a.status === "checked_in" && isNurse && (
                         <button className="btn btn-outline btn-sm h-6 text-xs px-2" disabled={busy}
                           onClick={e => { e.stopPropagation(); transition(a.id, "triage", t("triageStarted")); }}>
@@ -268,6 +280,12 @@ export default function Appointments() {
                         <button className="btn btn-outline btn-sm h-6 text-xs px-2" disabled={busy}
                           onClick={e => { e.stopPropagation(); transition(a.id, "diagnostics", t("awaitingDiagnostics")); }}>
                           {t("diagnostics")}
+                        </button>
+                      )}
+                      {a.status === "awaiting_diagnostics" && isDoctor && (
+                        <button className="btn btn-primary btn-sm h-6 text-xs px-2 gap-1" disabled={busy}
+                          onClick={e => { e.stopPropagation(); transition(a.id, "reconsult", t("resumeConsult")); }}>
+                          <Stethoscope className="w-3 h-3" />{t("resumeConsult")}
                         </button>
                       )}
                       {["in_consultation", "awaiting_diagnostics"].includes(a.status) && (isDoctor || isNurse) && (
@@ -311,21 +329,10 @@ export default function Appointments() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("patient")} *</Label>
-              <SearchSelect
-                data-testid="select-patient"
+              <PatientSearchSelect
+                testId="select-patient"
                 value={form.patientId}
                 onChange={v => setForm(f => ({ ...f, patientId: v }))}
-                placeholder={t("selectPatient")}
-                searchPlaceholder={t("searchPatient")}
-                emptyText={t("noPatientsFound")}
-                options={(patients?.patients ?? []).map(p => ({
-                  value: String(p.id),
-                  // Searchable by name, MRN, AND ID card number; displayed as
-                  // "Name (MRN)" — the ID card (sensitive national ID) is a search
-                  // key only, not shown in the list (PII minimization).
-                  label: `${p.fullName} (${p.mrn})`,
-                  search: `${p.fullName} ${p.mrn} ${p.idCardNumber}`,
-                }))}
               />
             </div>
             <div className="space-y-1">
@@ -345,7 +352,8 @@ export default function Appointments() {
               <Input type="datetime-local" value={form.scheduledAt} onChange={e => setForm(f => ({ ...f, scheduledAt: e.target.value }))} data-testid="input-scheduled-at" />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">{t("reason")} *</Label>
+              {/* Front desk shouldn't have to ask the patient for a clinical reason — optional for them. */}
+              <Label className="text-xs">{t("reason")} {isFrontDeskUser ? <span className="text-[var(--ink-faint)]">({t("optional")})</span> : "*"}</Label>
               <Input value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} data-testid="input-reason" />
             </div>
             <div className="space-y-1">
@@ -377,7 +385,7 @@ export default function Appointments() {
                     !form.patientId && t("patient"),
                     !form.doctorId && t("doctorLabel"),
                     !form.scheduledAt && t("scheduledAt"),
-                    !form.reason.trim() && t("reason"),
+                    !isFrontDeskUser && !form.reason.trim() && t("reason"),
                   ].filter(Boolean);
                   if (missing.length > 0) {
                     toast({ title: t("fillRequiredFields"), description: missing.join("، "), variant: "destructive" });

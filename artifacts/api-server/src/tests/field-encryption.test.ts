@@ -30,6 +30,8 @@ let encryptNullable: (s: string | null | undefined) => string | null;
 let decryptNullable: (s: string | null | undefined) => string | null;
 let encryptJsonNullable: (v: unknown) => string | null;
 let decryptJsonNullable: <T>(s: string | null | undefined) => T | null;
+let encryptBuffer: (b: Buffer) => { data: Buffer; kid: string | null; iv: string | null; tag: string | null };
+let decryptBuffer: (b: Buffer, env: { kid: string | null; iv: string | null; tag: string | null }) => Buffer;
 
 // Helpers — build legacy v1 / arbitrary-kid v2 envelopes for the tests that
 // exercise read-paths we can no longer produce via encrypt() itself.
@@ -68,6 +70,8 @@ beforeAll(async () => {
   decryptNullable = mod.decryptNullable;
   encryptJsonNullable = mod.encryptJsonNullable;
   decryptJsonNullable = mod.decryptJsonNullable;
+  encryptBuffer = mod.encryptBuffer;
+  decryptBuffer = mod.decryptBuffer;
 });
 
 describe("field-encryption — v2 envelope (current write path)", () => {
@@ -100,6 +104,33 @@ describe("field-encryption — v2 envelope (current write path)", () => {
     const ct = encryptJson(obj);
     expect(isEncrypted(ct)).toBe(true);
     expect(decryptJson(ct)).toEqual(obj);
+  });
+
+  it("encryptBuffer/decryptBuffer round-trips binary image bytes", () => {
+    // PNG magic header + arbitrary payload — stands in for an uploaded study image.
+    const original = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      randomBytes(4096),
+    ]);
+    const env = encryptBuffer(original);
+    expect(env.kid).toBe("1");
+    expect(env.iv).toMatch(/^[0-9a-f]{24}$/);  // 12-byte IV in hex
+    expect(env.tag).toMatch(/^[0-9a-f]{32}$/); // 16-byte GCM tag in hex
+    // Ciphertext on disk must not equal the plaintext (no accidental pass-through).
+    expect(env.data.equals(original)).toBe(false);
+    const decrypted = decryptBuffer(env.data, env);
+    expect(decrypted.equals(original)).toBe(true);
+  });
+
+  it("decryptBuffer rejects a tampered GCM tag", () => {
+    const env = encryptBuffer(randomBytes(256));
+    const badTag = env.tag!.replace(/.$/, c => (c === "0" ? "1" : "0"));
+    expect(() => decryptBuffer(env.data, { ...env, tag: badTag })).toThrow();
+  });
+
+  it("decryptBuffer passes through when no envelope is present (dev no-key path)", () => {
+    const plain = randomBytes(64);
+    expect(decryptBuffer(plain, { kid: null, iv: null, tag: null }).equals(plain)).toBe(true);
   });
 
   it("encryptJson/decryptJson round-trips a JSON array", () => {

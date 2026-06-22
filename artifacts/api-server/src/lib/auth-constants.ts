@@ -58,3 +58,12 @@ export const isStrictPasswordPolicyEnabled = (): boolean =>
 /** §2.8 — CSP `report-uri` directive + ingestion endpoint. */
 export const isCspReportEnabled = (): boolean =>
   isPhase2Enabled() && process.env.PHASE2_CSP_REPORT_ENABLED === "true";
+
+// ─── Patient-flow auto-advance (Phase 2, 2026-06-20) ──────────────────────────
+// When ON, a clinical write (nurse saves vitals, doctor orders a study, invoice
+// created) advances the linked appointment through the state machine as a side
+// effect, so staff never click a status manually. Best-effort + idempotent: it
+// never blocks or fails the primary write. Default ON — set AUTO_ADVANCE_FLOW
+// to "false" to kill it without a deploy. Read via this helper, never env directly.
+export const isAutoAdvanceFlowEnabled = (): boolean =>
+  process.env.AUTO_ADVANCE_FLOW !== "false";

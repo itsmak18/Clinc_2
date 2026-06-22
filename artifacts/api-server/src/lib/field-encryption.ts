@@ -159,13 +159,67 @@ export function decrypt(ciphertext: string): string {
   );
 }
 
+// ─── binary helpers (for file bytes stored on disk) ──────────────────────────
+//
+// Imaging attachments (X-ray / ultrasound) encrypt the file bytes at rest using
+// the SAME key registry as the field-level helpers above. Unlike the string
+// path, the envelope metadata (kid/iv/tag) is NOT prefixed onto the bytes — it
+// is stored alongside in the imaging_attachments row, so the on-disk file is
+// pure ciphertext. In dev with no key registered, encryptBuffer is a pass-
+// through (kid/iv/tag all null), mirroring the field-level fail-open behavior.
+
+export interface BufferEnvelope {
+  data: Buffer;          // ciphertext (or plaintext when encryption is disabled)
+  kid: string | null;    // null ⇒ stored unencrypted (dev, no key)
+  iv: string | null;     // hex
+  tag: string | null;    // hex (GCM auth tag)
+}
+
+export function encryptBuffer(plaintext: Buffer): BufferEnvelope {
+  if (!writeKey) return { data: plaintext, kid: null, iv: null, tag: null };
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGO, writeKey, iv);
+  const data = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return { data, kid: WRITE_KID, iv: iv.toString("hex"), tag: tag.toString("hex") };
+}
+
+export function decryptBuffer(
+  ciphertext: Buffer,
+  env: { kid: string | null; iv: string | null; tag: string | null },
+): Buffer {
+  // Stored unencrypted (dev path, or a row written before a key was configured).
+  if (!env.kid || !env.iv || !env.tag) return ciphertext;
+  const key = registry.get(env.kid);
+  if (!key) {
+    throw new Error(
+      `Cannot decrypt imaging file: kid="${env.kid}" is not registered. ` +
+      "Register the matching FIELD_ENCRYPTION_KEY_* env var to read this file.",
+    );
+  }
+  const iv = Buffer.from(env.iv, "hex");
+  const tag = Buffer.from(env.tag, "hex");
+  if (iv.length !== IV_BYTES || tag.length !== TAG_BYTES) {
+    throw new Error("Corrupt imaging file envelope metadata");
+  }
+  const decipher = createDecipheriv(ALGO, key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
 // ─── JSON helpers (for JSONB columns) ────────────────────────────────────────
 
 export function encryptJson(value: unknown): string {
   return encrypt(JSON.stringify(value));
 }
 
-export function decryptJson<T = unknown>(ciphertext: string): T {
+export function decryptJson<T = unknown>(ciphertext: unknown): T {
+  // A JSONB column round-trips as an ALREADY-PARSED object/array when the value
+  // was stored unencrypted (dev: no FIELD_ENCRYPTION_KEY → encrypt() passes the
+  // plaintext through, and Postgres returns parsed JSON). Only a string envelope
+  // needs decrypt + JSON.parse. In production encryptJson always yields a string,
+  // so the decrypt path is always taken there.
+  if (typeof ciphertext !== "string") return ciphertext as T;
   return JSON.parse(decrypt(ciphertext)) as T;
 }
 
@@ -186,7 +240,7 @@ export function encryptJsonNullable(value: unknown): string | null {
   return encryptJson(value);
 }
 
-export function decryptJsonNullable<T = unknown>(value: string | null | undefined): T | null {
+export function decryptJsonNullable<T = unknown>(value: unknown): T | null {
   if (value == null) return null;
-  return decryptJson<T>(value as string);
+  return decryptJson<T>(value);
 }

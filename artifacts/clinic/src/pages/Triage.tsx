@@ -4,9 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetTodayAppointments,
   useStartTriage,
-  useMarkPatientReady,
   useUpdateAppointment,
-  useCreateMedicalRecord,
+  useCreateVitals,
   getGetTodayAppointmentsQueryKey,
   getListAppointmentsQueryKey,
 } from "@workspace/api-client-react";
@@ -39,6 +38,13 @@ const PRIORITY_STYLES: Record<Priority, { pill: string; border: string; label: s
 
 const PRIORITY_ORDER: Record<Priority, number> = { critical: 0, urgent: 1, normal: 2 };
 
+/** Parse a "120/80" cuff reading into the structured systolic/diastolic the
+ *  vitalsSchema requires. Returns {} when the input isn't a valid pair. */
+function parseBP(s: string): { bloodPressureSystolic?: number; bloodPressureDiastolic?: number } {
+  const m = (s ?? "").trim().match(/^(\d{2,3})\s*\/\s*(\d{2,3})$/);
+  return m ? { bloodPressureSystolic: parseInt(m[1]), bloodPressureDiastolic: parseInt(m[2]) } : {};
+}
+
 function sortByPriority(appts: any[]): any[] {
   return [...appts].sort((a, b) => {
     const pa = PRIORITY_ORDER[(a.triagePriority as Priority) ?? "normal"] ?? 2;
@@ -48,7 +54,10 @@ function sortByPriority(appts: any[]): any[] {
   });
 }
 
-export default function Triage() {
+// Existing kanban implementation — intentionally NOT rendered for now. Triage is
+// shelved behind a "Coming Soon" placeholder (see the default export below) until
+// the workflow is finalized. Re-enable by exporting this as default again.
+function TriageWorkflow() {
   const { t } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -90,8 +99,7 @@ export default function Triage() {
   const updateAppointmentMutation = useUpdateAppointment({
     mutation: { onSuccess: () => invalidate(), onError: () => toast({ title: t("failed"), variant: "destructive" }) },
   });
-  const createMedicalRecordMutation = useCreateMedicalRecord();
-  const markReadyMutation = useMarkPatientReady();
+  const createVitalsMutation = useCreateVitals();
 
   const handleStartTriage = async (appt: any) => {
     try {
@@ -115,25 +123,21 @@ export default function Triage() {
     if (!qv) return;
     setQuickSaving(appt.id);
     try {
-      await createMedicalRecordMutation.mutateAsync({
+      await createVitalsMutation.mutateAsync({
         data: {
           patientId: appt.patientId,
-          doctorId: appt.doctorId,
           appointmentId: appt.id,
-          chiefComplaint: "Quick vitals recorded",
-          diagnosis: "Pending — triage only",
-          treatment: "Pending",
           vitals: {
-            bloodPressure: qv.bp || undefined,
+            ...parseBP(qv.bp),
             heartRate: qv.pulse ? parseInt(qv.pulse) : undefined,
             temperature: qv.temp ? parseFloat(qv.temp) : undefined,
           },
         } as any,
       });
-      toast({ title: "Quick vitals saved" });
+      toast({ title: t("vitalsRecorded") });
       setQuickVitals(prev => { const next = { ...prev }; delete next[appt.id]; return next; });
     } catch {
-      toast({ title: "Failed to save vitals", variant: "destructive" });
+      toast({ title: t("vitalsRecordFailed"), variant: "destructive" });
     } finally {
       setQuickSaving(null);
     }
@@ -144,7 +148,7 @@ export default function Triage() {
     setLoading(true);
     try {
       const vitalsData = {
-        bloodPressure: vitals.bloodPressure || undefined,
+        ...parseBP(vitals.bloodPressure),
         heartRate: vitals.heartRate ? parseInt(vitals.heartRate) : undefined,
         temperature: vitals.temperature ? parseFloat(vitals.temperature) : undefined,
         weight: vitals.weight ? parseFloat(vitals.weight) : undefined,
@@ -152,25 +156,21 @@ export default function Triage() {
         oxygenSaturation: vitals.oxygenSaturation ? parseFloat(vitals.oxygenSaturation) : undefined,
       };
 
-      await createMedicalRecordMutation.mutateAsync({
+      // createVitals auto-advances the visit to ready_for_doctor (Phase 2). The old
+      // explicit markReady that followed double-fired with it → 409. Dropped.
+      await createVitalsMutation.mutateAsync({
         data: {
           patientId: selectedAppt.patientId,
-          doctorId: selectedAppt.doctorId,
           appointmentId: selectedAppt.id,
-          chiefComplaint: "Triage vitals recorded",
-          diagnosis: "Pending — triage only",
-          treatment: "Pending",
           notes: vitals.notes || undefined,
           vitals: vitalsData,
         } as any,
       });
-
-      await markReadyMutation.mutateAsync({ appointmentId: selectedAppt.id });
-      toast({ title: "Vitals recorded — patient is ready for doctor" });
+      toast({ title: t("vitalsRecorded") });
       setSelectedAppt(null);
       invalidate();
     } catch {
-      toast({ title: "Failed to complete triage", variant: "destructive" });
+      toast({ title: t("vitalsRecordFailed"), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -422,4 +422,8 @@ export default function Triage() {
       </Dialog>
     </div>
   );
+}
+
+export default function Triage() {
+  return <TriageWorkflow />;
 }

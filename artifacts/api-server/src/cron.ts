@@ -11,6 +11,8 @@ import type { Request } from "express";
 import { drainAuditOutbox, logAudit } from "./lib/audit";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
+import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./services/csp-report.service";
+import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./services/imaging-attachments.service";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
 // the DB pool is drained (H7). Without this, an in-flight cron callback could
@@ -193,6 +195,40 @@ export function startCronJobs() {
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Failed to run No-show Auto-Transition");
+    }
+  }));
+
+  // CSP report retention purge (runs daily at 03:30 UTC — off-peak, clear of the
+  // 02:00 integrity job and the 03:00 monthly retention report). Enforces the
+  // documented 90-day retention so csp_reports cannot grow unbounded (F-M2).
+  // Override the window with CSP_REPORT_RETENTION_DAYS. Harmless when the CSP
+  // report flag is off (table empty → deletes 0).
+  scheduledTasks.push(cron.schedule("30 3 * * *", async () => {
+    logger.info("[Cron] Running CSP report retention purge");
+    try {
+      const parsed = Number(process.env.CSP_REPORT_RETENTION_DAYS);
+      const retentionDays = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CSP_RETENTION_DAYS;
+      const purged = await purgeOldCspReports(retentionDays);
+      logger.info({ purged, retentionDays }, "[Cron] CSP report retention purge complete");
+    } catch (err) {
+      logger.error({ err }, "[Cron] CSP report retention purge failed");
+    }
+  }));
+
+  // Orphaned imaging-file reclamation (runs daily at 04:00 UTC). Deletes encrypted
+  // X-ray/ultrasound files on disk with no live imaging_attachments row — the
+  // crash-between-write-and-insert and failed-unlink orphan classes (F-M5). A
+  // grace window (IMAGING_ORPHAN_GRACE_HOURS, default 24h) protects in-flight
+  // uploads. No-op when IMAGING_STORAGE_DIR is empty.
+  scheduledTasks.push(cron.schedule("0 4 * * *", async () => {
+    logger.info("[Cron] Running imaging orphan-file reconciliation");
+    try {
+      const parsed = Number(process.env.IMAGING_ORPHAN_GRACE_HOURS);
+      const graceHours = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ORPHAN_GRACE_HOURS;
+      const summary = await reconcileOrphanImagingFiles(graceHours);
+      logger.info({ ...summary, graceHours }, "[Cron] Imaging orphan-file reconciliation complete");
+    } catch (err) {
+      logger.error({ err }, "[Cron] Imaging orphan-file reconciliation failed");
     }
   }));
 }

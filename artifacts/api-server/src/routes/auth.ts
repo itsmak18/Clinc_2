@@ -100,7 +100,7 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
 
 router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
   try {
-    await logoutUser(req.user!.userId, req.ip || "unknown");
+    await logoutUser(req.user!.userId, req.ip || "unknown", req.user!.clinicId);
   } catch (err) {
     req.log?.warn({ err, userId: req.user!.userId }, "logout revocation failed; clearing cookie anyway");
   }

@@ -34,11 +34,14 @@ const XRay         = lazy(() => import("@/pages/XRay"));
 const Ultrasound   = lazy(() => import("@/pages/Ultrasound"));
 const Lab          = lazy(() => import("@/pages/Lab"));
 const Billing      = lazy(() => import("@/pages/Billing"));
+const Reconciliation = lazy(() => import("@/pages/Reconciliation"));
+const ServicePrices = lazy(() => import("@/pages/ServicePrices"));
 const Operations   = lazy(() => import("@/pages/Operations"));
 const Inventory    = lazy(() => import("@/pages/Inventory"));
 const Reports      = lazy(() => import("@/pages/Reports"));
 const Notifications = lazy(() => import("@/pages/Notifications"));
 const Users        = lazy(() => import("@/pages/Users"));
+const UserProfile  = lazy(() => import("@/pages/UserProfile"));
 const AuditLog     = lazy(() => import("@/pages/AuditLog"));
 const Settings     = lazy(() => import("@/pages/Settings"));
 const Triage       = lazy(() => import("@/pages/Triage"));
@@ -248,6 +251,12 @@ function ProtectedRoutes() {
           <Route path="/billing">
             <Guard path="/billing" role={role}><Billing /></Guard>
           </Route>
+          <Route path="/reconciliation">
+            <Guard path="/reconciliation" role={role}><Reconciliation /></Guard>
+          </Route>
+          <Route path="/service-prices">
+            <Guard path="/service-prices" role={role}><ServicePrices /></Guard>
+          </Route>
           <Route path="/operations">
             <Guard path="/operations" role={role}><Operations /></Guard>
           </Route>
@@ -258,6 +267,9 @@ function ProtectedRoutes() {
             <Guard path="/reports" role={role}><Reports /></Guard>
           </Route>
           <Route path="/notifications" component={Notifications} />
+          <Route path="/users/:userId">
+            <Guard path="/users" role={role}><UserProfile /></Guard>
+          </Route>
           <Route path="/users">
             <Guard path="/users" role={role}><Users /></Guard>
           </Route>

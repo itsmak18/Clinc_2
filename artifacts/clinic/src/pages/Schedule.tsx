@@ -26,7 +26,10 @@ import { cn } from "@/lib/utils";
 import {
   Plus, Pencil, Trash2, ChevronLeft, ChevronRight,
   CalendarOff, Clock, Users, CheckCircle2, XCircle,
+  CalendarDays, CalendarRange,
 } from "lucide-react";
+import ScheduleDayView from "@/components/ScheduleDayView";
+import { DoctorAvatar } from "@/components/DoctorAvatar";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 type DayOfWeek = typeof DAYS[number];
@@ -93,7 +96,7 @@ const defaultOverride: OverrideForm = {
   reason: "",
 };
 
-export default function Schedule() {
+function WeeklyTemplate() {
   const { t } = useI18n();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -230,7 +233,7 @@ export default function Schedule() {
     : (doctorsList as any[]).find((d: any) => d.id === selectedDoctorId);
 
   return (
-    <div className="page">
+    <div>
       {/* Toolbar */}
       {canEdit && activeDoctorId && (
         <div className="flex gap-2 mb-4 justify-end">
@@ -261,20 +264,23 @@ export default function Schedule() {
                     <button
                       onClick={() => setSelectedDoctorId(doc.id)}
                       className={cn(
-                        "w-full text-start px-3 py-2.5 text-sm transition-colors hover:bg-[var(--surface-2)]",
+                        "w-full flex items-start gap-2.5 text-start px-3 py-2.5 text-sm transition-colors hover:bg-[var(--surface-2)]",
                         selectedDoctorId === doc.id
                           ? "bg-[var(--teal-50)] border-s-2 border-[var(--teal-600)] font-medium"
                           : ""
                       )}
                     >
-                      <div className="font-medium leading-tight text-[var(--ink)]">{doc.fullName}</div>
-                      {doc.specialty && (
-                        <div className="text-xs text-[var(--ink-muted)] mt-0.5">{doc.specialty}</div>
-                      )}
-                      <div className="mt-1">
-                        <span className={cn("badge text-[10px] px-1 py-0", doc.isOnShift ? "badge-teal" : "")}>
-                          {doc.isOnShift ? t("onShift") : t("offShift")}
-                        </span>
+                      <DoctorAvatar id={doc.id} name={doc.fullName} size={28} />
+                      <div className="min-w-0">
+                        <div className="font-medium leading-tight text-[var(--ink)] truncate">{doc.fullName}</div>
+                        {doc.specialty && (
+                          <div className="text-xs text-[var(--ink-muted)] mt-0.5 truncate">{doc.specialty}</div>
+                        )}
+                        <div className="mt-1">
+                          <span className={cn("badge text-[10px] px-1 py-0", doc.isOnShift ? "badge-teal" : "")}>
+                            {doc.isOnShift ? t("onShift") : t("offShift")}
+                          </span>
+                        </div>
                       </div>
                     </button>
                   </li>
@@ -297,6 +303,7 @@ export default function Schedule() {
               {/* Doctor header */}
               {selectedDoctor && (
                 <div className="flex items-center gap-3">
+                  <DoctorAvatar id={selectedDoctor.id} name={selectedDoctor.fullName} size={44} />
                   <div>
                     <h2 className="font-semibold text-lg text-[var(--ink)]">{selectedDoctor.fullName}</h2>
                     {selectedDoctor.specialty && (
@@ -314,86 +321,67 @@ export default function Schedule() {
                 {(scheduleDetail as any)?.weeklyTemplate?.length === 0 ? (
                   <p className="p-4 text-sm text-[var(--ink-muted)]">{t("noScheduleSet")}</p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-[var(--ink-muted)] border-b border-[var(--line)]">
-                        <th className="px-4 py-2 text-start">{t("date")}</th>
-                        <th className="px-4 py-2 text-start">{t("status")}</th>
-                        <th className="px-4 py-2 text-start">{t("slotDuration")}</th>
-                        <th className="px-4 py-2 text-start">{t("maxPatients")}</th>
-                        {canEdit && <th className="px-4 py-2 text-start">{t("actions")}</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--line)]">
-                      {((scheduleDetail as any)?.weeklyTemplate ?? [])
-                        .slice()
-                        .sort((a: any, b: any) => DAYS.indexOf(a.dayOfWeek) - DAYS.indexOf(b.dayOfWeek))
-                        .map((block: any) => (
-                          <tr key={block.id} className="hover:bg-[var(--surface-2)]">
-                            <td className="px-4 py-2 capitalize font-medium text-[var(--ink)]">
-                              {t(block.dayOfWeek as any)}
-                              <span className="text-[var(--ink-muted)] ms-2">
-                                {block.startTime.slice(0, 5)} – {block.endTime.slice(0, 5)}
+                  <div className="p-3 space-y-2">
+                    {((scheduleDetail as any)?.weeklyTemplate ?? [])
+                      .slice()
+                      .sort((a: any, b: any) => DAYS.indexOf(a.dayOfWeek) - DAYS.indexOf(b.dayOfWeek))
+                      .map((block: any) => (
+                        <div
+                          key={block.id}
+                          className={cn(
+                            "flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[var(--line)] px-3 py-2.5",
+                            block.status === "active" ? "bg-[var(--surface)]" : "bg-[var(--surface-2)] opacity-70"
+                          )}
+                        >
+                          <div className="w-24 flex-shrink-0">
+                            <div className="font-medium text-[13px] text-[var(--ink)] capitalize">{t(block.dayOfWeek as any)}</div>
+                            <div className="text-[11px] text-[var(--ink-muted)]">
+                              {block.startTime.slice(0, 5)} – {block.endTime.slice(0, 5)}
+                            </div>
+                          </div>
+                          <span className="badge text-[11px] gap-1"><Clock className="w-3 h-3" /> {block.slotMinutes} min</span>
+                          <span className="badge text-[11px] gap-1"><Users className="w-3 h-3" /> {block.maxPatients}</span>
+                          <div className="ms-auto flex items-center gap-1.5">
+                            {canEdit ? (
+                              <button
+                                onClick={() =>
+                                  toggleStatus.mutate({
+                                    doctorId: activeDoctorId,
+                                    day: block.dayOfWeek,
+                                    data: { status: block.status === "active" ? "inactive" : "active" },
+                                  })
+                                }
+                                className="btn btn-ghost btn-sm h-7 w-7 p-0"
+                                title={block.status === "active" ? t("active") : t("inactive")}
+                              >
+                                {block.status === "active" ? (
+                                  <CheckCircle2 className="w-4 h-4 text-[var(--teal-600)]" />
+                                ) : (
+                                  <XCircle className="w-4 h-4 text-[var(--ink-muted)]" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className={cn("badge text-[11px]", block.status === "active" ? "badge-teal" : "")}>
+                                {t(block.status as any)}
                               </span>
-                            </td>
-                            <td className="px-4 py-2">
-                              {canEdit ? (
-                                <button
-                                  onClick={() =>
-                                    toggleStatus.mutate({
-                                      doctorId: activeDoctorId,
-                                      day: block.dayOfWeek,
-                                      data: { status: block.status === "active" ? "inactive" : "active" },
-                                    })
-                                  }
-                                  className="btn btn-ghost btn-sm h-6 w-6 p-0"
-                                >
-                                  {block.status === "active" ? (
-                                    <CheckCircle2 className="w-4 h-4 text-[var(--teal-600)]" />
-                                  ) : (
-                                    <XCircle className="w-4 h-4 text-[var(--ink-muted)]" />
-                                  )}
-                                </button>
-                              ) : (
-                                <span className={cn("badge text-xs", block.status === "active" ? "badge-teal" : "")}>
-                                  {t(block.status as any)}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2">
-                              <span className="flex items-center gap-1 text-[var(--ink)]">
-                                <Clock className="w-3 h-3 text-[var(--ink-muted)]" />
-                                {block.slotMinutes} min
-                              </span>
-                            </td>
-                            <td className="px-4 py-2">
-                              <span className="flex items-center gap-1 text-[var(--ink)]">
-                                <Users className="w-3 h-3 text-[var(--ink-muted)]" />
-                                {block.maxPatients}
-                              </span>
-                            </td>
-                            {canEdit && (
-                              <td className="px-4 py-2">
-                                <div className="flex gap-1">
-                                  <button
-                                    className="btn btn-ghost btn-sm h-7 w-7 p-0"
-                                    onClick={() => openEditBlock(block)}
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </button>
-                                  <button
-                                    className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
-                                    onClick={() => deleteBlock.mutate({ doctorId: activeDoctorId, day: block.dayOfWeek })}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-                              </td>
                             )}
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
+                            {canEdit && (
+                              <>
+                                <button className="btn btn-ghost btn-sm h-7 w-7 p-0" onClick={() => openEditBlock(block)}>
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
+                                  onClick={() => deleteBlock.mutate({ doctorId: activeDoctorId, day: block.dayOfWeek })}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
                 )}
               </section>
 
@@ -670,6 +658,32 @@ export default function Schedule() {
           </DialogContent>
         </Dialog>
       )}
+    </div>
+  );
+}
+
+export default function Schedule() {
+  const { t } = useI18n();
+  const [view, setView] = useState<"day" | "template">("day");
+  return (
+    <div className="page">
+      <div className="flex border border-[var(--line)] rounded-lg overflow-hidden w-fit mb-4">
+        <button
+          className={cn("h-8 px-3 text-xs flex items-center gap-1.5 transition-colors", view === "day" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+          onClick={() => setView("day")}
+          data-testid="schedule-tab-day"
+        >
+          <CalendarDays className="w-3.5 h-3.5" /> {t("dayView")}
+        </button>
+        <button
+          className={cn("h-8 px-3 text-xs flex items-center gap-1.5 border-s border-[var(--line)] transition-colors", view === "template" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+          onClick={() => setView("template")}
+          data-testid="schedule-tab-template"
+        >
+          <CalendarRange className="w-3.5 h-3.5" /> {t("weeklyTemplate")}
+        </button>
+      </div>
+      {view === "day" ? <ScheduleDayView /> : <WeeklyTemplate />}
     </div>
   );
 }

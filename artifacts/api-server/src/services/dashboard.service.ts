@@ -40,7 +40,7 @@ async function computeDashboardSummary(req: AuthRequest) {
       tx.select({ id: patientsTable.id }).from(patientsTable).where(and(eq(patientsTable.clinicId, clinicId), isNull(patientsTable.deletedAt))),
       tx.select({ id: usersTable.id, role: usersTable.role }).from(usersTable).where(and(eq(usersTable.clinicId, clinicId), isNull(usersTable.deletedAt), eq(usersTable.isActive, true))),
       tx.select({ id: labTestsTable.id }).from(labTestsTable).where(and(eq(labTestsTable.clinicId, clinicId), eq(labTestsTable.status, "requested"))),
-      tx.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(and(eq(xrayRecordsTable.clinicId, clinicId), eq(xrayRecordsTable.status, "pending"))),
+      tx.select({ id: xrayRecordsTable.id }).from(xrayRecordsTable).where(and(eq(xrayRecordsTable.clinicId, clinicId), eq(xrayRecordsTable.status, "requested"))),
       tx.select().from(invoicesTable).where(and(eq(invoicesTable.clinicId, clinicId), isNull(invoicesTable.deletedAt), gte(invoicesTable.createdAt, todayStart), lte(invoicesTable.createdAt, todayEnd))),
       tx.select({ id: operationsTable.id }).from(operationsTable).where(and(eq(operationsTable.clinicId, clinicId), eq(operationsTable.status, "scheduled"))),
       tx.select().from(inventoryTable).where(and(eq(inventoryTable.clinicId, clinicId), isNull(inventoryTable.deletedAt), eq(inventoryTable.isActive, true))),
@@ -166,9 +166,9 @@ export async function getImagingDashboard(req: AuthRequest) {
   });
 
   return imagingShape(
-    all.filter(r => r.status === "pending").length,
-    all.filter(r => r.status === "uploaded").length,
-    all.filter(r => r.status === "reviewed").length,
+    all.filter(r => r.status === "requested").length,
+    all.filter(r => r.status === "in_progress").length,
+    all.filter(r => r.status === "completed").length,
     today.length, week.length, recent,
   );
 }

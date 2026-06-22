@@ -131,9 +131,11 @@ export default function Patients() {
           >
             <Download className="w-3.5 h-3.5" /> {t("exportCsv")}
           </button>
-          <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
-            <Plus className="w-3.5 h-3.5" /> {t("registerPatient")}
-          </button>
+          {["super_admin", "admin", "front_desk"].includes(user?.role || "") && (
+            <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowCreate(true)} data-testid="button-register-patient">
+              <Plus className="w-3.5 h-3.5" /> {t("registerPatient")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -174,7 +176,9 @@ export default function Patients() {
                 </span>
               ),
             },
-            { key: "phone",   header: t("phone"),        render: p => <span className="text-[13px] text-[var(--ink)]">{p.phone}</span> },
+            ...(["super_admin", "admin", "front_desk"].includes(user?.role || "")
+              ? [{ key: "phone", header: t("phone"), render: (p: any) => <span className="text-[13px] text-[var(--ink)]">{p.phone}</span> }]
+              : []),
             {
               key: "blood",
               header: t("bloodType"),
@@ -227,7 +231,14 @@ export default function Patients() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("idCardNumber")} *</Label>
-              <Input value={form.idCardNumber} onChange={e => setForm(f => ({ ...f, idCardNumber: e.target.value }))} data-testid="input-id-card" />
+              <Input
+                value={form.idCardNumber}
+                onChange={e => setForm(f => ({ ...f, idCardNumber: e.target.value.replace(/\D/g, "") }))}
+                inputMode="numeric"
+                pattern="\d*"
+                placeholder={t("idCardNumberHint")}
+                data-testid="input-id-card"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -299,6 +310,11 @@ export default function Patients() {
                   ].filter(Boolean);
                   if (missing.length > 0) {
                     toast({ title: t("fillRequiredFields"), description: missing.join("، "), variant: "destructive" });
+                    return;
+                  }
+                  // ID card must be digits only, at least 11 of them.
+                  if (!/^\d{11,}$/.test(form.idCardNumber.trim())) {
+                    toast({ title: t("idCardNumberInvalid"), variant: "destructive" });
                     return;
                   }
                   createMutation.mutate({ data: form as any });

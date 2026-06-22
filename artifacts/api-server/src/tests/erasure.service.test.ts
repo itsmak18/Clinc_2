@@ -14,6 +14,8 @@ vi.mock("@workspace/db", () => {
     labTestsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
     xrayRecordsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
     ultrasoundRecordsTable: { id: "id", patientId: "patientId", deletedAt: "deletedAt" },
+    imagingAttachmentsTable: { id: "id", patientId: "patientId", clinicId: "clinicId", storageKey: "storageKey", deletedAt: "deletedAt" },
+    vitalsTable: { id: "id", patientId: "patientId", clinicId: "clinicId", deletedAt: "deletedAt" },
     appointmentsTable: { id: "id", patientId: "patientId" },
   };
   __m.dbUnsafe = __m.db;

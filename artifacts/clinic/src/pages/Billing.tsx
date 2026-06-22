@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey } from "@workspace/api-client-react";
+import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListServices, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListServicesQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
+import SearchSelect from "@/components/SearchSelect";
+import PatientSearchSelect from "@/components/PatientSearchSelect";
 import StatusBadge from "@/components/StatusBadge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +18,7 @@ import { openPrintWindow, invoiceHtml } from "@/lib/print";
 interface InvoiceItem { description: string; quantity: number; unitPrice: number; total: number; }
 
 export default function Billing() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -27,15 +29,29 @@ export default function Billing() {
   const [discount, setDiscount] = useState("0");
   const [items, setItems] = useState<InvoiceItem[]>([{ description: "", quantity: 1, unitPrice: 0, total: 0 }]);
   const [amountReceived, setAmountReceived] = useState("");
+  const [lastInvoice, setLastInvoice] = useState<any | null>(null);
 
   const today = new Date().toISOString().split("T")[0];
   const params = { status: filterStatus as any || undefined };
   const { data: invoices, isLoading } = useListInvoices(params, { query: { queryKey: getListInvoicesQueryKey(params) } });
   const { data: dailySummary } = useGetDailyBillingSummary({ date: today }, { query: { queryKey: getGetDailyBillingSummaryQueryKey({ date: today }) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
+  const { data: services } = useListServices({}, { query: { queryKey: getListServicesQueryKey({}) } });
 
   const subtotal = items.reduce((s, i) => s + i.total, 0);
   const total = subtotal - parseFloat(discount || "0");
+
+  // Pick a priced service from the catalog → auto-fill description + unit price
+  // (front desk can still edit either field afterward).
+  const pickService = (idx: number, serviceId: string) => {
+    const svc = (services ?? []).find(s => String(s.id) === serviceId);
+    if (!svc) return;
+    const price = Number(svc.defaultPrice) || 0;
+    const name = language === "ar" && svc.nameAr ? svc.nameAr : svc.name;
+    setItems(prev => prev.map((item, i) =>
+      i === idx ? { ...item, description: name, unitPrice: price, total: item.quantity * price } : item,
+    ));
+  };
 
   const updateItem = (idx: number, field: string, value: string | number) => {
     setItems(prev => prev.map((item, i) => {
@@ -50,11 +66,20 @@ export default function Billing() {
 
   const createMutation = useCreateInvoice({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (data) => {
+        // Assemble a printable invoice from the server response + the patient and
+        // line items already on screen (the response has no patient join / line totals).
+        const pat = (patients?.patients ?? []).find(p => String(p.id) === patientId);
+        setLastInvoice({
+          ...(data as any),
+          patient: pat ? { fullName: pat.fullName, mrn: pat.mrn } : undefined,
+          items: items.map(it => ({ description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, total: it.total })),
+        });
         queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetDailyBillingSummaryQueryKey() });
         setShowCreate(false);
         setItems([{ description: "", quantity: 1, unitPrice: 0, total: 0 }]);
+        setPatientId("");
         toast({ title: t("invoiceCreated") });
       },
       onError: () => toast({ title: t("failed"), variant: "destructive" }),
@@ -171,27 +196,43 @@ export default function Billing() {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("patient")} *</Label>
-              <Select value={patientId} onValueChange={setPatientId}>
-                <SelectTrigger data-testid="select-patient"><SelectValue placeholder={t("selectPatient")} /></SelectTrigger>
-                <SelectContent>{patients?.patients?.map(p => <SelectItem key={p.id} value={String(p.id)}>{p.fullName}</SelectItem>)}</SelectContent>
-              </Select>
+              <PatientSearchSelect
+                testId="select-patient"
+                value={patientId}
+                onChange={setPatientId}
+              />
             </div>
 
             <div>
               <Label className="text-xs font-semibold">{t("items")}</Label>
+              <p className="text-[11px] text-[var(--ink-muted)] mt-0.5">{t("customLineHint")}</p>
               <div className="space-y-2 mt-2">
                 {items.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                    <Input className="col-span-5 h-7 text-xs" placeholder={t("description")} value={item.description} onChange={e => updateItem(idx, "description", e.target.value)} />
-                    <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("quantity")} value={item.quantity} onChange={e => updateItem(idx, "quantity", parseFloat(e.target.value) || 0)} />
-                    <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("unitPrice")} value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} />
-                    <div className="col-span-2 text-xs font-medium text-end text-[var(--ink)]">${formatCurrency(item.total)}</div>
-                    <button
-                      className="col-span-1 btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
-                      onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                  <div key={idx} className="space-y-1.5 rounded-md border border-[var(--line)] p-2">
+                    <SearchSelect
+                      value=""
+                      onChange={v => pickService(idx, v)}
+                      placeholder={t("pickService")}
+                      searchPlaceholder={t("search")}
+                      emptyText={t("noServices")}
+                      options={(services ?? []).map(s => ({
+                        value: String(s.id),
+                        label: `${language === "ar" && s.nameAr ? s.nameAr : s.name} — $${formatCurrency(Number(s.defaultPrice))}`,
+                        search: `${s.name} ${s.nameAr ?? ""} ${s.category ?? ""} ${s.code ?? ""}`,
+                      }))}
+                    />
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <Input className="col-span-5 h-7 text-xs" placeholder={t("description")} value={item.description} onChange={e => updateItem(idx, "description", e.target.value)} />
+                      <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("quantity")} value={item.quantity} onChange={e => updateItem(idx, "quantity", parseFloat(e.target.value) || 0)} />
+                      <Input className="col-span-2 h-7 text-xs" type="number" placeholder={t("unitPrice")} value={item.unitPrice} onChange={e => updateItem(idx, "unitPrice", parseFloat(e.target.value) || 0)} />
+                      <div className="col-span-2 text-xs font-medium text-end text-[var(--ink)]">${formatCurrency(item.total)}</div>
+                      <button
+                        className="col-span-1 btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
+                        onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 ))}
                 <button
@@ -224,11 +265,21 @@ export default function Billing() {
               <button className="btn btn-outline btn-sm" onClick={() => setShowCreate(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-primary btn-sm"
-                onClick={() => createMutation.mutate({ data: { patientId: parseInt(patientId), items: items as any, discount: parseFloat(discount) } as any })}
+                onClick={() => {
+                  if (!patientId) { toast({ title: t("selectPatient"), variant: "destructive" }); return; }
+                  // Backend itemsSchema is .strict() — send ONLY {description, quantity, unitPrice}
+                  // (the `total` is derived server-side) and drop blank lines.
+                  const cleanItems = items
+                    .filter(i => i.description.trim() && i.quantity > 0)
+                    .map(i => ({ description: i.description.trim(), quantity: i.quantity, unitPrice: i.unitPrice }));
+                  if (!cleanItems.length) { toast({ title: t("fillRequiredFields"), variant: "destructive" }); return; }
+                  // Point-of-sale: created already paid (no pending step).
+                  createMutation.mutate({ data: { patientId: parseInt(patientId), items: cleanItems, discount: parseFloat(discount) || 0, markPaid: true } as any });
+                }}
                 disabled={createMutation.isPending}
                 data-testid="button-save-invoice"
               >
-                {createMutation.isPending ? t("loading") : t("save")}
+                {createMutation.isPending ? t("loading") : `${t("save")} & ${t("payNow")}`}
               </button>
             </div>
           </div>
@@ -255,6 +306,29 @@ export default function Billing() {
                 {payMutation.isPending ? t("loading") : t("confirm")}
               </button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Print prompt — shown right after an invoice is created */}
+      <Dialog open={!!lastInvoice} onOpenChange={o => { if (!o) setLastInvoice(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>{t("invoiceCreated")}</DialogTitle></DialogHeader>
+          {lastInvoice && (
+            <p className="text-sm text-[var(--ink-muted)]">
+              <span className="font-mono font-medium text-[var(--ink)]">{lastInvoice.invoiceNumber}</span>
+              {" · "}${formatCurrency(Number(lastInvoice.total))}
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button className="btn btn-outline btn-sm" onClick={() => setLastInvoice(null)}>{t("close")}</button>
+            <button
+              className="btn btn-primary btn-sm gap-1.5"
+              onClick={() => { openPrintWindow(invoiceHtml(lastInvoice), `Invoice ${lastInvoice.invoiceNumber ?? ""}`); setLastInvoice(null); }}
+              data-testid="button-print-new-invoice"
+            >
+              <Printer className="w-3.5 h-3.5" /> {t("printInvoice")}
+            </button>
           </div>
         </DialogContent>
       </Dialog>

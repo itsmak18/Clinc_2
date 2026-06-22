@@ -259,6 +259,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
+  /users/doctors:
+    get:
+      operationId: listDoctors
+      tags: [users]
+      summary: List active doctors (accessible to clinical staff for picker dropdowns)
+      responses:
+        "200":
+          description: Doctors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DoctorSummary"
+
   /users/{userId}/toggle-shift:
     post:
       operationId: toggleUserShift
@@ -657,6 +672,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Appointment"
 
+  /appointments/{appointmentId}/reconsult:
+    post:
+      operationId: reconsultAppointment
+      tags: [appointments]
+      summary: Resume consult from awaiting_diagnostics
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Back in consultation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
   /appointments/{appointmentId}/payment:
     post:
       operationId: pendingPayment
@@ -695,7 +729,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/Appointment"
 
+  /appointments/{appointmentId}/no-show:
+    post:
+      operationId: markNoShow
+      tags: [appointments]
+      summary: Mark appointment as no-show
+      parameters:
+        - name: appointmentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Appointment marked no-show
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+
   # MEDICAL RECORDS
+  /vitals:
+    get:
+      operationId: listVitals
+      tags: [vitals]
+      summary: List vital-sign records for a patient or appointment
+      parameters:
+        - name: patientId
+          in: query
+          schema:
+            type: integer
+        - name: appointmentId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of vital-sign records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VitalRecord"
+    post:
+      operationId: createVitals
+      tags: [vitals]
+      summary: Record vital signs (no treatment consent required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVitalsBody"
+      responses:
+        "201":
+          description: Vital signs recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VitalRecord"
+
   /medical-records:
     get:
       operationId: listMedicalRecords
@@ -896,6 +990,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Prescription"
 
+  /prescriptions/{prescriptionId}/send-to-pharmacy:
+    post:
+      operationId: sendPrescriptionToPharmacy
+      tags: [prescriptions]
+      summary: Send a prescription to the clinic's pharmacists (in-app notification)
+      parameters:
+        - name: prescriptionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sent to pharmacy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: boolean
+                  pharmacistsNotified:
+                    type: integer
+                required: [sent, pharmacistsNotified]
+
   # X-RAY
   /xray:
     get:
@@ -911,7 +1030,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [pending, uploaded, reviewed]
+            enum: [requested, in_progress, completed]
       responses:
         "200":
           description: List of X-ray records
@@ -981,6 +1100,81 @@ paths:
               schema:
                 $ref: "#/components/schemas/XrayRecord"
 
+  /xray/{xrayId}/images:
+    post:
+      operationId: uploadXrayImage
+      tags: [xray]
+      summary: Upload an X-ray image file to the server
+      parameters:
+        - name: xrayId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImageUploadBody"
+      responses:
+        "201":
+          description: Image stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagingAttachment"
+
+  /xray/{xrayId}/images/{attachmentId}:
+    get:
+      operationId: getXrayImageFile
+      tags: [xray]
+      summary: Download / view an X-ray image file (authenticated, audited)
+      parameters:
+        - name: xrayId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: download
+          in: query
+          description: When present, served as an attachment (Content-Disposition) instead of inline.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    delete:
+      operationId: deleteXrayImage
+      tags: [xray]
+      summary: Delete an X-ray image file
+      parameters:
+        - name: xrayId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Image deleted
+
   # ULTRASOUND
   /ultrasound:
     get:
@@ -996,7 +1190,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [pending, uploaded, reviewed]
+            enum: [requested, in_progress, completed]
       responses:
         "200":
           description: List of ultrasound records
@@ -1065,6 +1259,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UltrasoundRecord"
+
+  /ultrasound/{ultrasoundId}/images:
+    post:
+      operationId: uploadUltrasoundImage
+      tags: [ultrasound]
+      summary: Upload an ultrasound image file to the server
+      parameters:
+        - name: ultrasoundId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ImageUploadBody"
+      responses:
+        "201":
+          description: Image stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagingAttachment"
+
+  /ultrasound/{ultrasoundId}/images/{attachmentId}:
+    get:
+      operationId: getUltrasoundImageFile
+      tags: [ultrasound]
+      summary: Download / view an ultrasound image file (authenticated, audited)
+      parameters:
+        - name: ultrasoundId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: download
+          in: query
+          description: When present, served as an attachment (Content-Disposition) instead of inline.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    delete:
+      operationId: deleteUltrasoundImage
+      tags: [ultrasound]
+      summary: Delete an ultrasound image file
+      parameters:
+        - name: ultrasoundId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Image deleted
 
   # LABORATORY
   /lab/tests:
@@ -1290,6 +1559,118 @@ paths:
               schema:
                 $ref: "#/components/schemas/DailyBillingSummary"
 
+  /billing/reconciliation:
+    get:
+      operationId: getBillingReconciliation
+      tags: [billing]
+      summary: End-of-day reconciliation (Z-report) — super_admin only
+      parameters:
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Daily reconciliation report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingReconciliation"
+
+  # SERVICES CATALOG (price book)
+  /services-catalog:
+    get:
+      operationId: listServices
+      tags: [billing]
+      summary: List priced services (price book)
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: includeInactive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceCatalogItem"
+    post:
+      operationId: createService
+      tags: [billing]
+      summary: Add a priced service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceBody"
+      responses:
+        "201":
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceCatalogItem"
+
+  /services-catalog/seed-defaults:
+    post:
+      operationId: seedDefaultServices
+      tags: [billing]
+      summary: Populate the price book with a default set of common services (price 0)
+      responses:
+        "200":
+          description: Number of services inserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SeedServicesResult"
+
+  /services-catalog/{serviceId}:
+    patch:
+      operationId: updateService
+      tags: [billing]
+      summary: Update a priced service
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateServiceBody"
+      responses:
+        "200":
+          description: Updated service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceCatalogItem"
+    delete:
+      operationId: deleteService
+      tags: [billing]
+      summary: Soft delete a priced service
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Service archived
+
   # OPERATIONS
   /operations:
     get:
@@ -1468,6 +1849,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/InventoryItem"
+    delete:
+      operationId: deleteInventoryItem
+      tags: [inventory]
+      summary: Soft delete inventory item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Inventory item archived
+
+  /inventory/{itemId}/adjust:
+    post:
+      operationId: adjustInventoryStock
+      tags: [inventory]
+      summary: Apply a signed stock movement (restock / consume / write-off)
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustStockBody"
+      responses:
+        "200":
+          description: Updated inventory item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+
+  /inventory/{itemId}/transactions:
+    get:
+      operationId: listInventoryTransactions
+      tags: [inventory]
+      summary: Stock movement history for an item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Stock movement ledger (most recent first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryTransaction"
 
   # NOTIFICATIONS
   /notifications:
@@ -2016,6 +2456,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RevenueReport"
+
+  /reports/diagnostics:
+    get:
+      operationId: getDiagnosticsReport
+      tags: [reports]
+      summary: Get lab / x-ray / ultrasound diagnostics report (date-filtered, aggregated)
+      parameters:
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Diagnostics report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticsReport"
+
+  /reports/operations:
+    get:
+      operationId: getOperationsReport
+      tags: [reports]
+      summary: Get operations report — per-surgeon volume + OR-team participation (date-filtered, aggregated)
+      parameters:
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Operations report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationsReport"
 
   # SCHEDULE
   /schedule/doctors:
@@ -2653,6 +3141,21 @@ components:
         phone:
           type: string
           nullable: true
+        addressLine:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        region:
+          type: string
+          nullable: true
+        postalCode:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -2676,6 +3179,16 @@ components:
           enum: [super_admin, admin, doctor, nurse, front_desk, xray_staff, lab_staff]
         phone:
           type: string
+        addressLine:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
       required: [username, password, fullName, role]
 
     UpdateUserBody:
@@ -2693,6 +3206,16 @@ components:
         isActive:
           type: boolean
         phone:
+          type: string
+        addressLine:
+          type: string
+        city:
+          type: string
+        region:
+          type: string
+        postalCode:
+          type: string
+        country:
           type: string
 
     UserPasswordResetBody:
@@ -3059,6 +3582,67 @@ components:
           format: date-time
       required: [id, patientId, doctorId, chiefComplaint, diagnosis, treatment, createdAt]
 
+    VitalsMeasurements:
+      type: object
+      description: Structured vital signs (split BP) — matches the backend vitalsSchema guard.
+      properties:
+        bloodPressureSystolic:
+          type: integer
+        bloodPressureDiastolic:
+          type: integer
+        heartRate:
+          type: integer
+        temperature:
+          type: number
+        oxygenSaturation:
+          type: number
+        respiratoryRate:
+          type: integer
+        weight:
+          type: number
+        height:
+          type: number
+        glucose:
+          type: number
+        pain:
+          type: integer
+
+    VitalRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: integer
+        appointmentId:
+          type: integer
+          nullable: true
+        recordedById:
+          type: integer
+        vitals:
+          $ref: "#/components/schemas/VitalsMeasurements"
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, patientId, recordedById, createdAt]
+
+    CreateVitalsBody:
+      type: object
+      properties:
+        patientId:
+          type: integer
+        appointmentId:
+          type: integer
+        notes:
+          type: string
+        vitals:
+          $ref: "#/components/schemas/VitalsMeasurements"
+      required: [patientId]
+
     Vitals:
       type: object
       properties:
@@ -3194,6 +3778,56 @@ components:
           type: string
       required: [patientId, doctorId, medications]
 
+    MediaImage:
+      type: object
+      properties:
+        url:
+          type: string
+        fileName:
+          type: string
+        caption:
+          type: string
+      required: [url]
+
+    ImagingAttachment:
+      type: object
+      description: Metadata for a server-stored X-ray / ultrasound image file.
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+        caption:
+          type: string
+          nullable: true
+        url:
+          type: string
+          description: Authenticated download endpoint for the bytes.
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, fileName, mimeType, sizeBytes, url, createdAt]
+
+    ImageUploadBody:
+      # multipart/form-data. The actual upload is performed client-side via
+      # customFetch with a FormData body (binary file under the `file` field) —
+      # not the generated hook — so `file` is intentionally left untyped here to
+      # avoid an unusable z.instanceof(File) in the backend zod (which has no DOM
+      # lib and never validates this body; multer + magic-byte sniffing do).
+      type: object
+      properties:
+        file:
+          type: string
+          description: The binary image file (PNG/JPEG/WEBP), sent as a multipart field.
+        caption:
+          type: string
+      required: [file]
+
     XrayRecord:
       type: object
       properties:
@@ -3221,6 +3855,14 @@ components:
         imageFileName:
           type: string
           nullable: true
+        images:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/MediaImage"
+        orderGroupId:
+          type: string
+          nullable: true
         report:
           type: string
           nullable: true
@@ -3229,7 +3871,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [pending, uploaded, reviewed]
+          enum: [requested, in_progress, completed]
         notes:
           type: string
           nullable: true
@@ -3256,6 +3898,8 @@ components:
           type: string
         notesAr:
           type: string
+        orderGroupId:
+          type: string
       required: [patientId, requestedById, bodyPart]
 
     UpdateXrayBody:
@@ -3267,13 +3911,17 @@ components:
           type: string
         imageFileName:
           type: string
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaImage"
         report:
           type: string
         reportAr:
           type: string
         status:
           type: string
-          enum: [pending, uploaded, reviewed]
+          enum: [requested, in_progress, completed]
         notes:
           type: string
         notesAr:
@@ -3310,6 +3958,14 @@ components:
         imageFileName:
           type: string
           nullable: true
+        images:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/MediaImage"
+        orderGroupId:
+          type: string
+          nullable: true
         report:
           type: string
           nullable: true
@@ -3318,7 +3974,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [pending, uploaded, reviewed]
+          enum: [requested, in_progress, completed]
         notes:
           type: string
           nullable: true
@@ -3347,6 +4003,8 @@ components:
           type: string
         notesAr:
           type: string
+        orderGroupId:
+          type: string
       required: [patientId, requestedById, examType, bodyPart]
 
     UpdateUltrasoundBody:
@@ -3358,13 +4016,17 @@ components:
           type: string
         imageFileName:
           type: string
+        images:
+          type: array
+          items:
+            $ref: "#/components/schemas/MediaImage"
         report:
           type: string
         reportAr:
           type: string
         status:
           type: string
-          enum: [pending, uploaded, reviewed]
+          enum: [requested, in_progress, completed]
         notes:
           type: string
         notesAr:
@@ -3408,6 +4070,9 @@ components:
         notesAr:
           type: string
           nullable: true
+        orderGroupId:
+          type: string
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -3427,6 +4092,8 @@ components:
         notes:
           type: string
         notesAr:
+          type: string
+        orderGroupId:
           type: string
       required: [patientId, requestedById, testName]
 
@@ -3524,6 +4191,11 @@ components:
           type: number
         notes:
           type: string
+        markPaid:
+          type: boolean
+          description: >-
+            Point-of-sale flow — when true the invoice is created already paid
+            (status=paid, paidAt=now), skipping the separate pending → pay step.
       # NOTE: `createdById` is set server-side from the authenticated user
       # (req.user.userId) and is intentionally NOT part of the request body.
       required: [patientId, items]
@@ -3570,6 +4242,104 @@ components:
             $ref: "#/components/schemas/Invoice"
       required: [date, totalRevenue, totalInvoices, paidInvoices, pendingInvoices, cashReceipts]
 
+    BillingReconciliation:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        summary:
+          type: object
+          properties:
+            collectedTotal:   { type: number }
+            collectedCount:   { type: integer }
+            invoicedTotal:    { type: number }
+            invoicedCount:    { type: integer }
+            outstandingTotal: { type: number }
+            outstandingCount: { type: integer }
+            cancelledTotal:   { type: number }
+            cancelledCount:   { type: integer }
+          required: [collectedTotal, collectedCount, invoicedTotal, invoicedCount, outstandingTotal, outstandingCount, cancelledTotal, cancelledCount]
+        payments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:            { type: integer }
+              invoiceNumber: { type: string }
+              patientName:   { type: string, nullable: true }
+              total:         { type: number }
+              paidAt:        { type: string, format: date-time, nullable: true }
+              createdByName: { type: string, nullable: true }
+            required: [id, invoiceNumber, total]
+      required: [date, summary, payments]
+
+    ServiceCatalogItem:
+      type: object
+      properties:
+        id:           { type: integer }
+        name:         { type: string }
+        nameAr:       { type: string, nullable: true }
+        description:  { type: string, nullable: true }
+        defaultPrice: { type: string }
+        category:     { type: string, nullable: true }
+        code:         { type: string, nullable: true }
+        active:       { type: boolean }
+        createdAt:    { type: string, format: date-time }
+      required: [id, name, defaultPrice, active, createdAt]
+
+    CreateServiceBody:
+      type: object
+      properties:
+        name:         { type: string }
+        nameAr:       { type: string }
+        description:  { type: string }
+        defaultPrice: { type: number }
+        category:     { type: string }
+        code:         { type: string }
+      required: [name, defaultPrice]
+
+    UpdateServiceBody:
+      type: object
+      properties:
+        name:         { type: string }
+        nameAr:       { type: string }
+        description:  { type: string }
+        defaultPrice: { type: number }
+        category:     { type: string }
+        code:         { type: string }
+        active:       { type: boolean }
+
+    SeedServicesResult:
+      type: object
+      properties:
+        inserted: { type: integer }
+      required: [inserted]
+
+    DoctorSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        fullName:
+          type: string
+        fullNameAr:
+          type: string
+          nullable: true
+        specialty:
+          type: string
+          nullable: true
+      required: [id, fullName]
+
+    StaffAssignedItem:
+      type: object
+      properties:
+        userId:
+          type: integer
+        role:
+          type: string
+      required: [userId]
+
     Operation:
       type: object
       properties:
@@ -3579,9 +4349,14 @@ components:
           type: integer
         surgeonId:
           type: integer
+        requestedById:
+          type: integer
+          nullable: true
         patient:
           $ref: "#/components/schemas/Patient"
         surgeon:
+          $ref: "#/components/schemas/User"
+        requestedBy:
           $ref: "#/components/schemas/User"
         procedureName:
           type: string
@@ -3592,11 +4367,11 @@ components:
           type: string
         status:
           type: string
-          enum: [scheduled, in_progress, completed, cancelled]
+          enum: [requested, scheduled, in_progress, completed, cancelled]
         staffAssigned:
           type: array
           items:
-            type: integer
+            $ref: "#/components/schemas/StaffAssignedItem"
         notes:
           type: string
           nullable: true
@@ -3622,7 +4397,7 @@ components:
         staffAssigned:
           type: array
           items:
-            type: integer
+            $ref: "#/components/schemas/StaffAssignedItem"
         notes:
           type: string
       required: [patientId, surgeonId, procedureName, scheduledAt, operatingRoom]
@@ -3639,11 +4414,11 @@ components:
           type: string
         status:
           type: string
-          enum: [scheduled, in_progress, completed, cancelled]
+          enum: [requested, scheduled, in_progress, completed, cancelled]
         staffAssigned:
           type: array
           items:
-            type: integer
+            $ref: "#/components/schemas/StaffAssignedItem"
         notes:
           type: string
 
@@ -3716,6 +4491,45 @@ components:
           type: string
         isActive:
           type: boolean
+
+    AdjustStockBody:
+      type: object
+      properties:
+        delta:
+          type: integer
+          description: Signed change. Positive = stock in, negative = stock out. Non-zero.
+        reason:
+          type: string
+          enum: [restock, consumed, expired, adjustment]
+        note:
+          type: string
+      required: [delta, reason]
+
+    InventoryTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        delta:
+          type: integer
+        quantityAfter:
+          type: integer
+        reason:
+          type: string
+          enum: [initial, restock, consumed, expired, adjustment]
+        note:
+          type: string
+          nullable: true
+        performedById:
+          type: integer
+          nullable: true
+        performedByName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, delta, quantityAfter, reason, createdAt]
 
     Notification:
       type: object
@@ -4278,6 +5092,8 @@ components:
           type: integer
         cancellationRate:
           type: number
+        noShowRate:
+          type: number
         averageWaitTimeMinutes:
           type: number
         byDoctor:
@@ -4292,7 +5108,41 @@ components:
               count:
                 type: integer
             required: [doctorId, doctorName, count]
-      required: [totalAppointments, completed, cancelled, noShow, cancellationRate, averageWaitTimeMinutes, byDoctor]
+        byStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+            required: [status, count]
+        byDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              count:
+                type: integer
+            required: [date, count]
+        previous:
+          type: object
+          description: Same metrics for the immediately-preceding window of equal length (period-over-period).
+          properties:
+            totalAppointments:
+              type: integer
+            completed:
+              type: integer
+            cancellationRate:
+              type: number
+            noShowRate:
+              type: number
+          required: [totalAppointments, completed, cancellationRate, noShowRate]
+      required: [totalAppointments, completed, cancelled, noShow, cancellationRate, noShowRate, averageWaitTimeMinutes, byDoctor, byStatus, byDay, previous]
 
     RevenueReport:
       type: object
@@ -4303,6 +5153,15 @@ components:
           type: integer
         paidInvoices:
           type: integer
+        pendingInvoices:
+          type: integer
+        cancelledInvoices:
+          type: integer
+        pendingAmount:
+          type: number
+        collectionRate:
+          type: number
+          description: paidInvoices / (paidInvoices + pendingInvoices).
         averageInvoiceValue:
           type: number
         byDay:
@@ -4318,7 +5177,181 @@ components:
               invoices:
                 type: integer
             required: [date, revenue, invoices]
-      required: [totalRevenue, totalInvoices, paidInvoices, averageInvoiceValue, byDay]
+        topServices:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              revenue:
+                type: number
+              count:
+                type: integer
+            required: [name, revenue, count]
+        previous:
+          type: object
+          description: Same metrics for the immediately-preceding window of equal length (period-over-period).
+          properties:
+            totalRevenue:
+              type: number
+            paidInvoices:
+              type: integer
+            collectionRate:
+              type: number
+          required: [totalRevenue, paidInvoices, collectionRate]
+      required: [totalRevenue, totalInvoices, paidInvoices, pendingInvoices, cancelledInvoices, pendingAmount, collectionRate, averageInvoiceValue, byDay, topServices, previous]
+
+    DiagnosticsReport:
+      type: object
+      properties:
+        totalLabTests:
+          type: integer
+        labCompleted:
+          type: integer
+        totalXrays:
+          type: integer
+        xraysReviewed:
+          type: integer
+        totalUltrasounds:
+          type: integer
+        ultrasoundsReviewed:
+          type: integer
+        labByStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+            required: [status, count]
+        xrayByStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+            required: [status, count]
+        ultrasoundByStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+            required: [status, count]
+        topLabTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+            required: [name, count]
+        topXrayBodyParts:
+          type: array
+          items:
+            type: object
+            properties:
+              part:
+                type: string
+              count:
+                type: integer
+            required: [part, count]
+        topUltrasoundExamTypes:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+            required: [name, count]
+      required:
+        [totalLabTests, labCompleted, totalXrays, xraysReviewed, totalUltrasounds, ultrasoundsReviewed, labByStatus, xrayByStatus, ultrasoundByStatus, topLabTypes, topXrayBodyParts, topUltrasoundExamTypes]
+
+    OperationsReport:
+      type: object
+      properties:
+        totalOperations:
+          type: integer
+        completed:
+          type: integer
+        inProgress:
+          type: integer
+        cancelled:
+          type: integer
+        byStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+            required: [status, count]
+        bySurgeon:
+          type: array
+          items:
+            type: object
+            properties:
+              surgeonId:
+                type: integer
+              surgeonName:
+                type: string
+              performed:
+                type: integer
+              total:
+                type: integer
+            required: [surgeonId, surgeonName, performed, total]
+        byStaff:
+          type: array
+          items:
+            type: object
+            properties:
+              userId:
+                type: integer
+              name:
+                type: string
+              role:
+                type: string
+                nullable: true
+              count:
+                type: integer
+            required: [userId, name, count]
+        byProcedure:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              count:
+                type: integer
+            required: [name, count]
+        byDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+              count:
+                type: integer
+            required: [date, count]
+      required:
+        [totalOperations, completed, inProgress, cancelled, byStatus, bySurgeon, byStaff, byProcedure, byDay]
 
     DoctorScheduleDay:
       type: object

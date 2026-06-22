@@ -72,13 +72,15 @@ The kernel check and both store backends are **complete and tested**. No product
 
 This is intentional: the infrastructure is in place so that future one-shot flows do not need to redesign the policy kernel. The absence of `markJtiUsed` callers in production code is not an oversight — it is the correct state until a consuming flow exists.
 
+> **Update 2026-06-22:** Three routes now request `privileged` scope — `PATCH /users/:id`, `DELETE /users/:id`, `POST /users/:id/reset-password` (and `password-reset` admin-reset). **All authenticate with the reused session cookie, NOT a one-shot token.** They are `privileged` to get the strongest *standing* posture (CSRF + fail-closed revocation + role + fingerprint + short TTL, plus dormant `requireStepUp`), **not** to get jti single-use. The session jti MUST NOT be consumed: doing so would reject the second privileged action in a session (e.g. editing two users) with `1006`. The kernel therefore only *reads* `isJtiUsed` and never marks. This safety invariant is pinned by `policy.unit.test.ts` → "evaluate() READS but never CONSUMES the jti". Genuine one-shot replay protection for admin actions belongs in a short-TTL step-up token, not the session cookie.
+
 ---
 
 ## Consequences
 
 ### Immediate
 
-- Every `"privileged"` scope request pays one Redis round-trip for `isJtiUsed`. At present zero routes use `privileged` scope in production, so the overhead is theoretical.
+- Every `"privileged"` scope request pays one Redis round-trip for `isJtiUsed`. As of 2026-06-22 the privileged routes are `PATCH`/`DELETE /users/:id` and the two admin password-reset endpoints — all low-frequency admin actions, so the per-request `isJtiUsed` cost is negligible. The check is a no-op (`isJtiUsed` always `false`) until a one-shot flow calls `markJtiUsed`.
 - The store unavailability behavior is asymmetric by design: jti fails closed; user-level revocation degrades on `"read"`. Future engineers must not "fix" this asymmetry without a deliberate security review.
 
 ### When a one-shot privileged token flow is introduced

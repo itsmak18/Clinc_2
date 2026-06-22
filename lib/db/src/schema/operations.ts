@@ -5,6 +5,7 @@ import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 
 export const operationStatusEnum = pgEnum("operation_status", [
+  "requested",
   "scheduled",
   "in_progress",
   "completed",
@@ -16,6 +17,9 @@ export const operationsTable = pgTable("operations", {
   clinicId: integer("clinic_id").notNull(),
   patientId: integer("patient_id").notNull().references(() => patientsTable.id),
   surgeonId: integer("surgeon_id").notNull().references(() => usersTable.id),
+  // Who created/requested this operation (the signed-in user). Distinct from the
+  // surgeon — a referring doctor or admin may schedule for a different surgeon.
+  requestedById: integer("requested_by_id").references(() => usersTable.id),
   procedureName: text("procedure_name").notNull(),
   scheduledAt: timestamp("scheduled_at").notNull(),
   operatingRoom: text("operating_room").notNull(),

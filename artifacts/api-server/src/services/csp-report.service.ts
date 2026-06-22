@@ -6,7 +6,12 @@
 // dbUnsafe: csp_reports has no clinicId column — CSP reports are browser-level
 // events with no tenant context (they arrive pre-auth on a public endpoint).
 import { dbUnsafe as db, cspReportsTable } from "@workspace/db";
+import { lt } from "drizzle-orm";
 import { logger } from "../lib/logger";
+
+/** Default retention for CSP reports — they are noisy, low-signal, and do NOT
+ *  need HIPAA's 7-year retention (see csp_reports schema comment). */
+export const DEFAULT_CSP_RETENTION_DAYS = 90;
 
 export interface CspReportInput {
   documentUri: string | null;
@@ -69,5 +74,30 @@ export async function persistCspReport(inp: CspReportInput): Promise<void> {
     });
   } catch (err) {
     logger.warn({ err }, "csp_report_insert_failed");
+  }
+}
+
+/**
+ * Delete CSP reports older than `retentionDays` (F-M2 — enforce the documented
+ * 90-day retention; the table previously grew unbounded). Index-backed by
+ * `csp_reports_created_at_idx`. Returns the number of rows purged. Best-effort:
+ * a failure logs and returns 0 — never throws (called from a cron tick).
+ */
+export async function purgeOldCspReports(
+  retentionDays: number = DEFAULT_CSP_RETENTION_DAYS,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+  try {
+    const deleted = await db
+      .delete(cspReportsTable)
+      .where(lt(cspReportsTable.createdAt, cutoff))
+      .returning({ id: cspReportsTable.id });
+    if (deleted.length > 0) {
+      logger.info({ count: deleted.length, retentionDays }, "csp_reports_purged");
+    }
+    return deleted.length;
+  } catch (err) {
+    logger.warn({ err }, "csp_reports_purge_failed");
+    return 0;
   }
 }

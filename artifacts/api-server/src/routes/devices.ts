@@ -174,7 +174,7 @@ router.post(
           sendEmail({
             to,
             subject:
-              "MediCore — \"wasn't me\" click on user account (review required)",
+              "Wateen Clinic — \"wasn't me\" click on user account (review required)",
             text:
               `A user clicked the kill-switch link after a new-device login.\n` +
               `User id: ${token.userId}\n` +

@@ -10,6 +10,7 @@ import {
   createPrescription,
   getPrescription,
   voidPrescription,
+  sendPrescriptionToPharmacy,
 } from "../services/prescriptions.service";
 
 const router = Router();
@@ -46,6 +47,17 @@ router.get(
     const id = safeParseInt(req.params.prescriptionId);
     if (!id) throw new ValidationError("Invalid prescription ID");
     res.json(await getPrescription(req, id));
+  }),
+);
+
+// ── Send to pharmacy: notify clinic pharmacists (doctors/admins) ──────────
+router.post(
+  "/prescriptions/:prescriptionId/send-to-pharmacy",
+  requireRole("super_admin", "admin", "doctor"),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const id = safeParseInt(req.params.prescriptionId);
+    if (!id) throw new ValidationError("Invalid prescription ID");
+    res.json(await sendPrescriptionToPharmacy(req, id));
   }),
 );
 

@@ -6,7 +6,7 @@ import { useI18n } from "@/hooks/i18n";
 import { getLandingRoute } from "@/lib/route-access";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Activity, Eye, EyeOff, ShieldCheck, Zap } from "lucide-react";
+import { Eye, EyeOff, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -80,53 +80,20 @@ export default function Login() {
     <div className="login-page">
 
       {/* ── Left art panel ──────────────────────────────────────────────── */}
-      <div className="login-art hidden lg:flex flex-col justify-between">
+      <div className="login-art hidden lg:flex flex-col items-center justify-center">
         {/* Logo */}
         <div className="flex items-center gap-3 relative z-10">
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.15)" }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center bg-white"
           >
-            <Activity className="w-5 h-5 text-white" />
+            <img src="/wateen-mark.png" alt="Wateen Clinic" className="w-7 h-7 object-contain" />
           </div>
           <div>
-            <div className="text-[16px] font-bold text-white leading-tight">MediCore</div>
+            <div className="text-[16px] font-bold text-white leading-tight">Wateen</div>
             <div className="text-[11px] leading-tight" style={{ color: "rgba(219,245,235,0.6)" }}>
               Clinic Management System
             </div>
           </div>
-        </div>
-
-        {/* Tagline */}
-        <div className="relative z-10">
-          <blockquote
-            className="text-[22px] font-light leading-snug mb-6"
-            style={{ color: "#DBF5EB" }}
-          >
-            "Precision in care,<br />efficiency in operation."
-          </blockquote>
-          <p className="text-[13px] leading-relaxed" style={{ color: "rgba(219,245,235,0.6)" }}>
-            Every record, every appointment, every decision — managed in one unified platform.
-          </p>
-        </div>
-
-        {/* Feature list */}
-        <div className="relative z-10 space-y-2">
-          {[
-            "Patient Records & History",
-            "Appointment Management",
-            "Lab, X-Ray & Imaging",
-            "Billing & Operations",
-          ].map(feat => (
-            <div
-              key={feat}
-              className="flex items-center gap-2.5 text-[12px]"
-              style={{ color: "rgba(219,245,235,0.65)" }}
-            >
-              <ShieldCheck className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "#43BB91" }} />
-              {feat}
-            </div>
-          ))}
         </div>
       </div>
 
@@ -136,10 +103,8 @@ export default function Login() {
 
           {/* Mobile-only logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-[var(--teal-600)] flex items-center justify-center">
-              <Activity className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-[14px] font-bold text-[var(--ink)]">MediCore</span>
+            <img src="/wateen-mark.png" alt="Wateen Clinic" className="w-8 h-8 object-contain" />
+            <span className="text-[14px] font-bold text-[var(--ink)]">Wateen Clinic</span>
           </div>
 
           <div className="mb-8">

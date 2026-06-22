@@ -14,7 +14,7 @@ const router = Router();
 router.use(requireAuth);
 
 router.get("/medical-records",
-  requireRole("super_admin", "admin", "doctor", "nurse"),
+  requireRole("super_admin", "admin", "doctor"),
   asyncHandler(async (req: AuthRequest, res) => {
     const { patientId, doctorId, limit, cursor } = req.query as Record<string, string | undefined>;
     const result = await listMedicalRecords(req, { patientId, doctorId, limit, cursor });
@@ -31,7 +31,7 @@ router.post("/medical-records",
 );
 
 router.get("/medical-records/:recordId",
-  requireRole("super_admin", "admin", "doctor", "nurse"),
+  requireRole("super_admin", "admin", "doctor"),
   asyncHandler(async (req: AuthRequest, res) => {
     const recordId = safeParseInt(req.params.recordId);
     if (!recordId) throw new ValidationError("Invalid record ID");
@@ -41,7 +41,7 @@ router.get("/medical-records/:recordId",
 );
 
 router.patch("/medical-records/:recordId",
-  requireRole("super_admin", "admin", "doctor", "nurse"),
+  requireRole("super_admin", "admin", "doctor"),
   validate(UpdateMedicalRecordBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const recordId = safeParseInt(req.params.recordId);
