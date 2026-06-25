@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/hooks/i18n";
 
 export interface ActivityEvent {
   id: number | string;
@@ -17,6 +18,7 @@ interface LiveActivityFeedProps {
 }
 
 export default function LiveActivityFeed({ events, className, maxVisible = 8 }: LiveActivityFeedProps) {
+  const { t } = useI18n();
   const [visible, setVisible] = useState(events.slice(0, maxVisible));
   const prevEventsRef = useRef(events);
 
@@ -38,9 +40,9 @@ export default function LiveActivityFeed({ events, className, maxVisible = 8 }: 
     <div className={cn("flex flex-col gap-0", className)}>
       <div className="flex items-center gap-2 mb-3">
         <span className="live-dot" aria-hidden="true" />
-        <span className="eyebrow">Live feed</span>
+        <span className="eyebrow">{t("liveFeed")}</span>
       </div>
-      <ul className="flex flex-col gap-0" role="log" aria-label="Live activity feed" aria-live="polite">
+      <ul className="flex flex-col gap-0" role="log" aria-label={t("liveFeed")} aria-live="polite">
         {visible.map((ev, i) => (
           <li key={ev.id} className={cn("flex items-start gap-2.5 py-2 border-b border-[var(--line-soft)] text-[12.5px]", i === 0 && "list-insert")}>
             <span className="text-[var(--ink-faint)] font-mono text-[10px] mt-0.5 flex-shrink-0 tabular-nums">

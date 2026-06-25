@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { openPrintWindow, xrayReportHtml } from "@/lib/print";
+import { usePrintLang } from "@/hooks/printLang";
 import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { xrayTemplates, type ReportTemplate } from "@/lib/reportTemplates";
 import { Plus, FileImage, Printer, ChevronDown, ChevronUp, ShieldCheck, Trash2, Layers } from "lucide-react";
@@ -49,6 +50,7 @@ function liveImages(record: { images?: unknown; imageUrl?: string | null }): Upl
 
 export default function XRay() {
   const { t } = useI18n();
+  const choosePrintLang = usePrintLang();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -139,7 +141,9 @@ export default function XRay() {
     setReportStatus(s => (s === "requested" ? "in_progress" : s));
   }
 
-  function handlePrint(xray: NonNullable<typeof xrays>[number]) {
+  async function handlePrint(xray: NonNullable<typeof xrays>[number]) {
+    const lang = await choosePrintLang();
+    if (!lang) return;
     const imgs = liveImages(xray);
     openPrintWindow(
       xrayReportHtml({
@@ -151,7 +155,7 @@ export default function XRay() {
         impression,
         imageUrl: imgs[0]?.url,
         images: imgs,
-      }),
+      }, lang),
       `X-Ray Report - ${xray.bodyPart}`
     );
   }
@@ -200,11 +204,11 @@ export default function XRay() {
         {openCount > 0 && (
           <span className="badge badge-rose text-[11px]">{openCount} {t("pending")}</span>
         )}
-        {canEdit && (
-          <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-xray">
-            <Plus className="w-3.5 h-3.5" /> {t("newXrayRequest")}
-          </button>
-        )}
+        {/* Any role that can open this page can also order a study (doctor, xray_staff,
+            admin) — the create dialog is the request flow; results editing is gated by canEdit. */}
+        <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-xray">
+          <Plus className="w-3.5 h-3.5" /> {t("newXrayRequest")}
+        </button>
       </div>
 
       <div className="card overflow-hidden">
@@ -403,7 +407,7 @@ export default function XRay() {
               {lines.map((ln, i) => (
                 <div key={i} className="space-y-1 rounded-md border border-[var(--line)] p-2">
                   <div className="flex gap-2 items-center">
-                    <Input value={ln.bodyPart} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, bodyPart: e.target.value } : l))} placeholder="e.g. Chest, Left Hand..." data-testid={`input-body-part-${i}`} className="h-8 text-sm" />
+                    <Input value={ln.bodyPart} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, bodyPart: e.target.value } : l))} placeholder={t("egXrBodyPart")} data-testid={`input-body-part-${i}`} className="h-8 text-sm" />
                     <button type="button" className="btn btn-ghost btn-sm h-8 w-8 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)] flex-shrink-0" onClick={() => setLines(ls => ls.length === 1 ? ls : ls.filter((_, idx) => idx !== i))} disabled={lines.length === 1} aria-label={t("remove")}><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                   {showArCreate && (

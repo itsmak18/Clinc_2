@@ -210,12 +210,22 @@ export async function updatePatient(
   const role = req.user!.role;
   let updateData: Record<string, any> = {};
 
+  // Doctors are scoped to their assigned patients (or an active break-glass
+  // session); this throws ForbiddenError when out of scope. No-op for the
+  // non-scoped roles (admin / front_desk).
+  if (isDoctorScoped(role)) await assertPatientInScope(req, patientId, "patient");
+
   if (role === "front_desk") {
     const { fullName, fullNameAr, phone, address, emergencyContact, dateOfBirth } = body;
     updateData = { fullName, fullNameAr, phone, address, emergencyContact, dateOfBirth };
   } else if (role === "nurse") {
     const { fullName, fullNameAr, phone, address, emergencyContact, bloodType, allergies, dateOfBirth } = body;
     updateData = { fullName, fullNameAr, phone, address, emergencyContact, bloodType, allergies, dateOfBirth };
+  } else if (role === "doctor") {
+    // Doctors maintain ONLY the clinical allergies field — never demographics or
+    // contact PII (which they can't even see). Whitelisting to `allergies` keeps
+    // the shared PATCH route safe even if extra fields are sent in the body.
+    updateData = { allergies: body.allergies };
   } else {
     const {
       idCardNumber, fullName, fullNameAr, phone, address, bloodType, allergies, emergencyContact, isActive, dateOfBirth,

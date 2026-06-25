@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { openPrintWindow, ultrasoundReportHtml } from "@/lib/print";
+import { usePrintLang } from "@/hooks/printLang";
 import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { ultrasoundTemplates, type ReportTemplate } from "@/lib/reportTemplates";
 import { Plus, Waves, Printer, ChevronDown, ChevronUp, ShieldCheck, Trash2, Layers } from "lucide-react";
@@ -52,6 +53,7 @@ function liveImages(record: { images?: unknown; imageUrl?: string | null }): Upl
 
 export default function Ultrasound() {
   const { t } = useI18n();
+  const choosePrintLang = usePrintLang();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -133,10 +135,12 @@ export default function Ultrasound() {
     setReportStatus(s => (s === "requested" ? "in_progress" : s));
   }
 
-  function handlePrint(record: NonNullable<typeof records>[number]) {
+  async function handlePrint(record: NonNullable<typeof records>[number]) {
+    const lang = await choosePrintLang();
+    if (!lang) return;
     const imgs = liveImages(record);
     openPrintWindow(
-      ultrasoundReportHtml({ createdAt: record.createdAt, examType: record.examType, bodyPart: record.bodyPart, bodyPartAr: (record as any).bodyPartAr, patient: record.patient as any, requestedBy: record.requestedBy as any, findings, impression, findingsAr: findingsAr || undefined, impressionAr: impressionAr || undefined, imageUrl: imgs[0]?.url, images: imgs }),
+      ultrasoundReportHtml({ createdAt: record.createdAt, examType: record.examType, bodyPart: record.bodyPart, bodyPartAr: (record as any).bodyPartAr, patient: record.patient as any, requestedBy: record.requestedBy as any, findings, impression, findingsAr: findingsAr || undefined, impressionAr: impressionAr || undefined, imageUrl: imgs[0]?.url, images: imgs }, lang),
       `Ultrasound Report - ${record.examType}`
     );
   }
@@ -187,11 +191,11 @@ export default function Ultrasound() {
         {openCount > 0 && (
           <span className="badge badge-sand text-xs">{openCount} {t("pending")}</span>
         )}
-        {canEdit && (
-          <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-ultrasound">
-            <Plus className="w-3.5 h-3.5" /> {t("newUltrasoundRequest")}
-          </button>
-        )}
+        {/* Any role that can open this page can also order a study (doctor, nurse,
+            xray_staff, admin) — the create dialog is the request flow; results editing is gated by canEdit. */}
+        <button className="btn btn-primary btn-sm gap-1.5 ms-auto" onClick={() => setShowCreate(true)} data-testid="button-create-ultrasound">
+          <Plus className="w-3.5 h-3.5" /> {t("newUltrasoundRequest")}
+        </button>
       </div>
 
       <div className="card overflow-hidden">
@@ -388,7 +392,7 @@ export default function Ultrasound() {
                         {EXAM_TYPES.map(et => <SelectItem key={et} value={et}>{t(`examType${et}` as any)}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Input value={ln.bodyPart} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, bodyPart: e.target.value } : l))} placeholder="e.g. Upper Abdomen…" data-testid={`input-body-part-${i}`} className="h-8 text-sm" />
+                    <Input value={ln.bodyPart} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, bodyPart: e.target.value } : l))} placeholder={t("egUsBodyPart")} data-testid={`input-body-part-${i}`} className="h-8 text-sm" />
                     <button type="button" className="btn btn-ghost btn-sm h-8 w-8 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)] flex-shrink-0" onClick={() => setLines(ls => ls.length === 1 ? ls : ls.filter((_, idx) => idx !== i))} disabled={lines.length === 1} aria-label={t("remove")}><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                   {showArCreate && (

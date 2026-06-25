@@ -12,6 +12,7 @@ import BreakGlassButton from "@/components/BreakGlassButton";
 import PatientVisitActions from "@/components/PatientVisitActions";
 import NurseVitalsCard from "@/components/NurseVitalsCard";
 import DiagnosticResultDialog, { type DiagnosticKind } from "@/components/DiagnosticResultDialog";
+import MedicalRecordDetailDialog from "@/components/MedicalRecordDetailDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,13 @@ export default function PatientDetail() {
   const [showEdit, setShowEdit] = useState(false);
   // Diagnostic result/image popup (x-ray / ultrasound / lab).
   const [viewDiag, setViewDiag] = useState<{ kind: DiagnosticKind; record: any } | null>(null);
+  // Medical-record "view all information" popup.
+  const [viewRecord, setViewRecord] = useState<any | null>(null);
+  // Doctor-only focused allergies editor — doctors can't open the full edit
+  // dialog (it carries demographics/contact PII they may not change), so they
+  // get a narrow allergies-only form. Backend whitelists `allergies` for doctors.
+  const [showAllergies, setShowAllergies] = useState(false);
+  const [allergiesInput, setAllergiesInput] = useState("");
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -100,6 +108,7 @@ export default function PatientDetail() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetPatientSummaryQueryKey(patientId) });
         setShowEdit(false);
+        setShowAllergies(false);
         toast({ title: t("patientUpdated") });
       },
       onError: (err: any) => {
@@ -123,6 +132,10 @@ export default function PatientDetail() {
       return;
     }
     updateMutation.mutate({ patientId, data: form as any });
+  };
+
+  const handleSaveAllergies = () => {
+    updateMutation.mutate({ patientId, data: { allergies: allergiesInput.trim() } as any });
   };
 
   const canEdit = ["super_admin", "admin", "front_desk"].includes(user?.role || "");
@@ -158,6 +171,12 @@ export default function PatientDetail() {
           {canEdit && (
             <button className="btn btn-primary btn-sm gap-1.5" onClick={() => setShowEdit(true)} data-testid="button-edit-patient">
               <Edit2 className="w-3.5 h-3.5" /> {t("edit")}
+            </button>
+          )}
+          {/* Doctors get a focused allergies-only editor (they lack the full Edit). */}
+          {role === "doctor" && (
+            <button className="btn btn-outline btn-sm gap-1.5" onClick={() => { setAllergiesInput(patient.allergies || ""); setShowAllergies(true); }} data-testid="button-edit-allergies">
+              <AlertTriangle className="w-3.5 h-3.5" /> {t("editAllergies")}
             </button>
           )}
           <button className="btn btn-outline btn-sm gap-1.5" onClick={() => setLocation("/patients")} data-testid="button-back">
@@ -208,12 +227,16 @@ export default function PatientDetail() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">{t("overview")}</TabsTrigger>
-          <TabsTrigger value="timeline" className="gap-1.5">
-            <Activity className="w-3.5 h-3.5" /> {t("timeline")}
-            <span className="badge text-[10px] px-1.5 ms-1">
-              {(recentAppointments?.length ?? 0) + (recentRecords?.length ?? 0) + (recentLabTests?.length ?? 0) + (recentXrays?.length ?? 0)}
-            </span>
-          </TabsTrigger>
+          {/* Timeline is hidden for doctors — they work from the clinical record,
+              not the patient's cross-clinic visit history. */}
+          {role !== "doctor" && (
+            <TabsTrigger value="timeline" className="gap-1.5">
+              <Activity className="w-3.5 h-3.5" /> {t("timeline")}
+              <span className="badge text-[10px] px-1.5 ms-1">
+                {(recentAppointments?.length ?? 0) + (recentRecords?.length ?? 0) + (recentLabTests?.length ?? 0) + (recentXrays?.length ?? 0)}
+              </span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Overview Tab */}
@@ -266,10 +289,14 @@ export default function PatientDetail() {
                   : (medicalRecords ?? recentRecords ?? []).map((r, i) => {
                     const isOwn = user?.role === "doctor" && (r as any).doctorId === user?.id;
                     return (
-                      <div key={i} className={cn(
-                        "relative text-xs border rounded-md p-2",
-                        isOwn ? "bg-[var(--teal-50)] border-[var(--teal-300)]" : "border-[var(--line)]/40"
-                      )}>
+                      <div key={i} role="button" tabIndex={0}
+                        onClick={() => setViewRecord(r)}
+                        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewRecord(r); } }}
+                        className={cn(
+                          "relative text-xs border rounded-md p-2 cursor-pointer hover:bg-[var(--surface-2)] transition-colors",
+                          isOwn ? "bg-[var(--teal-50)] border-[var(--teal-300)]" : "border-[var(--line)]/40"
+                        )}
+                        data-testid={`record-row-${(r as any).id ?? i}`}>
                         {isOwn && (
                           <span className="absolute top-2 end-2 badge text-[9px] px-1 py-0 border-[var(--teal-300)] text-[var(--teal-600)]">
                             {t("yourNote")}
@@ -353,7 +380,8 @@ export default function PatientDetail() {
           </div>
         </TabsContent>
 
-        {/* Timeline Tab */}
+        {/* Timeline Tab — not rendered for doctors (see TabsList note above) */}
+        {role !== "doctor" && (
         <TabsContent value="timeline" className="mt-4">
           <div className="card">
             <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
@@ -371,6 +399,7 @@ export default function PatientDetail() {
             </div>
           </div>
         </TabsContent>
+        )}
       </Tabs>
 
       {/* Edit Dialog */}
@@ -463,6 +492,32 @@ export default function PatientDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Doctor-only allergies editor */}
+      <Dialog open={showAllergies} onOpenChange={setShowAllergies}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("editAllergies")}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <div className="space-y-1">
+              <Label className="text-xs">{t("allergies")}</Label>
+              <Input
+                value={allergiesInput}
+                onChange={e => setAllergiesInput(e.target.value)}
+                placeholder={t("allergiesPlaceholder")}
+                data-testid="input-allergies"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowAllergies(false)}>{t("cancel")}</button>
+              <button className="btn btn-primary btn-sm" onClick={handleSaveAllergies} disabled={updateMutation.isPending} data-testid="button-save-allergies">
+                {updateMutation.isPending ? t("loading") : t("save")}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Patient consent management (grant/view/revoke). The card internally
           gates list vs grant vs revoke by role. */}
       {patientId > 0 && (
@@ -483,6 +538,11 @@ export default function PatientDetail() {
         kind={viewDiag?.kind ?? "xray"}
         record={viewDiag?.record ?? null}
         onClose={() => setViewDiag(null)}
+      />
+
+      <MedicalRecordDetailDialog
+        record={viewRecord}
+        onClose={() => setViewRecord(null)}
       />
     </div>
   );

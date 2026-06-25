@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth, UserRole } from "@/hooks/auth";
 import { I18nProvider } from "@/hooks/i18n";
+import { PrintLangProvider } from "@/hooks/printLang";
 import { setUnauthorizedHandler } from "@workspace/api-client-react";
 import { useSessionTimeout } from "@/hooks/useSessionTimeout";
 import Layout from "@/components/Layout";
@@ -297,12 +298,14 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <I18nProvider>
-            <AuthProvider>
-              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-                <ProtectedRoutes />
-              </WouterRouter>
-              <Toaster />
-            </AuthProvider>
+            <PrintLangProvider>
+              <AuthProvider>
+                <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                  <ProtectedRoutes />
+                </WouterRouter>
+                <Toaster />
+              </AuthProvider>
+            </PrintLangProvider>
           </I18nProvider>
         </TooltipProvider>
       </QueryClientProvider>

@@ -205,12 +205,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           className="flex items-center gap-2.5 flex-shrink-0 px-4 border-b border-[var(--line)]"
           style={{ height: "var(--topbar-h)" }}
         >
-          <img
-            src="/wateen-mark.png"
-            alt="Wateen Clinic"
-            className="w-8 h-8 flex-shrink-0 object-contain"
-            aria-hidden="true"
-          />
+          {/* Dark-mode: the blue mark loses contrast on the near-black sidebar,
+              so sit it on a light chip (matches the Login art panel). Light mode
+              keeps the bare transparent mark. */}
+          <div className="flex items-center justify-center w-8 h-8 flex-shrink-0 rounded-md dark:bg-white dark:p-1">
+            <img
+              src="/wateen-mark.png"
+              alt="Wateen Clinic"
+              className="w-full h-full object-contain"
+              aria-hidden="true"
+            />
+          </div>
           <div>
             <div className="text-[13px] font-bold text-[var(--ink)] leading-tight">Wateen</div>
             <div className="eyebrow text-[9px] text-[var(--ink-muted)] leading-tight tracking-widest">
@@ -220,7 +225,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="Main navigation">
+        <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label={t("mainNavigation")}>
           {useGrouped ? (
             ADMIN_SECTIONS.map(section => {
               const sectionItems = section.keys
@@ -280,7 +285,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setLanguage(language === "en" ? "ar" : "en")}
               className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
-              aria-label={language === "en" ? "Switch to Arabic" : "Switch to English"}
+              aria-label={language === "en" ? t("switchToArabic") : t("switchToEnglish")}
               data-testid="button-toggle-language"
             >
               <Globe className="w-3.5 h-3.5" />
@@ -339,7 +344,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setCmdOpen(true)}
               className="sm:hidden p-2 rounded-lg hover:bg-[var(--surface-2)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
-              aria-label="Search"
+              aria-label={t("search")}
             >
               <Search className="w-4 h-4" />
             </button>

@@ -14,11 +14,13 @@ import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
 import { Plus, DollarSign, Trash2, Printer } from "lucide-react";
 import { openPrintWindow, invoiceHtml } from "@/lib/print";
+import { usePrintLang } from "@/hooks/printLang";
 
 interface InvoiceItem { description: string; quantity: number; unitPrice: number; total: number; }
 
 export default function Billing() {
   const { t, language } = useI18n();
+  const choosePrintLang = usePrintLang();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -176,7 +178,7 @@ export default function Billing() {
                   )}
                   <button
                     className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--ink-muted)]"
-                    onClick={e => { e.stopPropagation(); openPrintWindow(invoiceHtml(inv as any), `Invoice ${inv.invoiceNumber ?? inv.id}`); }}
+                    onClick={async e => { e.stopPropagation(); const lang = await choosePrintLang(); if (!lang) return; openPrintWindow(invoiceHtml(inv as any, lang), `Invoice ${inv.invoiceNumber ?? inv.id}`); }}
                     title={t("printInvoice")}
                     data-testid={`button-print-inv-${inv.id}`}
                   >
@@ -324,7 +326,7 @@ export default function Billing() {
             <button className="btn btn-outline btn-sm" onClick={() => setLastInvoice(null)}>{t("close")}</button>
             <button
               className="btn btn-primary btn-sm gap-1.5"
-              onClick={() => { openPrintWindow(invoiceHtml(lastInvoice), `Invoice ${lastInvoice.invoiceNumber ?? ""}`); setLastInvoice(null); }}
+              onClick={async () => { const lang = await choosePrintLang(); if (!lang) return; openPrintWindow(invoiceHtml(lastInvoice, lang), `Invoice ${lastInvoice.invoiceNumber ?? ""}`); setLastInvoice(null); }}
               data-testid="button-print-new-invoice"
             >
               <Printer className="w-3.5 h-3.5" /> {t("printInvoice")}

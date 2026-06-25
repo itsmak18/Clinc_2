@@ -14,7 +14,7 @@ import { formatDate } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import SearchSelect from "@/components/SearchSelect";
 import PatientSearchSelect from "@/components/PatientSearchSelect";
-import { DetailSection, DetailGrid, DetailField } from "@/components/DetailView";
+import MedicalRecordDetailDialog from "@/components/MedicalRecordDetailDialog";
 import { Plus, AlertTriangle, ShieldCheck } from "lucide-react";
 
 // Schema hard bounds — server rejects outside these (see vitalsSchema, strict).
@@ -34,20 +34,6 @@ const isAbnormal = (key: string, raw: string) => {
   const n = parseFloat(raw);
   return !isNaN(n) && (n < range[0] || n > range[1]);
 };
-
-// Vitals shown in the read-only detail view, in clinical order. `unit` is appended to
-// the value ("" for vitals whose i18n label already carries its unit, e.g. "Heart Rate (bpm)");
-// `normalKey` maps to VITAL_NORMAL for amber/rose abnormal flagging (omitted = never flagged).
-const VITALS_VIEW: { key: string; unit: string; normalKey?: string }[] = [
-  { key: "heartRate",        unit: "",        normalKey: "heartRate" },
-  { key: "temperature",      unit: "",        normalKey: "temperature" },
-  { key: "respiratoryRate",  unit: " /min",   normalKey: "respiratoryRate" },
-  { key: "oxygenSaturation", unit: "%",       normalKey: "oxygenSaturation" },
-  { key: "weight",           unit: "" },
-  { key: "height",           unit: "" },
-  { key: "glucose",          unit: " mmol/L" },
-  { key: "pain",             unit: "/10" },
-];
 
 export default function MedicalRecords() {
   const { t } = useI18n();
@@ -81,33 +67,6 @@ export default function MedicalRecords() {
   // Read-only "view all information" detail — opened by clicking a row. The list endpoint
   // already returns every field (vitals, treatment, notes, Arabic), so no extra fetch.
   const [viewRecord, setViewRecord] = useState<NonNullable<typeof records>[number] | null>(null);
-
-  const renderVitals = (vitals: any) => {
-    if (!vitals || typeof vitals !== "object" || Object.keys(vitals).length === 0) {
-      return <p className="text-[13px] text-[var(--ink-faint)]">{t("noVitalsRecorded")}</p>;
-    }
-    const bpS = vitals.bloodPressureSystolic, bpD = vitals.bloodPressureDiastolic;
-    const bpAbnormal = isAbnormal("bpSystolic", String(bpS)) || isAbnormal("bpDiastolic", String(bpD));
-    const vBmi = vitals.weight && vitals.height ? (vitals.weight / Math.pow(vitals.height / 100, 2)) : null;
-    return (
-      <DetailGrid cols={3}>
-        {(bpS != null || bpD != null) && (
-          <DetailField label={t("bloodPressure")} value={
-            <span className={bpAbnormal ? "text-[var(--rose-500)] font-medium" : undefined}>{bpS ?? "—"}/{bpD ?? "—"} mmHg</span>
-          } />
-        )}
-        {VITALS_VIEW.filter(v => vitals[v.key] != null).map(v => {
-          const abnormal = v.normalKey ? isAbnormal(v.normalKey, String(vitals[v.key])) : false;
-          return (
-            <DetailField key={v.key} label={t(v.key as any)} value={
-              <span className={abnormal ? "text-[var(--rose-500)] font-medium" : undefined}>{vitals[v.key]}{v.unit}</span>
-            } />
-          );
-        })}
-        {vBmi && isFinite(vBmi) && <DetailField label={t("bmi")} value={vBmi.toFixed(1)} />}
-      </DetailGrid>
-    );
-  };
 
   // The server requires doctorId to reference a user with the doctor role. When a
   // doctor is signed in, they ARE the doctor (locked). Any other role must pick one.
@@ -282,37 +241,7 @@ export default function MedicalRecords() {
       </div>
 
       {/* Read-only detail — all information for one record */}
-      <Dialog open={!!viewRecord} onOpenChange={o => !o && setViewRecord(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{t("medicalRecordDetails")}</DialogTitle></DialogHeader>
-          {viewRecord && (
-            <div className="space-y-5">
-              <DetailGrid cols={3}>
-                <DetailField label={t("patient")} value={viewRecord.patient?.fullName || `#${viewRecord.patientId}`} />
-                <DetailField label={t("doctorLabel")} value={viewRecord.doctor?.fullName || `#${viewRecord.doctorId}`} />
-                <DetailField label={t("date")} value={formatDate(viewRecord.createdAt)} />
-              </DetailGrid>
-
-              <DetailSection>
-                <DetailGrid cols={1}>
-                  <DetailField label={t("chiefComplaint")} value={viewRecord.chiefComplaint} secondary={(viewRecord as any).chiefComplaintAr} />
-                  <DetailField label={t("diagnosis")} value={viewRecord.diagnosis} secondary={(viewRecord as any).diagnosisAr} />
-                  <DetailField label={t("treatment")} value={(viewRecord as any).treatment} secondary={(viewRecord as any).treatmentAr} />
-                  <DetailField label={t("notes")} value={(viewRecord as any).notes} />
-                </DetailGrid>
-              </DetailSection>
-
-              <DetailSection title={t("vitals")}>
-                {renderVitals((viewRecord as any).vitals)}
-              </DetailSection>
-
-              <div className="flex justify-end pt-1">
-                <button className="btn btn-outline btn-sm" onClick={() => setViewRecord(null)}>{t("close")}</button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      <MedicalRecordDetailDialog record={viewRecord} onClose={() => setViewRecord(null)} />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">

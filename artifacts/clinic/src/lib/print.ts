@@ -76,12 +76,79 @@ function fmtDate(d: string | Date | null | undefined) {
   return new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// ── Printed-document localization ────────────────────────────────────────────
+// The printed paper can be produced in English or Arabic independent of the UI
+// language — callers pass the language the user picked at print time. PHI free
+// text (findings, notes, names) is printed as entered; only the fixed labels and
+// document direction switch.
+export type PrintLang = "en" | "ar";
+
+const PRINT_LABELS = {
+  en: {
+    clinicName: "Wateen Clinic",
+    prescriptionDoc: "Medical Prescription", date: "Date", patientInfo: "Patient Information",
+    name: "Name", mrn: "MRN", dob: "Date of Birth", gender: "Gender", bloodType: "Blood Type",
+    allergies: "Allergies", medications: "Medications", dose: "Dose", frequency: "Frequency",
+    duration: "Duration", instructions: "Instructions", noMeds: "No medications listed",
+    notes: "Notes", notesHeadingAr: "ملاحظات", prescribingPhysician: "Prescribing Physician",
+    physician: "Physician", mrnIdCard: "MRN / ID Card", rx: "Rx",
+    labDoc: "Laboratory Report", reportDate: "Report Date", requestedBy: "Requested by",
+    test: "Test", unknown: "Unknown", parameter: "Parameter", value: "Value", unit: "Unit",
+    refRange: "Reference Range", flag: "Flag", noParams: "No parameters entered",
+    notesInterpretation: "Notes / Interpretation", hlLegend: "H = High&nbsp;|&nbsp;L = Low&nbsp;|&nbsp;N = Normal",
+    labTech: "Laboratory Technician",
+    radiologyDoc: "Radiology Report", examination: "Examination", unknownArea: "Unknown area",
+    findings: "Findings", impression: "Impression / Conclusion", radiologistSig: "Radiologist Signature",
+    ultrasoundDoc: "Ultrasound Report", examType: "Exam Type", bodyPart: "Body Part",
+    sonographerSig: "Sonographer / Radiologist Signature", images: "Images",
+    invoiceDoc: "Invoice", billedTo: "Billed To", patient: "Patient", items: "Items",
+    description: "Description", qty: "Qty", unitPrice: "Unit Price", total: "Total",
+    subtotal: "Subtotal", discount: "Discount", totalCaps: "TOTAL", noLineItems: "No line items",
+    statusPaid: "PAID", statusPending: "PENDING", statusCancelled: "CANCELLED",
+  },
+  ar: {
+    clinicName: "عيادة وتين",
+    prescriptionDoc: "وصفة طبية", date: "التاريخ", patientInfo: "معلومات المريض",
+    name: "الاسم", mrn: "رقم السجل", dob: "تاريخ الميلاد", gender: "الجنس", bloodType: "فصيلة الدم",
+    allergies: "الحساسية", medications: "الأدوية", dose: "الجرعة", frequency: "التكرار",
+    duration: "المدة", instructions: "التعليمات", noMeds: "لا توجد أدوية",
+    notes: "ملاحظات", notesHeadingAr: "ملاحظات", prescribingPhysician: "الطبيب الواصف",
+    physician: "الطبيب", mrnIdCard: "رقم السجل / الهوية", rx: "العلاج",
+    labDoc: "تقرير مختبر", reportDate: "تاريخ التقرير", requestedBy: "بطلب من",
+    test: "الفحص", unknown: "غير معروف", parameter: "المعيار", value: "القيمة", unit: "الوحدة",
+    refRange: "النطاق المرجعي", flag: "العلامة", noParams: "لا توجد معايير",
+    notesInterpretation: "ملاحظات / تفسير", hlLegend: "م = مرتفع&nbsp;|&nbsp;خ = منخفض&nbsp;|&nbsp;ط = طبيعي",
+    labTech: "فني المختبر",
+    radiologyDoc: "تقرير الأشعة", examination: "الفحص", unknownArea: "منطقة غير محددة",
+    findings: "النتائج", impression: "الانطباع / الخلاصة", radiologistSig: "توقيع أخصائي الأشعة",
+    ultrasoundDoc: "تقرير الموجات فوق الصوتية", examType: "نوع الفحص", bodyPart: "منطقة الجسم",
+    sonographerSig: "توقيع أخصائي الموجات", images: "الصور",
+    invoiceDoc: "فاتورة", billedTo: "فاتورة إلى", patient: "المريض", items: "البنود",
+    description: "الوصف", qty: "الكمية", unitPrice: "سعر الوحدة", total: "الإجمالي",
+    subtotal: "المجموع الفرعي", discount: "الخصم", totalCaps: "الإجمالي", noLineItems: "لا توجد بنود",
+    statusPaid: "مدفوعة", statusPending: "معلّقة", statusCancelled: "ملغاة",
+  },
+} as const;
+
+// Direction-aware overrides + an opening wrapper <div dir=…>. Callers append the
+// matching </div> at the end of the returned template. In RTL we flip the table
+// header and the invoice numeric columns so the Arabic copy reads correctly.
+function dirOpen(lang: PrintLang): string {
+  if (lang !== "ar") return `<div dir="ltr">`;
+  return `<style>
+    [dir=rtl] th{text-align:right}
+    [dir=rtl] .text-right{text-align:left}
+    [dir=rtl] .total-label,[dir=rtl] .total-value{text-align:left}
+    [dir=rtl] .sig-line{margin-left:auto}
+  </style><div dir="rtl">`;
+}
+
 export interface ReportImage { url: string; fileName?: string | null; caption?: string | null }
 
 // Builds the imaging gallery for radiology/ultrasound reports. Merges the cover
 // (imageUrl) with the extra images[] array, dedupes by URL, and renders each as an
 // embedded <img> (safe http/https only) with an optional caption.
-function imagesSectionHtml(imageUrl: string | null | undefined, images: ReportImage[] | null | undefined): string {
+function imagesSectionHtml(imageUrl: string | null | undefined, images: ReportImage[] | null | undefined, lang: PrintLang = "en"): string {
   const all: ReportImage[] = [];
   if (imageUrl) all.push({ url: imageUrl });
   for (const im of images ?? []) if (im?.url) all.push(im);
@@ -97,7 +164,7 @@ function imagesSectionHtml(imageUrl: string | null | undefined, images: ReportIm
       <div style="font-size:10px;color:#aaa;word-break:break-all;margin-top:2px"><a href="${u}">${u}</a></div>
     </div>`;
   }).join("");
-  return `<div class="section-title">Images (${unique.length})</div><div style="margin-bottom:12px">${cards}</div>`;
+  return `<div class="section-title">${PRINT_LABELS[lang].images} (${unique.length})</div><div style="margin-bottom:12px">${cards}</div>`;
 }
 function fmtCur(v: number | string | null | undefined) {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
@@ -113,7 +180,8 @@ interface PrescriptionData {
   notesAr?: string | null;
 }
 
-export function prescriptionHtml(rx: PrescriptionData): string {
+export function prescriptionHtml(rx: PrescriptionData, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
   const p = rx.patient;
   const meds = (rx.medications ?? []) as Array<{ name: string; dosage: string; frequency: string; duration: string; instructions?: string }>;
 
@@ -132,77 +200,78 @@ export function prescriptionHtml(rx: PrescriptionData): string {
         <div class="med-card">
           <div class="med-name">${i + 1}. ${escapeHtml(m.name)}</div>
           <div class="med-detail">
-            Dose: <strong>${escapeHtml(m.dosage)}</strong> &nbsp;|&nbsp;
-            Frequency: <strong>${escapeHtml(m.frequency)}</strong> &nbsp;|&nbsp;
-            Duration: <strong>${escapeHtml(m.duration)}</strong>
-            ${m.instructions ? `<br>Instructions: ${escapeHtml(m.instructions)}` : ""}
+            ${L.dose}: <strong>${escapeHtml(m.dosage)}</strong> &nbsp;|&nbsp;
+            ${L.frequency}: <strong>${escapeHtml(m.frequency)}</strong> &nbsp;|&nbsp;
+            ${L.duration}: <strong>${escapeHtml(m.duration)}</strong>
+            ${m.instructions ? `<br>${L.instructions}: ${escapeHtml(m.instructions)}` : ""}
           </div>
         </div>`).join("")
-    : `<div style="color:#888;font-size:12px;padding:8px">No medications listed</div>`;
+    : `<div style="color:#888;font-size:12px;padding:8px">${L.noMeds}</div>`;
 
-  return `${STYLES}
+  return `${STYLES}${dirOpen(lang)}
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Medical Prescription</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.prescriptionDoc}</div>
     </div>
-    <div style="display:flex;justify-content:flex-end;font-size:12px;color:#666;margin-bottom:8px">Date: ${fmtDate(rx.createdAt)}</div>
+    <div style="display:flex;justify-content:flex-end;font-size:12px;color:#666;margin-bottom:8px">${L.date}: ${fmtDate(rx.createdAt)}</div>
 
-    <div class="section-title">Patient Information</div>
+    <div class="section-title">${L.patientInfo}</div>
     <div class="grid2">
-      <div><div class="lbl">Name</div><div class="val">${escapeHtml(p?.fullName) || "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(p?.mrn) || "-"}</div></div>
-      <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(p?.dateOfBirth)}${ageStr}</div></div>
-      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${escapeHtml(p?.gender) || "-"}</div></div>
-      <div><div class="lbl">Blood Type</div><div class="val">${escapeHtml(p?.bloodType) || "-"}</div></div>
+      <div><div class="lbl">${L.name}</div><div class="val">${escapeHtml(p?.fullName) || "-"}</div></div>
+      <div><div class="lbl">${L.mrn}</div><div class="val" style="font-family:monospace">${escapeHtml(p?.mrn) || "-"}</div></div>
+      <div><div class="lbl">${L.dob}</div><div class="val">${fmtDate(p?.dateOfBirth)}${ageStr}</div></div>
+      <div><div class="lbl">${L.gender}</div><div class="val" style="text-transform:capitalize">${escapeHtml(p?.gender) || "-"}</div></div>
+      <div><div class="lbl">${L.bloodType}</div><div class="val">${escapeHtml(p?.bloodType) || "-"}</div></div>
     </div>
-    ${p?.allergies ? `<div class="allergy-box">⚠ Allergies: ${escapeHtml(p.allergies)}</div>` : ""}
+    ${p?.allergies ? `<div class="allergy-box">⚠ ${L.allergies}: ${escapeHtml(p.allergies)}</div>` : ""}
 
-    <div class="section-title">Medications</div>
+    <div class="section-title">${L.medications}</div>
     ${medsHtml}
-    ${rx.notes ? `<div class="section-title">Notes</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(rx.notes)}</p>` : ""}
-    ${rx.notesAr ? `<div class="section-title" style="direction:rtl;text-align:right">ملاحظات</div><p class="ar-block" style="white-space:pre-wrap">${escapeHtml(rx.notesAr)}</p>` : ""}
+    ${rx.notes ? `<div class="section-title">${L.notes}</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(rx.notes)}</p>` : ""}
+    ${rx.notesAr ? `<div class="section-title" style="direction:rtl;text-align:right">${L.notesHeadingAr}</div><p class="ar-block" style="white-space:pre-wrap">${escapeHtml(rx.notesAr)}</p>` : ""}
 
     <div class="footer">
       <div class="sig">
-        <div class="sig-line">${escapeHtml(rx.doctor?.fullName) || "Physician"}<br>Prescribing Physician</div>
+        <div class="sig-line">${escapeHtml(rx.doctor?.fullName) || L.physician}<br>${L.prescribingPhysician}</div>
       </div>
-    </div>`;
+    </div></div>`;
 }
 
 // A printable EMPTY prescription form for the physician to fill in by hand (e.g. when
 // the patient will take it to an external pharmacy). Creates no record — pure print.
-export function blankPrescriptionHtml(doctor?: { fullName?: string | null } | null): string {
+export function blankPrescriptionHtml(doctor?: { fullName?: string | null } | null, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
   const blankLine = `<div style="border-bottom:1px solid #bbb;height:22px"></div>`;
   const labeledBlank = (label: string) =>
     `<div style="margin-bottom:10px"><span style="font-size:11px;color:#888">${escapeHtml(label)}</span><div style="border-bottom:1px solid #bbb;height:20px"></div></div>`;
-  return `${STYLES}
+  return `${STYLES}${dirOpen(lang)}
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Medical Prescription</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.prescriptionDoc}</div>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:8px">
-      <span>Date: ____ / ____ / ________</span>
+      <span>${L.date}: ____ / ____ / ________</span>
     </div>
 
-    <div class="section-title">Patient Information</div>
+    <div class="section-title">${L.patientInfo}</div>
     <div class="grid2">
-      ${labeledBlank("Name")}
-      ${labeledBlank("MRN / ID Card")}
-      ${labeledBlank("Date of Birth")}
-      ${labeledBlank("Gender")}
+      ${labeledBlank(L.name)}
+      ${labeledBlank(L.mrnIdCard)}
+      ${labeledBlank(L.dob)}
+      ${labeledBlank(L.gender)}
     </div>
-    <div style="margin-bottom:12px"><span style="font-size:11px;color:#888">Allergies</span><div style="border-bottom:1px solid #bbb;height:20px"></div></div>
+    <div style="margin-bottom:12px"><span style="font-size:11px;color:#888">${L.allergies}</span><div style="border-bottom:1px solid #bbb;height:20px"></div></div>
 
-    <div class="section-title">Rx</div>
+    <div class="section-title">${L.rx}</div>
     <div style="margin:8px 0 16px">
       ${Array.from({ length: 8 }).map(() => blankLine).join("")}
     </div>
 
     <div class="footer">
       <div class="sig">
-        <div class="sig-line">${escapeHtml(doctor?.fullName) || "Physician"}<br>Prescribing Physician</div>
+        <div class="sig-line">${escapeHtml(doctor?.fullName) || L.physician}<br>${L.prescribingPhysician}</div>
       </div>
-    </div>`;
+    </div></div>`;
 }
 
 export interface LabParam { name: string; value: string; unit: string; refRange: string; flag: "H" | "L" | "N" | "" }
@@ -218,7 +287,8 @@ interface LabReportData {
   notesAr?: string | null;
 }
 
-export function labReportHtml(d: LabReportData): string {
+export function labReportHtml(d: LabReportData, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
   const rowStyle = (flag: string) =>
     flag === "H" ? "background:#fff1f2;color:#be123c" :
     flag === "L" ? "background:#eff6ff;color:#1d4ed8" : "";
@@ -232,45 +302,45 @@ export function labReportHtml(d: LabReportData): string {
         <td style="text-align:center">${escapeHtml(p.refRange) || "-"}</td>
         <td style="text-align:center;font-weight:700">${escapeHtml(p.flag) || "N"}</td>
       </tr>`).join("")
-    : `<tr><td colspan="5" style="color:#888;text-align:center">No parameters entered</td></tr>`;
+    : `<tr><td colspan="5" style="color:#888;text-align:center">${L.noParams}</td></tr>`;
 
-  return `${STYLES}
+  return `${STYLES}${dirOpen(lang)}
     <style>
       .flag-H{background:#fff1f2;color:#be123c}
       .flag-L{background:#eff6ff;color:#1d4ed8}
     </style>
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Laboratory Report</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.labDoc}</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
-      <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
+      <span>${L.reportDate}: ${fmtDate(d.createdAt)}</span>
+      <span>${L.requestedBy}: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
-    <div class="section-title">Patient Information</div>
+    <div class="section-title">${L.patientInfo}</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
-      <div><div class="lbl">Date of Birth</div><div class="val">${fmtDate(d.patient?.dateOfBirth)}</div></div>
-      <div><div class="lbl">Gender</div><div class="val" style="text-transform:capitalize">${escapeHtml(d.patient?.gender) || "-"}</div></div>
+      <div><div class="lbl">${L.name}</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">${L.mrn}</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
+      <div><div class="lbl">${L.dob}</div><div class="val">${fmtDate(d.patient?.dateOfBirth)}</div></div>
+      <div><div class="lbl">${L.gender}</div><div class="val" style="text-transform:capitalize">${escapeHtml(d.patient?.gender) || "-"}</div></div>
     </div>
-    <div class="section-title">Test: ${escapeHtml(d.testName) || "Unknown"}${d.testNameAr ? ` / ${escapeHtml(d.testNameAr)}` : ""}</div>
+    <div class="section-title">${L.test}: ${escapeHtml(d.testName) || L.unknown}${d.testNameAr ? ` / ${escapeHtml(d.testNameAr)}` : ""}</div>
     <table>
       <thead><tr>
-        <th>Parameter</th>
-        <th style="text-align:center">Value</th>
-        <th style="text-align:center">Unit</th>
-        <th style="text-align:center">Reference Range</th>
-        <th style="text-align:center">Flag</th>
+        <th>${L.parameter}</th>
+        <th style="text-align:center">${L.value}</th>
+        <th style="text-align:center">${L.unit}</th>
+        <th style="text-align:center">${L.refRange}</th>
+        <th style="text-align:center">${L.flag}</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    ${d.notes ? `<div class="section-title">Notes / Interpretation</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(d.notes)}</p>` : ""}
+    ${d.notes ? `<div class="section-title">${L.notesInterpretation}</div><p style="font-size:13px;white-space:pre-wrap">${escapeHtml(d.notes)}</p>` : ""}
     ${d.notesAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-top:6px">${escapeHtml(d.notesAr)}</p>` : ""}
-    <div style="margin-top:32px;font-size:11px;color:#888">H = High &nbsp;|&nbsp; L = Low &nbsp;|&nbsp; N = Normal</div>
+    <div style="margin-top:32px;font-size:11px;color:#888">${L.hlLegend}</div>
     <div class="footer">
-      <div class="sig"><div class="sig-line">Laboratory Technician</div></div>
-    </div>`;
+      <div class="sig"><div class="sig-line">${L.labTech}</div></div>
+    </div></div>`;
 }
 
 interface XrayReportData {
@@ -287,34 +357,35 @@ interface XrayReportData {
   images?: ReportImage[] | null;
 }
 
-export function xrayReportHtml(d: XrayReportData): string {
-  return `${STYLES}
+export function xrayReportHtml(d: XrayReportData, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
+  return `${STYLES}${dirOpen(lang)}
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Radiology Report</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.radiologyDoc}</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
-      <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
+      <span>${L.reportDate}: ${fmtDate(d.createdAt)}</span>
+      <span>${L.requestedBy}: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
-    <div class="section-title">Patient Information</div>
+    <div class="section-title">${L.patientInfo}</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
+      <div><div class="lbl">${L.name}</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">${L.mrn}</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
     </div>
-    <div class="section-title">Examination</div>
-    <p style="font-size:14px;font-weight:600;margin-bottom:4px">${escapeHtml(d.bodyPart) || "Unknown area"}</p>
+    <div class="section-title">${L.examination}</div>
+    <p style="font-size:14px;font-weight:600;margin-bottom:4px">${escapeHtml(d.bodyPart) || L.unknownArea}</p>
     ${d.bodyPartAr ? `<p class="ar-block" style="font-size:13px;margin-bottom:12px">${escapeHtml(d.bodyPartAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
-    ${imagesSectionHtml(d.imageUrl, d.images)}
-    <div class="section-title">Findings</div>
+    ${imagesSectionHtml(d.imageUrl, d.images, lang)}
+    <div class="section-title">${L.findings}</div>
     <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
     ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
-    <div class="section-title">Impression / Conclusion</div>
+    <div class="section-title">${L.impression}</div>
     <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${escapeHtml(d.impression) || "—"}</p>
     ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${escapeHtml(d.impressionAr)}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
-      <div class="sig"><div class="sig-line">Radiologist Signature</div></div>
-    </div>`;
+      <div class="sig"><div class="sig-line">${L.radiologistSig}</div></div>
+    </div></div>`;
 }
 
 interface UltrasoundReportData {
@@ -332,40 +403,41 @@ interface UltrasoundReportData {
   images?: ReportImage[] | null;
 }
 
-export function ultrasoundReportHtml(d: UltrasoundReportData): string {
-  return `${STYLES}
+export function ultrasoundReportHtml(d: UltrasoundReportData, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
+  return `${STYLES}${dirOpen(lang)}
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Ultrasound Report</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.ultrasoundDoc}</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:#666">
-      <span>Report Date: ${fmtDate(d.createdAt)}</span>
-      <span>Requested by: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
+      <span>${L.reportDate}: ${fmtDate(d.createdAt)}</span>
+      <span>${L.requestedBy}: ${escapeHtml(d.requestedBy?.fullName) || "-"}</span>
     </div>
-    <div class="section-title">Patient Information</div>
+    <div class="section-title">${L.patientInfo}</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Name</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
+      <div><div class="lbl">${L.name}</div><div class="val">${escapeHtml(d.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">${L.mrn}</div><div class="val" style="font-family:monospace">${escapeHtml(d.patient?.mrn) || "-"}</div></div>
     </div>
-    <div class="section-title">Examination</div>
+    <div class="section-title">${L.examination}</div>
     <div class="grid2" style="margin-bottom:12px">
-      <div><div class="lbl">Exam Type</div><div class="val">${escapeHtml(d.examType) || "-"}</div></div>
+      <div><div class="lbl">${L.examType}</div><div class="val">${escapeHtml(d.examType) || "-"}</div></div>
       <div>
-        <div class="lbl">Body Part</div>
+        <div class="lbl">${L.bodyPart}</div>
         <div class="val">${escapeHtml(d.bodyPart) || "-"}</div>
         ${d.bodyPartAr ? `<div class="ar-block">${escapeHtml(d.bodyPartAr)}</div>` : ""}
       </div>
     </div>
-    ${imagesSectionHtml(d.imageUrl, d.images)}
-    <div class="section-title">Findings</div>
+    ${imagesSectionHtml(d.imageUrl, d.images, lang)}
+    <div class="section-title">${L.findings}</div>
     <p style="font-size:13px;white-space:pre-wrap;margin-bottom:4px">${escapeHtml(d.findings) || "—"}</p>
     ${d.findingsAr ? `<p class="ar-block" style="white-space:pre-wrap;margin-bottom:12px">${escapeHtml(d.findingsAr)}</p>` : "<p style='margin-bottom:12px'></p>"}
-    <div class="section-title">Impression / Conclusion</div>
+    <div class="section-title">${L.impression}</div>
     <p style="font-size:13px;white-space:pre-wrap;border-left:3px solid #111;padding-left:10px;margin-bottom:4px">${escapeHtml(d.impression) || "—"}</p>
     ${d.impressionAr ? `<p class="ar-block" style="white-space:pre-wrap;border-right:3px solid #111;padding-right:10px;margin-bottom:16px">${escapeHtml(d.impressionAr)}</p>` : "<p style='margin-bottom:16px'></p>"}
     <div class="footer">
-      <div class="sig"><div class="sig-line">Sonographer / Radiologist Signature</div></div>
-    </div>`;
+      <div class="sig"><div class="sig-line">${L.sonographerSig}</div></div>
+    </div></div>`;
 }
 
 interface InvoiceData {
@@ -379,17 +451,19 @@ interface InvoiceData {
   items?: Array<{ description: string; quantity: number; unitPrice: number | string; total: number | string }>;
 }
 
-export function invoiceHtml(inv: InvoiceData): string {
+export function invoiceHtml(inv: InvoiceData, lang: PrintLang = "en"): string {
+  const L = PRINT_LABELS[lang];
   const statusClass = inv.status === "paid" ? "status-paid" : inv.status === "cancelled" ? "status-cancelled" : "status-pending";
+  const statusLabel = inv.status === "paid" ? L.statusPaid : inv.status === "cancelled" ? L.statusCancelled : L.statusPending;
   const items = (inv.items ?? []) as Array<{ description: string; quantity: number; unitPrice: number | string; total: number | string }>;
 
   const itemsHtml = items.length
     ? `<table>
         <thead><tr>
-          <th>Description</th>
-          <th class="text-right">Qty</th>
-          <th class="text-right">Unit Price</th>
-          <th class="text-right">Total</th>
+          <th>${L.description}</th>
+          <th class="text-right">${L.qty}</th>
+          <th class="text-right">${L.unitPrice}</th>
+          <th class="text-right">${L.total}</th>
         </tr></thead>
         <tbody>
           ${items.map(it => `
@@ -401,36 +475,36 @@ export function invoiceHtml(inv: InvoiceData): string {
             </tr>`).join("")}
         </tbody>
       </table>`
-    : `<div style="color:#888;font-size:12px;padding:8px">No line items</div>`;
+    : `<div style="color:#888;font-size:12px;padding:8px">${L.noLineItems}</div>`;
 
   const subtotal = inv.subtotal ?? inv.total;
   const discount = inv.discount ?? 0;
 
-  return `${STYLES}
+  return `${STYLES}${dirOpen(lang)}
     <div class="header">
-      <div class="clinic-name">Wateen Clinic</div>
-      <div class="doc-type">Invoice</div>
+      <div class="clinic-name">${L.clinicName}</div>
+      <div class="doc-type">${L.invoiceDoc}</div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
       <div>
         <div style="font-size:18px;font-weight:bold;font-family:monospace">${escapeHtml(inv.invoiceNumber) || "-"}</div>
-        <div style="font-size:12px;color:#666;margin-top:2px">Date: ${fmtDate(inv.createdAt)}</div>
+        <div style="font-size:12px;color:#666;margin-top:2px">${L.date}: ${fmtDate(inv.createdAt)}</div>
       </div>
-      <div><span class="status-badge ${statusClass}">${escapeHtml(inv.status.toUpperCase())}</span></div>
+      <div><span class="status-badge ${statusClass}">${statusLabel}</span></div>
     </div>
 
-    <div class="section-title">Billed To</div>
+    <div class="section-title">${L.billedTo}</div>
     <div class="grid2" style="margin-bottom:16px">
-      <div><div class="lbl">Patient</div><div class="val">${escapeHtml(inv.patient?.fullName) || "-"}</div></div>
-      <div><div class="lbl">MRN</div><div class="val" style="font-family:monospace">${escapeHtml(inv.patient?.mrn) || "-"}</div></div>
+      <div><div class="lbl">${L.patient}</div><div class="val">${escapeHtml(inv.patient?.fullName) || "-"}</div></div>
+      <div><div class="lbl">${L.mrn}</div><div class="val" style="font-family:monospace">${escapeHtml(inv.patient?.mrn) || "-"}</div></div>
     </div>
 
-    <div class="section-title">Items</div>
+    <div class="section-title">${L.items}</div>
     ${itemsHtml}
 
     <div class="totals">
-      <div class="total-row"><span class="total-label">Subtotal</span><span class="total-value">$${fmtCur(subtotal)}</span></div>
-      <div class="total-row"><span class="total-label">Discount</span><span class="total-value">-$${fmtCur(discount)}</span></div>
-      <div class="total-row grand-total"><span class="total-label">TOTAL</span><span class="total-value">$${fmtCur(inv.total)}</span></div>
-    </div>`;
+      <div class="total-row"><span class="total-label">${L.subtotal}</span><span class="total-value">$${fmtCur(subtotal)}</span></div>
+      <div class="total-row"><span class="total-label">${L.discount}</span><span class="total-value">-$${fmtCur(discount)}</span></div>
+      <div class="total-row grand-total"><span class="total-label">${L.totalCaps}</span><span class="total-value">$${fmtCur(inv.total)}</span></div>
+    </div></div>`;
 }

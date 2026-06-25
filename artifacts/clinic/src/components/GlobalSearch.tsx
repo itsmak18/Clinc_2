@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Search, Users, CalendarDays, FileText, X, Loader2 } from "lucide-react";
 import { formatDate } from "@/lib/api";
+import { useI18n } from "@/hooks/i18n";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
@@ -13,6 +14,7 @@ interface SearchResults {
 }
 
 export default function GlobalSearch() {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -92,7 +94,7 @@ export default function GlobalSearch() {
                 ref={inputRef}
                 value={query}
                 onChange={handleInput}
-                placeholder="Search patients, appointments, records…"
+                placeholder={t("searchGlobalPlaceholder")}
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               {query && (
@@ -107,22 +109,22 @@ export default function GlobalSearch() {
             <div className="max-h-[60vh] overflow-y-auto">
               {!query && (
                 <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  Type to search patients, appointments, and medical records
+                  {t("globalSearchHint")}
                 </div>
               )}
 
               {query.length === 1 && (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground">Keep typing…</div>
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t("keepTyping")}</div>
               )}
 
               {results && total === 0 && query.length >= 2 && (
-                <div className="px-4 py-8 text-center text-sm text-muted-foreground">No results for "<span className="font-medium text-foreground">{query}</span>"</div>
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t("noResults")} "<span className="font-medium text-foreground">{query}</span>"</div>
               )}
 
               {results && results.patients.length > 0 && (
                 <div>
                   <div className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border flex items-center gap-1.5">
-                    <Users className="w-3 h-3" /> Patients
+                    <Users className="w-3 h-3" /> {t("patients")}
                   </div>
                   {results.patients.map(p => (
                     <button key={p.id} onClick={() => go(`/patients/${p.id}`)}
@@ -143,7 +145,7 @@ export default function GlobalSearch() {
               {results && results.appointments.length > 0 && (
                 <div>
                   <div className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border flex items-center gap-1.5">
-                    <CalendarDays className="w-3 h-3" /> Appointments
+                    <CalendarDays className="w-3 h-3" /> {t("appointments")}
                   </div>
                   {results.appointments.map(a => (
                     <button key={a.id} onClick={() => go(`/appointments`)}
@@ -164,7 +166,7 @@ export default function GlobalSearch() {
               {results && results.records.length > 0 && (
                 <div>
                   <div className="px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 border-b border-border flex items-center gap-1.5">
-                    <FileText className="w-3 h-3" /> Medical Records
+                    <FileText className="w-3 h-3" /> {t("medicalRecords")}
                   </div>
                   {results.records.map(r => (
                     <button key={r.id} onClick={() => go(`/patients/${r.patientId}`)}
@@ -173,7 +175,7 @@ export default function GlobalSearch() {
                         <FileText className="w-3.5 h-3.5 text-green-600" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{r.chiefComplaint || "Medical record"}</div>
+                        <div className="text-sm font-medium truncate">{r.chiefComplaint || t("medicalRecordSingular")}</div>
                         <div className="text-xs text-muted-foreground">{r.patientName}</div>
                       </div>
                       <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(r.createdAt)}</span>
@@ -185,9 +187,9 @@ export default function GlobalSearch() {
 
             {/* Footer */}
             <div className="px-4 py-2 border-t border-border bg-muted/20 flex gap-4 text-[10px] text-muted-foreground">
-              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">↵</kbd> select</span>
-              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">Esc</kbd> close</span>
-              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">⌘K</kbd> toggle</span>
+              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">↵</kbd> {t("kbdSelect")}</span>
+              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">Esc</kbd> {t("kbdClose")}</span>
+              <span><kbd className="bg-muted px-1 rounded border border-border font-mono">⌘K</kbd> {t("kbdToggle")}</span>
             </div>
           </div>
         </div>

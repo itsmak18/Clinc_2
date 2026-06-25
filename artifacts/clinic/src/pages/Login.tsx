@@ -6,7 +6,7 @@ import { useI18n } from "@/hooks/i18n";
 import { getLandingRoute } from "@/lib/route-access";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Zap } from "lucide-react";
+import { Eye, EyeOff, Zap, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +30,7 @@ const IS_DEV = import.meta.env.MODE !== "production";
 export default function Login() {
   const [, setLocation] = useLocation();
   const { login } = useAuth();
-  const { t } = useI18n();
+  const { t, language, setLanguage } = useI18n();
   const { toast } = useToast();
 
   const [username, setUsername] = useState("");
@@ -98,12 +98,27 @@ export default function Login() {
       </div>
 
       {/* ── Right form panel ────────────────────────────────────────────── */}
-      <div className="flex items-center justify-center px-8 py-12 bg-[var(--bg)]">
+      <div className="relative flex items-center justify-center px-8 py-12 bg-[var(--bg)]">
+
+        {/* Language toggle — lets staff pick Arabic/English before signing in */}
+        <button
+          type="button"
+          onClick={() => setLanguage(language === "en" ? "ar" : "en")}
+          className="absolute top-4 end-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--line)] text-[12px] font-medium text-[var(--ink-soft)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors"
+          aria-label={language === "en" ? t("switchToArabic") : t("switchToEnglish")}
+          data-testid="button-toggle-language"
+        >
+          <Globe className="w-3.5 h-3.5" />
+          {t("changeLanguage")}
+        </button>
+
         <div className="w-full" style={{ maxWidth: 360 }}>
 
           {/* Mobile-only logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <img src="/wateen-mark.png" alt="Wateen Clinic" className="w-8 h-8 object-contain" />
+            <div className="flex items-center justify-center w-8 h-8 rounded-md dark:bg-white dark:p-1">
+              <img src="/wateen-mark.png" alt="Wateen Clinic" className="w-full h-full object-contain" />
+            </div>
             <span className="text-[14px] font-bold text-[var(--ink)]">Wateen Clinic</span>
           </div>
 
@@ -171,7 +186,7 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPassword(s => !s)}
                   className="absolute end-3 top-1/2 -translate-y-1/2 text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-label={showPassword ? t("hidePassword") : t("showPassword")}
                   data-testid="button-toggle-password"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

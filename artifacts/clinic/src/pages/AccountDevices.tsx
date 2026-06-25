@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { customFetch } from "@workspace/api-client-react";
 import { ShieldCheck, ShieldAlert, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useI18n } from "@/hooks/i18n";
 
 interface Device {
   deviceId: string;
@@ -15,6 +16,7 @@ interface Device {
 }
 
 export default function AccountDevices() {
+  const { t } = useI18n();
   const { toast } = useToast();
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -24,7 +26,7 @@ export default function AccountDevices() {
       const res = await customFetch<{ devices: Device[] }>("/api/account/devices");
       setDevices(res.devices);
     } catch {
-      toast({ title: "Failed to load devices", variant: "destructive" });
+      toast({ title: t("devicesLoadFailed"), variant: "destructive" });
     }
   };
 
@@ -33,14 +35,14 @@ export default function AccountDevices() {
   }, []);
 
   const revoke = async (deviceId: string) => {
-    if (!confirm("Revoke this device? Any active session on it will be ended.")) return;
+    if (!confirm(t("confirmRevokeDevice"))) return;
     setBusyId(deviceId);
     try {
       await customFetch(`/api/account/devices/${deviceId}`, { method: "DELETE" });
-      toast({ title: "Device revoked" });
+      toast({ title: t("deviceRevoked") });
       await load();
     } catch {
-      toast({ title: "Failed to revoke", variant: "destructive" });
+      toast({ title: t("deviceRevokeFailed"), variant: "destructive" });
     } finally {
       setBusyId(null);
     }
@@ -48,17 +50,16 @@ export default function AccountDevices() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-1 text-[var(--ink)]">Your devices</h1>
+      <h1 className="text-2xl font-bold mb-1 text-[var(--ink)]">{t("yourDevices")}</h1>
       <p className="text-sm text-[var(--ink-muted)] mb-6">
-        Devices that have signed in to your Wateen Clinic account recently. Revoke
-        anything you don&apos;t recognise.
+        {t("devicesIntro")}
       </p>
 
-      {devices === null && <div className="text-sm text-[var(--ink-muted)]">Loading…</div>}
+      {devices === null && <div className="text-sm text-[var(--ink-muted)]">{t("loading")}</div>}
 
       {devices !== null && devices.length === 0 && (
         <div className="text-sm text-[var(--ink-muted)]">
-          No active devices on record.
+          {t("noActiveDevices")}
         </div>
       )}
 
@@ -77,11 +78,11 @@ export default function AccountDevices() {
               )}
               <div>
                 <div className="text-sm font-medium text-[var(--ink)]">
-                  {d.trusted ? "Trusted" : "Unverified"}
+                  {d.trusted ? t("trustedDevice") : t("unverifiedDevice")}
                   {d.trustSource ? ` · ${d.trustSource}` : ""}
                 </div>
                 <div className="text-xs text-[var(--ink-muted)]">
-                  Last used {new Date(d.lastSeen).toLocaleString()}
+                  {t("lastUsed")} {new Date(d.lastSeen).toLocaleString()}
                   {d.ipLast ? ` · ${d.ipLast}` : ""}
                   {d.countryLast ? ` · ${d.countryLast}` : ""}
                 </div>
@@ -97,7 +98,7 @@ export default function AccountDevices() {
               data-testid={`button-revoke-${d.deviceId}`}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              Revoke
+              {t("revoke")}
             </button>
           </div>
         ))}

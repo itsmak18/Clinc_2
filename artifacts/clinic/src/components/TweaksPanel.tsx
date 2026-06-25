@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { Settings2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useTweaks, type Palette, type Voice, type Density } from "@/hooks/useTweaks";
+import { useI18n } from "@/hooks/i18n";
 
 type ChipOpt<T> = { value: T; label: string };
 
@@ -60,13 +61,14 @@ function ChipGroup<T extends string>({
 
 export default function TweaksPanel() {
   const { tweaks, setTweaks } = useTweaks();
+  const { t } = useI18n();
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--ink-muted)] hover:text-[var(--ink)] transition-colors"
-          aria-label="Tweaks: palette, voice, density"
+          aria-label={t("appearance")}
         >
           <Settings2 className="w-3.5 h-3.5" />
         </button>
@@ -77,21 +79,21 @@ export default function TweaksPanel() {
         className="w-64 p-4 space-y-4 border-[var(--line)] bg-[var(--bg)]"
         style={{ boxShadow: "var(--shadow-lg)" }}
       >
-        <p className="text-[13px] font-semibold text-[var(--ink)]">Appearance</p>
+        <p className="text-[13px] font-semibold text-[var(--ink)]">{t("appearance")}</p>
         <ChipGroup
-          label="Palette"
+          label={t("paletteLabel")}
           options={PALETTES}
           value={tweaks.palette}
           onChange={palette => setTweaks({ palette })}
         />
         <ChipGroup
-          label="Type Voice"
+          label={t("typeVoiceLabel")}
           options={VOICES}
           value={tweaks.voice}
           onChange={voice => setTweaks({ voice })}
         />
         <ChipGroup
-          label="Density"
+          label={t("densityLabel")}
           options={DENSITIES}
           value={tweaks.density}
           onChange={density => setTweaks({ density })}

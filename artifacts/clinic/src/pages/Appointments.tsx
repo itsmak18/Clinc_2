@@ -34,12 +34,12 @@ const ALL_STATUSES = [
   "completed", "cancelled", "no_show", "in_progress",
 ];
 
-function bookingSourceBadge(source: string | null | undefined) {
+function bookingSourceBadge(source: string | null | undefined, t: (key: string) => string) {
   if (!source || source === "walk_in")
-    return <span className="badge text-[10px] gap-0.5"><Building2 className="w-2.5 h-2.5" /> Walk-in</span>;
+    return <span className="badge text-[10px] gap-0.5"><Building2 className="w-2.5 h-2.5" /> {t("walkIn")}</span>;
   if (source === "phone")
-    return <span className="badge badge-sand text-[10px] gap-0.5"><Phone className="w-2.5 h-2.5" /> Phone</span>;
-  return <span className="badge badge-blue text-[10px] gap-0.5"><Globe className="w-2.5 h-2.5" /> Online</span>;
+    return <span className="badge badge-sand text-[10px] gap-0.5"><Phone className="w-2.5 h-2.5" /> {t("frontDeskPhone")}</span>;
+  return <span className="badge badge-blue text-[10px] gap-0.5"><Globe className="w-2.5 h-2.5" /> {t("online")}</span>;
 }
 
 export default function Appointments() {
@@ -228,7 +228,7 @@ export default function Appointments() {
                           <AlertTriangle className="w-3.5 h-3.5 text-[var(--rose-500)] flex-shrink-0" />
                         </span>
                       )}
-                      {bookingSourceBadge((a as any).bookingSource)}
+                      {bookingSourceBadge((a as any).bookingSource, t)}
                     </div>
                     {a.patient?.mrn && <div className="text-[11px] text-[var(--ink-muted)] font-mono">{a.patient.mrn}</div>}
                     {(a.patient as any)?.allergies && (

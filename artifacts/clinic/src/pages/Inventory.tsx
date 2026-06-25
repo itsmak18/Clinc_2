@@ -338,7 +338,7 @@ export default function Inventory() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("category")} *</Label>
-                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="Medicine, Supply…" list="inv-categories" />
+                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder={t("egInvCategory")} list="inv-categories" />
                 <datalist id="inv-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
               </div>
             </div>
@@ -349,7 +349,7 @@ export default function Inventory() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("unit")} *</Label>
-                <Input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder="box, ml, mg…" />
+                <Input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} placeholder={t("egInvUnit")} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("minimumStock")} *</Label>

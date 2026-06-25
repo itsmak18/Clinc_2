@@ -20,7 +20,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatDate, formatDateTime } from "@/lib/api";
-import { Activity, FileText, FlaskConical, NotebookPen, Pill, Save, UserSearch } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Activity, FileText, FlaskConical, NotebookPen, Pill, Save, UserSearch, ChevronDown } from "lucide-react";
 
 interface SoapForm {
   subjective: string;
@@ -39,6 +40,7 @@ export default function DoctorConsult() {
 
   const [patientId, setPatientId] = useCurrentPatientId();
   const [tab, setTab] = useState("summary");
+  const [openRecordId, setOpenRecordId] = useState<number | null>(null);
   const [soap, setSoap] = useState<SoapForm>(EMPTY_SOAP);
   const [pendingTab, setPendingTab] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(!patientId);
@@ -80,8 +82,8 @@ export default function DoctorConsult() {
     },
   });
 
-  // Reset SOAP when patient changes
-  useEffect(() => { setSoap(EMPTY_SOAP); }, [patientId]);
+  // Reset SOAP + any open record when patient changes
+  useEffect(() => { setSoap(EMPTY_SOAP); setOpenRecordId(null); }, [patientId]);
 
   // Dirty-guard on tab change
   const handleTabChange = (next: string) => {
@@ -188,12 +190,48 @@ export default function DoctorConsult() {
                   <div className="card-pad space-y-2">
                     {!(records ?? summary?.recentRecords)?.length
                       ? <p className="text-xs text-[var(--ink-muted)]">{t("noRecords")}</p>
-                      : (records ?? summary?.recentRecords ?? []).slice(0, 5).map((r: any, i: number) => (
-                        <div key={i} className="text-xs border-b border-[var(--line)]/40 pb-2">
-                          <p className="font-medium text-[var(--ink)]">{r.diagnosis}</p>
-                          <p className="text-[var(--ink-muted)]">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
-                        </div>
-                      ))}
+                      : (records ?? summary?.recentRecords ?? []).slice(0, 5).map((r: any, i: number) => {
+                        const open = openRecordId === r.id;
+                        return (
+                          <div key={r.id ?? i} className="border-b border-[var(--line)]/40 pb-2 last:border-0 last:pb-0">
+                            <button
+                              type="button"
+                              onClick={() => setOpenRecordId(open ? null : r.id)}
+                              aria-expanded={open}
+                              className="w-full text-start flex items-start gap-2 rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--surface-2)] transition-colors"
+                              data-testid={`record-summary-${r.id ?? i}`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-[var(--ink)]">{r.diagnosis}</p>
+                                <p className="text-xs text-[var(--ink-muted)]">{r.chiefComplaint} · {formatDate(r.createdAt)}</p>
+                              </div>
+                              <ChevronDown className={cn("w-3.5 h-3.5 text-[var(--ink-muted)] flex-shrink-0 mt-0.5 transition-transform", open && "rotate-180")} />
+                            </button>
+                            {open && (
+                              <div className="mt-2 ms-1 space-y-2 text-xs border-s-2 border-[var(--teal-200)] ps-3">
+                                {r.doctor?.fullName && (
+                                  <div><span className="text-[var(--ink-muted)]">{t("doctorLabel")}: </span><span className="text-[var(--ink)]">{r.doctor.fullName}</span></div>
+                                )}
+                                {r.treatment && (
+                                  <div>
+                                    <p className="font-semibold text-[var(--ink-muted)] uppercase tracking-wide text-[10px] mb-0.5">{t("treatment")}</p>
+                                    <p className="text-[var(--ink)] whitespace-pre-wrap leading-relaxed">{r.treatment}</p>
+                                  </div>
+                                )}
+                                {r.notes && (
+                                  <div>
+                                    <p className="font-semibold text-[var(--ink-muted)] uppercase tracking-wide text-[10px] mb-0.5">{t("notes")}</p>
+                                    <p className="text-[var(--ink)] whitespace-pre-wrap leading-relaxed">{r.notes}</p>
+                                  </div>
+                                )}
+                                {!r.treatment && !r.notes && (
+                                  <p className="text-[var(--ink-muted)] italic">{t("noAdditionalDetails")}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
                 <div className="card">
