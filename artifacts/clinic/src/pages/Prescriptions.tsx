@@ -13,11 +13,13 @@ import PatientSearchSelect from "@/components/PatientSearchSelect";
 import { DetailSection, DetailGrid, DetailField } from "@/components/DetailView";
 import { Plus, Trash2, AlertTriangle, Printer, ShieldCheck, Send } from "lucide-react";
 import { openPrintWindow, prescriptionHtml, blankPrescriptionHtml } from "@/lib/print";
+import { usePrintLang } from "@/hooks/printLang";
 
 interface Medication { name: string; dosage: string; frequency: string; duration: string; instructions: string; }
 
 export default function Prescriptions() {
   const { t } = useI18n();
+  const choosePrintLang = usePrintLang();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -82,9 +84,11 @@ export default function Prescriptions() {
     try {
       const created: any = await createMutation.mutateAsync({ data: data as any });
       if (after === "print") {
+        const lang = await choosePrintLang();
+        if (!lang) return;
         const selectedPatient = patients?.patients?.find(p => String(p.id) === String(data.patientId));
         openPrintWindow(
-          prescriptionHtml({ ...created, patient: created.patient ?? selectedPatient, doctor: created.doctor ?? { id: user?.id, fullName: user?.fullName } } as any),
+          prescriptionHtml({ ...created, patient: created.patient ?? selectedPatient, doctor: created.doctor ?? { id: user?.id, fullName: user?.fullName } } as any, lang),
           `Prescription - ${created.patient?.fullName ?? selectedPatient?.fullName ?? created.id}`,
         );
       } else {
@@ -107,7 +111,7 @@ export default function Prescriptions() {
           <div className="flex items-center gap-2 ms-auto">
             <button
               className="btn btn-outline btn-sm gap-1.5"
-              onClick={() => openPrintWindow(blankPrescriptionHtml({ fullName: user?.fullName }), "Blank Prescription")}
+              onClick={async () => { const lang = await choosePrintLang(); if (!lang) return; openPrintWindow(blankPrescriptionHtml({ fullName: user?.fullName }, lang), "Blank Prescription"); }}
               title={t("blankPrescriptionHint")}
               data-testid="button-blank-prescription"
             >
@@ -172,7 +176,7 @@ export default function Prescriptions() {
                 <div className="flex gap-1 justify-end">
                   <button
                     className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--ink-muted)]"
-                    onClick={e => { e.stopPropagation(); openPrintWindow(prescriptionHtml(p as any), `Prescription - ${p.patient?.fullName ?? p.id}`); }}
+                    onClick={async e => { e.stopPropagation(); const lang = await choosePrintLang(); if (!lang) return; openPrintWindow(prescriptionHtml(p as any, lang), `Prescription - ${p.patient?.fullName ?? p.id}`); }}
                     title={t("printPrescription")}
                     data-testid={`button-print-rx-${p.id}`}
                   >
@@ -260,7 +264,7 @@ export default function Prescriptions() {
               <div className="flex justify-between gap-2 pt-1">
                 <button
                   className="btn btn-outline btn-sm gap-1.5"
-                  onClick={() => openPrintWindow(prescriptionHtml(viewRx as any), `Prescription - ${viewRx.patient?.fullName ?? viewRx.id}`)}
+                  onClick={async () => { const lang = await choosePrintLang(); if (!lang) return; openPrintWindow(prescriptionHtml(viewRx as any, lang), `Prescription - ${viewRx.patient?.fullName ?? viewRx.id}`); }}
                   data-testid="button-print-rx-detail"
                 >
                   <Printer className="w-3.5 h-3.5" /> {t("printPrescription")}

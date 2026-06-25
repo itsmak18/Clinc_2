@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/api";
 import StatusBadge from "@/components/StatusBadge";
+import { useI18n } from "@/hooks/i18n";
 import { CalendarDays, FileText, FlaskConical, Scan, Pill, Receipt, Activity } from "lucide-react";
 
 type Appt = { scheduledAt: string | Date; reason?: string | null; status: string; doctor?: { fullName?: string | null } | null };
@@ -29,41 +30,42 @@ interface Event {
 }
 
 const TYPE_CONFIG = {
-  appointment:  { icon: CalendarDays,  dot: "bg-blue-500",   bg: "bg-blue-50 dark:bg-blue-950/30",   label: "Appointment" },
-  record:       { icon: FileText,       dot: "bg-green-500",  bg: "bg-green-50 dark:bg-green-950/30", label: "Medical Record" },
-  lab:          { icon: FlaskConical,   dot: "bg-purple-500", bg: "bg-purple-50 dark:bg-purple-950/30", label: "Lab Test" },
-  xray:         { icon: Scan,           dot: "bg-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-950/30", label: "X-Ray" },
-  prescription: { icon: Pill,           dot: "bg-orange-500", bg: "bg-orange-50 dark:bg-orange-950/30", label: "Prescription" },
-  invoice:      { icon: Receipt,        dot: "bg-pink-500",   bg: "bg-pink-50 dark:bg-pink-950/30",  label: "Invoice" },
-};
+  appointment:  { icon: CalendarDays,  dot: "bg-blue-500",   bg: "bg-blue-50 dark:bg-blue-950/30",   labelKey: "appointmentInfo" },
+  record:       { icon: FileText,       dot: "bg-green-500",  bg: "bg-green-50 dark:bg-green-950/30", labelKey: "medicalRecordSingular" },
+  lab:          { icon: FlaskConical,   dot: "bg-purple-500", bg: "bg-purple-50 dark:bg-purple-950/30", labelKey: "labTestSingular" },
+  xray:         { icon: Scan,           dot: "bg-indigo-500", bg: "bg-indigo-50 dark:bg-indigo-950/30", labelKey: "xray" },
+  prescription: { icon: Pill,           dot: "bg-orange-500", bg: "bg-orange-50 dark:bg-orange-950/30", labelKey: "prescriptionSingular" },
+  invoice:      { icon: Receipt,        dot: "bg-pink-500",   bg: "bg-pink-50 dark:bg-pink-950/30",  labelKey: "invoice" },
+} as const;
 
 export default function PatientTimeline({ appointments = [], records = [], labTests = [], xrays = [], prescriptions = [], invoices = [] }: Props) {
+  const { t } = useI18n();
   const events: Event[] = [
     ...appointments.map(a => ({
       date: new Date(a.scheduledAt),
       type: "appointment" as const,
-      label: a.reason || "Appointment",
+      label: a.reason || t("appointmentInfo"),
       sub: a.doctor?.fullName || "",
       status: a.status,
     })),
     ...records.map(r => ({
       date: new Date(r.createdAt),
       type: "record" as const,
-      label: r.diagnosis || "Medical Record",
+      label: r.diagnosis || t("medicalRecordSingular"),
       sub: r.chiefComplaint || "",
     })),
     ...labTests.map(l => ({
       date: new Date(l.createdAt),
       type: "lab" as const,
-      label: l.testName || "Lab Test",
-      sub: l.results ? "Results available" : "Pending",
+      label: l.testName || t("labTestSingular"),
+      sub: l.results ? t("resultsAvailable") : t("pending"),
       status: l.status,
     })),
     ...xrays.map(x => ({
       date: new Date(x.createdAt),
       type: "xray" as const,
-      label: x.bodyPart || "X-Ray",
-      sub: x.report ? "Report available" : "Pending report",
+      label: x.bodyPart || t("xray"),
+      sub: x.report ? t("reportAvailable") : t("pendingReport"),
       status: x.status,
     })),
     ...prescriptions.map(r => ({
@@ -71,7 +73,7 @@ export default function PatientTimeline({ appointments = [], records = [], labTe
       type: "prescription" as const,
       label: (() => {
         const meds = r.medications as Array<{ name: string }> | undefined;
-        if (!meds?.length) return "Prescription";
+        if (!meds?.length) return t("prescriptionSingular");
         return meds.slice(0, 2).map(m => m.name).join(", ") + (meds.length > 2 ? ` +${meds.length - 2}` : "");
       })(),
       sub: r.doctor?.fullName || "",
@@ -79,7 +81,7 @@ export default function PatientTimeline({ appointments = [], records = [], labTe
     ...invoices.map(i => ({
       date: new Date(i.createdAt),
       type: "invoice" as const,
-      label: i.invoiceNumber || "Invoice",
+      label: i.invoiceNumber || t("invoice"),
       sub: `$${Number(i.total ?? 0).toFixed(2)}`,
       status: i.status,
     })),
@@ -89,7 +91,7 @@ export default function PatientTimeline({ appointments = [], records = [], labTe
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
         <Activity className="w-8 h-8 opacity-30" />
-        <p className="text-sm">No clinical history found</p>
+        <p className="text-sm">{t("noClinicalHistory")}</p>
       </div>
     );
   }
@@ -121,7 +123,7 @@ export default function PatientTimeline({ appointments = [], records = [], labTe
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{cfg.label}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t(cfg.labelKey)}</span>
                         {ev.status && <StatusBadge status={ev.status} className="text-[10px] px-1.5 py-0" />}
                       </div>
                       <p className="font-medium text-foreground leading-tight mt-0.5">{ev.label}</p>

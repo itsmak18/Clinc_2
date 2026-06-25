@@ -45,7 +45,9 @@ router.patch("/patients/:patientId",
   // Demographic edits are an intake duty (front desk / admin). Nurse removed
   // 2026-06-21 alongside contact-PII redaction — a role that can't see
   // address/phone must not be able to blank them through the edit form.
-  requireRole("super_admin", "admin", "front_desk"),
+  // Doctors are allowed for the clinical ALLERGIES field ONLY — the service
+  // whitelists their writable columns to `allergies` and enforces doctor scope.
+  requireRole("super_admin", "admin", "front_desk", "doctor"),
   validate(UpdatePatientBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const patientId = safeParseInt(req.params.patientId);

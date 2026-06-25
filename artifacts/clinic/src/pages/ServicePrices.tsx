@@ -173,7 +173,7 @@ export default function ServicePrices() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("category")}</Label>
-                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder="lab, xray, consult…" list="svc-categories" />
+                <Input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} placeholder={t("egSvcCategory")} list="svc-categories" />
                 <datalist id="svc-categories">{categories.map(c => <option key={c} value={c} />)}</datalist>
               </div>
             </div>

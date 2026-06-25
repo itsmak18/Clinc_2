@@ -30,11 +30,14 @@ interface VitalsForm {
 
 type Priority = "normal" | "urgent" | "critical";
 
-const PRIORITY_STYLES: Record<Priority, { pill: string; border: string; label: string }> = {
-  normal:   { pill: "badge",           border: "border-[var(--line)]",        label: "Normal"   },
-  urgent:   { pill: "badge badge-sand", border: "border-[var(--amber-400)]",   label: "Urgent"   },
-  critical: { pill: "badge badge-rose", border: "border-[var(--rose-500)]",    label: "Critical" },
+const PRIORITY_STYLES: Record<Priority, { pill: string; border: string }> = {
+  normal:   { pill: "badge",            border: "border-[var(--line)]"      },
+  urgent:   { pill: "badge badge-sand", border: "border-[var(--amber-400)]" },
+  critical: { pill: "badge badge-rose", border: "border-[var(--rose-500)]"  },
 };
+
+// i18n key per priority — resolved with t() at render time.
+const PRIORITY_LABEL_KEY = { normal: "priorityNormal", urgent: "priorityUrgent", critical: "priorityCritical" } as const;
 
 const PRIORITY_ORDER: Record<Priority, number> = { critical: 0, urgent: 1, normal: 2 };
 
@@ -191,7 +194,7 @@ function TriageWorkflow() {
               current === p ? PRIORITY_STYLES[p].pill : "bg-[var(--surface-2)] text-[var(--ink-muted)]/60 hover:opacity-80"
             )}
           >
-            {PRIORITY_STYLES[p].label}
+            {t(PRIORITY_LABEL_KEY[p])}
           </button>
         ))}
       </div>
@@ -213,7 +216,7 @@ function TriageWorkflow() {
             <User className="w-4 h-4" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-[13px] text-[var(--ink)] truncate">{appt.patient?.fullName || `Patient #${appt.patientId}`}</p>
+            <p className="font-medium text-[13px] text-[var(--ink)] truncate">{appt.patient?.fullName || `${t("patient")} #${appt.patientId}`}</p>
             <p className="text-[11px] text-[var(--ink-muted)] font-mono">{appt.patient?.mrn}</p>
             <p className="text-[11px] text-[var(--ink-muted)] truncate">{appt.doctor?.fullName}</p>
             {appt.patient?.allergies && (
@@ -226,7 +229,7 @@ function TriageWorkflow() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {priority !== "normal" && (
-              <span className={styles.pill}>{styles.label}</span>
+              <span className={styles.pill}>{t(PRIORITY_LABEL_KEY[priority])}</span>
             )}
             <StatusBadge status={appt.status} />
             {action}
@@ -236,10 +239,10 @@ function TriageWorkflow() {
         {/* Inline Quick Vitals — only on in_triage cards for nurses */}
         {showQuickVitals && canTriage && (
           <div className="border-t border-[var(--line)] pt-2 mt-0.5">
-            <p className="eyebrow text-[10px] text-[var(--ink-faint)] mb-1.5">Quick Vitals</p>
+            <p className="eyebrow text-[10px] text-[var(--ink-faint)] mb-1.5">{t("quickVitals")}</p>
             <div className="flex flex-wrap gap-2 items-end">
               <div className="space-y-0.5">
-                <Label className="text-[10px]">BP</Label>
+                <Label className="text-[10px]">{t("bpShort")}</Label>
                 <Input
                   className="h-7 text-xs w-24"
                   placeholder="120/80"
@@ -248,7 +251,7 @@ function TriageWorkflow() {
                 />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[10px]">Temp °C</Label>
+                <Label className="text-[10px]">{t("tempCelsius")}</Label>
                 <Input
                   className="h-7 text-xs w-20"
                   type="number"
@@ -259,7 +262,7 @@ function TriageWorkflow() {
                 />
               </div>
               <div className="space-y-0.5">
-                <Label className="text-[10px]">Pulse</Label>
+                <Label className="text-[10px]">{t("pulse")}</Label>
                 <Input
                   className="h-7 text-xs w-20"
                   type="number"
@@ -273,13 +276,13 @@ function TriageWorkflow() {
                 disabled={quickSaving === appt.id || (!qv.bp && !qv.temp && !qv.pulse)}
                 onClick={() => handleQuickVitalsSave(appt)}
               >
-                {quickSaving === appt.id ? "Saving…" : "Save"}
+                {quickSaving === appt.id ? t("saving") : t("save")}
               </button>
               <button
                 className="btn btn-sm btn-outline h-7 text-xs px-2"
                 onClick={() => handleContinueTriage(appt)}
               >
-                More fields
+                {t("moreFields")}
               </button>
             </div>
           </div>
@@ -294,7 +297,7 @@ function TriageWorkflow() {
       <div className="mb-4">
         <Input
           className="h-8 text-sm max-w-xs"
-          placeholder="Search by patient name or MRN…"
+          placeholder={t("searchByPatientOrMrn")}
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
@@ -305,17 +308,17 @@ function TriageWorkflow() {
         <div className="card">
           <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-            <span className="font-semibold text-[var(--ink)] text-[13px]">Waiting for Triage</span>
+            <span className="font-semibold text-[var(--ink)] text-[13px]">{t("waitingForTriage")}</span>
             <span className="badge ms-auto">{waiting.length}</span>
           </div>
           <div className="card-pad space-y-2">
             {isLoading && <p className="text-[12px] text-[var(--ink-muted)]">{t("loading")}</p>}
-            {!isLoading && waiting.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients waiting</p>}
+            {!isLoading && waiting.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">{t("noPatientsWaiting")}</p>}
             {waiting.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} action={
                 canTriage ? (
                   <button className="btn btn-sm btn-primary h-7 text-xs px-3" onClick={() => handleStartTriage(appt)}>
-                    <ArrowRight className="w-3 h-3 me-1" /> Start
+                    <ArrowRight className="w-3 h-3 me-1" /> {t("startAction")}
                   </button>
                 ) : undefined
               } />
@@ -327,16 +330,16 @@ function TriageWorkflow() {
         <div className="card">
           <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-            <span className="font-semibold text-[var(--ink)] text-[13px]">In Triage</span>
+            <span className="font-semibold text-[var(--ink)] text-[13px]">{t("in_triage")}</span>
             <span className="badge ms-auto">{inTriage.length}</span>
           </div>
           <div className="card-pad space-y-2">
-            {!isLoading && inTriage.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients in triage</p>}
+            {!isLoading && inTriage.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">{t("noPatientsInTriage")}</p>}
             {inTriage.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} showQuickVitals action={
                 canTriage ? (
                   <button className="btn btn-sm btn-outline h-7 text-xs px-3" onClick={() => handleContinueTriage(appt)}>
-                    <ClipboardList className="w-3 h-3 me-1" /> Full Vitals
+                    <ClipboardList className="w-3 h-3 me-1" /> {t("fullVitals")}
                   </button>
                 ) : undefined
               } />
@@ -348,11 +351,11 @@ function TriageWorkflow() {
         <div className="card">
           <div className="card-pad border-b border-[var(--line)] flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-teal-500 flex-shrink-0" />
-            <span className="font-semibold text-[var(--ink)] text-[13px]">Ready for Doctor</span>
+            <span className="font-semibold text-[var(--ink)] text-[13px]">{t("ready_for_doctor")}</span>
             <span className="badge ms-auto">{readyForDoctor.length}</span>
           </div>
           <div className="card-pad space-y-2">
-            {!isLoading && readyForDoctor.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">No patients ready</p>}
+            {!isLoading && readyForDoctor.length === 0 && <p className="text-[12px] text-[var(--ink-muted)]">{t("noPatientsReady")}</p>}
             {readyForDoctor.map(appt => (
               <AppointmentCard key={appt.id} appt={appt} />
             ))}
@@ -366,7 +369,7 @@ function TriageWorkflow() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Activity className="w-4 h-4 text-[var(--teal-600)]" />
-              Record Vitals — {selectedAppt?.patient?.fullName}
+              {t("recordVitals")} — {selectedAppt?.patient?.fullName}
             </DialogTitle>
           </DialogHeader>
 
@@ -375,7 +378,7 @@ function TriageWorkflow() {
               style={{ borderColor: "var(--rose-200)", background: "var(--rose-50)", color: "var(--rose-700)" }}>
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <div>
-                <p className="text-xs font-semibold">ALLERGIES / CONTRAINDICATIONS</p>
+                <p className="text-xs font-semibold">{t("allergiesContraindications")}</p>
                 <p className="text-sm">{selectedAppt.patient.allergies}</p>
               </div>
             </div>
@@ -383,39 +386,39 @@ function TriageWorkflow() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Blood Pressure (e.g. 120/80)</Label>
+              <Label className="text-xs">{t("bloodPressure")}</Label>
               <Input className="h-8 text-sm" placeholder="120/80" value={vitals.bloodPressure} onChange={e => setVitals(v => ({ ...v, bloodPressure: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Heart Rate (bpm)</Label>
+              <Label className="text-xs">{t("heartRate")}</Label>
               <Input className="h-8 text-sm" type="number" placeholder="75" value={vitals.heartRate} onChange={e => setVitals(v => ({ ...v, heartRate: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Temperature (°C)</Label>
+              <Label className="text-xs">{t("temperature")}</Label>
               <Input className="h-8 text-sm" type="number" step="0.1" placeholder="36.6" value={vitals.temperature} onChange={e => setVitals(v => ({ ...v, temperature: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">O₂ Saturation (%)</Label>
+              <Label className="text-xs">{t("oxygenSaturation")}</Label>
               <Input className="h-8 text-sm" type="number" placeholder="98" value={vitals.oxygenSaturation} onChange={e => setVitals(v => ({ ...v, oxygenSaturation: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Weight (kg)</Label>
+              <Label className="text-xs">{t("weight")}</Label>
               <Input className="h-8 text-sm" type="number" step="0.1" placeholder="70" value={vitals.weight} onChange={e => setVitals(v => ({ ...v, weight: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Height (cm)</Label>
+              <Label className="text-xs">{t("height")}</Label>
               <Input className="h-8 text-sm" type="number" placeholder="170" value={vitals.height} onChange={e => setVitals(v => ({ ...v, height: e.target.value }))} />
             </div>
             <div className="space-y-1 col-span-2">
-              <Label className="text-xs">Nurse Notes</Label>
-              <Input className="h-8 text-sm" placeholder="Additional observations..." value={vitals.notes} onChange={e => setVitals(v => ({ ...v, notes: e.target.value }))} />
+              <Label className="text-xs">{t("nurseNotes")}</Label>
+              <Input className="h-8 text-sm" placeholder={t("additionalObservations")} value={vitals.notes} onChange={e => setVitals(v => ({ ...v, notes: e.target.value }))} />
             </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
-            <button className="btn btn-sm btn-outline" onClick={() => setSelectedAppt(null)}>Cancel</button>
+            <button className="btn btn-sm btn-outline" onClick={() => setSelectedAppt(null)}>{t("cancel")}</button>
             <button className="btn btn-sm btn-primary" onClick={handleCompleteVitals} disabled={loading}>
-              {loading ? "Saving..." : "Complete Triage → Ready for Doctor"}
+              {loading ? t("saving") : t("completeTriageReady")}
             </button>
           </div>
         </DialogContent>

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { openPrintWindow, labReportHtml, type LabParam } from "@/lib/print";
+import { usePrintLang } from "@/hooks/printLang";
 import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { Plus, ClipboardList, Trash2, Printer, ChevronDown, ChevronUp, ShieldCheck, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,10 @@ import { cn } from "@/lib/utils";
 const COMMON_TESTS = ["CBC", "Lipid Panel", "HbA1c", "Blood Glucose", "Liver Function", "Kidney Function", "Thyroid Panel", "Urinalysis", "Coagulation Panel"];
 
 const STATUS_SORT_ORDER: Record<string, number> = { requested: 0, in_progress: 1, completed: 2, cancelled: 3 };
+
+// Only lab staff (and admins) fill/verify results. Doctors request tests and read
+// results, but cannot edit values or change status — mirrors X-Ray/Ultrasound.
+const EDIT_ROLES = ["super_admin", "admin", "lab_staff"];
 
 function parseResults(raw: string | null | undefined): { params: LabParam[]; notes: string } {
   if (!raw) return { params: [], notes: "" };
@@ -39,9 +44,11 @@ const emptyParam = (): LabParam => ({ name: "", value: "", unit: "", refRange: "
 
 export default function Lab() {
   const { t } = useI18n();
+  const choosePrintLang = usePrintLang();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const canEdit = EDIT_ROLES.includes(user?.role ?? "");
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
@@ -119,7 +126,9 @@ export default function Lab() {
     setInlineParams(ps => ps.map((p, idx) => idx === i ? { ...p, [field]: val } : p));
   }
 
-  function handlePrint(test: NonNullable<typeof tests>[number]) {
+  async function handlePrint(test: NonNullable<typeof tests>[number]) {
+    const lang = await choosePrintLang();
+    if (!lang) return;
     openPrintWindow(
       labReportHtml({
         createdAt: test.createdAt,
@@ -128,7 +137,7 @@ export default function Lab() {
         requestedBy: test.requestedBy as any,
         params: inlineParams,
         notes: inlineNotes,
-      }),
+      }, lang),
       `Lab Report - ${test.testName}`
     );
   }
@@ -194,9 +203,11 @@ export default function Lab() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <Label className="text-xs">{t("testParameters")}</Label>
-                  <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" onClick={() => setInlineParams(ps => [...ps, emptyParam()])}>
-                    <Plus className="w-3 h-3" /> {t("addRow")}
-                  </button>
+                  {canEdit && (
+                    <button className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1" onClick={() => setInlineParams(ps => [...ps, emptyParam()])}>
+                      <Plus className="w-3 h-3" /> {t("addRow")}
+                    </button>
+                  )}
                 </div>
                 <div className="border border-[var(--line)] rounded-lg overflow-hidden">
                   <table className="w-full text-xs">
@@ -214,19 +225,19 @@ export default function Lab() {
                       {inlineParams.map((p, i) => (
                         <tr key={i} className={cn("border-t border-[var(--line)]", p.flag === "H" ? "bg-[var(--rose-50)]" : p.flag === "L" ? "bg-blue-50/50" : "")}>
                           <td className="px-1 py-1">
-                            <Input value={p.name} onChange={e => updateParam(i, "name", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1" placeholder="e.g. Hemoglobin" />
+                            <Input value={p.name} onChange={e => updateParam(i, "name", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1" placeholder={t("egLabParamName")} disabled={!canEdit} />
                           </td>
                           <td className="px-1 py-1">
-                            <Input value={p.value} onChange={e => updateParam(i, "value", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-24" placeholder="12.5" />
+                            <Input value={p.value} onChange={e => updateParam(i, "value", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-24" placeholder="12.5" disabled={!canEdit} />
                           </td>
                           <td className="px-1 py-1">
-                            <Input value={p.unit} onChange={e => updateParam(i, "unit", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-20" placeholder="g/dL" />
+                            <Input value={p.unit} onChange={e => updateParam(i, "unit", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-20" placeholder="g/dL" disabled={!canEdit} />
                           </td>
                           <td className="px-1 py-1">
-                            <Input value={p.refRange} onChange={e => updateParam(i, "refRange", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-28" placeholder="12.0-16.0" />
+                            <Input value={p.refRange} onChange={e => updateParam(i, "refRange", e.target.value)} className="h-7 text-xs border-0 bg-transparent focus-visible:ring-1 px-1 w-28" placeholder="12.0-16.0" disabled={!canEdit} />
                           </td>
                           <td className="px-1 py-1 text-center">
-                            <Select value={p.flag || "N"} onValueChange={v => updateParam(i, "flag", v === "N" ? "" : v)}>
+                            <Select value={p.flag || "N"} onValueChange={v => updateParam(i, "flag", v === "N" ? "" : v)} disabled={!canEdit}>
                               <SelectTrigger className={cn("h-7 text-xs w-14 mx-auto", p.flag === "H" ? "text-[var(--rose-600)] font-bold" : p.flag === "L" ? "text-blue-600 font-bold" : "text-[var(--teal-700)]")}>
                                 <SelectValue />
                               </SelectTrigger>
@@ -241,7 +252,7 @@ export default function Lab() {
                             <button
                               className="btn btn-ghost btn-sm h-6 w-6 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)]"
                               onClick={() => setInlineParams(ps => ps.filter((_, j) => j !== i))}
-                              disabled={inlineParams.length === 1}
+                              disabled={inlineParams.length === 1 || !canEdit}
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -255,17 +266,19 @@ export default function Lab() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t("notesInterpretation")}</Label>
-                <Textarea value={inlineNotes} onChange={e => setInlineNotes(e.target.value)} rows={2} placeholder={t("additionalNotes")} />
+                <Textarea value={inlineNotes} onChange={e => setInlineNotes(e.target.value)} rows={2} placeholder={t("additionalNotes")} disabled={!canEdit} />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t("status")}</Label>
-                <Select value={inlineStatus} onValueChange={setInlineStatus}>
-                  <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+              {canEdit && (
+                <div className="space-y-1">
+                  <Label className="text-xs">{t("status")}</Label>
+                  <Select value={inlineStatus} onValueChange={setInlineStatus}>
+                    <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex justify-between gap-2">
                 <button
                   className="btn btn-outline btn-sm gap-1.5"
@@ -275,15 +288,17 @@ export default function Lab() {
                   <Printer className="w-3.5 h-3.5" /> {t("print")}
                 </button>
                 <div className="flex gap-2">
-                  <button className="btn btn-outline btn-sm" onClick={() => setExpandedId(null)}>{t("cancel")}</button>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => expandedId && updateMutation.mutate({ testId: expandedId, data: { results: serializeResults(inlineParams, inlineNotes), status: inlineStatus as any } })}
-                    disabled={updateMutation.isPending}
-                    data-testid="button-save-results"
-                  >
-                    {updateMutation.isPending ? t("loading") : t("save")}
-                  </button>
+                  <button className="btn btn-outline btn-sm" onClick={() => setExpandedId(null)}>{canEdit ? t("cancel") : t("close")}</button>
+                  {canEdit && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => expandedId && updateMutation.mutate({ testId: expandedId, data: { results: serializeResults(inlineParams, inlineNotes), status: inlineStatus as any } })}
+                      disabled={updateMutation.isPending}
+                      data-testid="button-save-results"
+                    >
+                      {updateMutation.isPending ? t("loading") : t("save")}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -379,7 +394,7 @@ export default function Lab() {
               {lines.map((ln, i) => (
                 <div key={i} className="space-y-1 rounded-md border border-[var(--line)] p-2">
                   <div className="flex gap-2 items-center">
-                    <Input value={ln.testName} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, testName: e.target.value } : l))} placeholder="CBC, Lipid Panel, HbA1c..." list="common-tests" data-testid={`input-test-name-${i}`} className="h-8 text-sm" />
+                    <Input value={ln.testName} onChange={e => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, testName: e.target.value } : l))} placeholder={t("egLabTests")} list="common-tests" data-testid={`input-test-name-${i}`} className="h-8 text-sm" />
                     <button type="button" className="btn btn-ghost btn-sm h-8 w-8 p-0 text-[var(--ink-muted)] hover:text-[var(--rose-500)] flex-shrink-0" onClick={() => setLines(ls => ls.length === 1 ? ls : ls.filter((_, idx) => idx !== i))} disabled={lines.length === 1} aria-label={t("remove")}><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                   {showArCreate && (

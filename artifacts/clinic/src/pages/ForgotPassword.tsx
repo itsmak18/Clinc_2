@@ -4,8 +4,10 @@ import { customFetch } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Activity } from "lucide-react";
+import { useI18n } from "@/hooks/i18n";
 
 export default function ForgotPassword() {
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,9 +39,9 @@ export default function ForgotPassword() {
           <span className="font-bold text-[var(--ink)]">Wateen Clinic</span>
         </div>
 
-        <h1 className="text-2xl font-bold text-[var(--ink)] mb-1">Forgot password</h1>
+        <h1 className="text-2xl font-bold text-[var(--ink)] mb-1">{t("forgotPasswordTitle")}</h1>
         <p className="text-sm text-[var(--ink-muted)] mb-6">
-          We&apos;ll email you a reset link if your account is on file.
+          {t("emailResetHint")}
         </p>
 
         {submitted ? (
@@ -48,13 +50,12 @@ export default function ForgotPassword() {
             className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm"
             data-testid="forgot-password-confirmation"
           >
-            If an account with that username exists, a reset link has been sent
-            to the linked email. Check your inbox within the next few minutes.
+            {t("resetLinkSentGeneric")}
           </div>
         ) : (
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="username" className="text-xs font-medium">Username</Label>
+              <Label htmlFor="username" className="text-xs font-medium">{t("username")}</Label>
               <Input
                 id="username"
                 value={username}
@@ -70,7 +71,7 @@ export default function ForgotPassword() {
               disabled={busy}
               data-testid="button-submit"
             >
-              {busy ? "Sending…" : "Send reset link"}
+              {busy ? t("sending") : t("sendResetLink")}
             </button>
           </form>
         )}
@@ -80,7 +81,7 @@ export default function ForgotPassword() {
             to="/login"
             className="text-xs text-[var(--ink-muted)] underline-offset-4 hover:underline"
           >
-            Back to sign in
+            {t("backToSignIn")}
           </Link>
         </div>
       </div>

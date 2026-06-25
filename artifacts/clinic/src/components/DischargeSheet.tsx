@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Printer, X, Loader2 } from "lucide-react";
+import { Printer, Loader2 } from "lucide-react";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/api";
+import { useI18n, translations } from "@/hooks/i18n";
 
 const BASE = import.meta.env.BASE_URL ?? "/";
 const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
+
+type PrintLang = "en" | "ar";
 
 interface Medication { name: string; dosage: string; frequency: string; duration: string; instructions?: string | null }
 interface Vitals { bloodPressure?: string | null; heartRate?: number | null; temperature?: number | null; weight?: number | null; oxygenSaturation?: number | null; respiratoryRate?: number | null }
@@ -41,10 +44,22 @@ interface Props {
 }
 
 export default function DischargeSheet({ appointmentId, open, onClose }: Props) {
+  const { language } = useI18n();
   const [data, setData] = useState<DischargeData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The printed paper can be produced in either language regardless of the UI
+  // language — staff choose per print (e.g. Arabic copy for the patient, English
+  // copy for an external referral). Defaults to the current UI language.
+  const [printLang, setPrintLang] = useState<PrintLang>(language);
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Resolve a label in the chosen print language (independent of the UI language).
+  const tr = (key: keyof typeof translations.en): string =>
+    translations[printLang][key] ?? translations.en[key] ?? key;
+  const isRtl = printLang === "ar";
+
+  useEffect(() => { if (open) setPrintLang(language); }, [open, language]);
 
   useEffect(() => {
     if (!open || !appointmentId) return;
@@ -65,9 +80,9 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
     if (!el) return;
     const win = window.open("", "_blank", "width=800,height=900");
     if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head>
+    win.document.write(`<!DOCTYPE html><html lang="${printLang}" dir="${isRtl ? "rtl" : "ltr"}"><head>
       <meta charset="utf-8"/>
-      <title>Visit Summary</title>
+      <title>${tr("visitSummary")}</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #111; padding: 24px; }
@@ -84,7 +99,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
         .row { display: flex; gap: 4px; margin-bottom: 4px; }
         .row .label { color: #555; min-width: 120px; flex-shrink: 0; }
         table { width: 100%; border-collapse: collapse; font-size: 10px; }
-        th { background: #f0f4ff; text-align: left; padding: 4px 8px; font-weight: 600; border: 1px solid #dde5ff; }
+        th { background: #f0f4ff; text-align: ${isRtl ? "right" : "left"}; padding: 4px 8px; font-weight: 600; border: 1px solid #dde5ff; }
         td { padding: 4px 8px; border: 1px solid #e5e7eb; vertical-align: top; }
         .sig { margin-top: 32px; display: flex; justify-content: space-between; }
         .sig .line { text-align: center; min-width: 200px; }
@@ -95,12 +110,12 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
         .badge-yellow { background: #fef9c3; color: #854d0e; }
         .badge-red { background: #fee2e2; color: #b91c1c; }
       </style>
-    </head><body>${el.innerHTML}</body></html>`);
+    </head><body dir="${isRtl ? "rtl" : "ltr"}">${el.innerHTML}</body></html>`);
     win.document.close();
     // Set the patient name via the DOM API rather than interpolating it into the
     // written HTML string — assigning to .title treats the value as text, so it
     // cannot break out of the <title> element and inject markup.
-    if (data?.patient.fullName) win.document.title = `Visit Summary — ${data.patient.fullName}`;
+    if (data?.patient.fullName) win.document.title = `${tr("visitSummary")} — ${data.patient.fullName}`;
     setTimeout(() => { win.focus(); win.print(); }, 400);
   };
 
@@ -115,31 +130,44 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader className="flex flex-row items-center justify-between gap-2 pb-2 border-b">
-          <DialogTitle className="text-base font-semibold">Visit Discharge Summary</DialogTitle>
-          <div className="flex gap-2 ms-auto">
+          <DialogTitle className="text-base font-semibold">{tr("visitDischargeSummary")}</DialogTitle>
+          <div className="flex items-center gap-2 ms-auto">
+            {/* Print-language picker — choose English or Arabic for this paper */}
+            <div className="flex rounded-md border border-[var(--line)] overflow-hidden text-xs" role="group" aria-label={tr("printLanguage")}>
+              <button
+                type="button"
+                className={`px-2.5 py-1 ${printLang === "en" ? "bg-[var(--teal-600)] text-white" : "text-[var(--ink-soft)] hover:bg-[var(--surface-2)]"}`}
+                onClick={() => setPrintLang("en")}
+              >English</button>
+              <button
+                type="button"
+                className={`px-2.5 py-1 ${printLang === "ar" ? "bg-[var(--teal-600)] text-white" : "text-[var(--ink-soft)] hover:bg-[var(--surface-2)]"}`}
+                onClick={() => setPrintLang("ar")}
+              >العربية</button>
+            </div>
             <button className="btn btn-primary btn-sm gap-1.5" onClick={handlePrint} disabled={!data || loading}>
-              <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+              <Printer className="w-3.5 h-3.5" /> {tr("printSavePdf")}
             </button>
           </div>
         </DialogHeader>
 
         {loading && (
           <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
-            <Loader2 className="w-5 h-5 animate-spin" /> Loading visit data…
+            <Loader2 className="w-5 h-5 animate-spin" /> {tr("loadingVisitData")}
           </div>
         )}
         {error && (
-          <div className="p-4 text-destructive text-sm">Failed to load: {error}</div>
+          <div className="p-4 text-destructive text-sm">{tr("failedToLoadColon")} {error}</div>
         )}
 
         {d && (
-          <div ref={printRef} className="text-[11px] leading-relaxed">
+          <div ref={printRef} dir={isRtl ? "rtl" : "ltr"} className="text-[11px] leading-relaxed">
             {/* Header */}
             <div className="header text-center border-b-2 border-primary pb-3 mb-4">
               <h1 className="text-xl font-black text-primary tracking-wide">Wateen Clinic</h1>
-              <p className="text-xs text-muted-foreground">Clinic Management System — Visit Summary</p>
+              <p className="text-xs text-muted-foreground">{tr("clinicMgmtVisitSummary")}</p>
               <p className="text-[10px] text-muted-foreground mt-1">
-                Appointment #{appt?.id} · {appt?.scheduledAt ? formatDateTime(appt.scheduledAt) : ""}
+                {tr("appointmentLabel")} #{appt?.id} · {appt?.scheduledAt ? formatDateTime(appt.scheduledAt) : ""}
               </p>
             </div>
 
@@ -148,18 +176,18 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
               <div className="space-y-1">
                 <p className="font-bold text-base text-foreground">{patient?.fullName}</p>
                 {patient?.fullNameAr && <p className="text-muted-foreground text-sm" dir="rtl">{patient.fullNameAr}</p>}
-                <p className="text-muted-foreground font-mono text-xs">MRN: {patient?.mrn}</p>
-                {patient?.dateOfBirth && <p><span className="text-muted-foreground">DOB:</span> {formatDate(patient.dateOfBirth)}</p>}
-                {patient?.gender && <p><span className="text-muted-foreground">Gender:</span> {patient.gender}</p>}
-                {patient?.phone && <p><span className="text-muted-foreground">Phone:</span> {patient.phone}</p>}
+                <p className="text-muted-foreground font-mono text-xs">{tr("mrn")}: {patient?.mrn}</p>
+                {patient?.dateOfBirth && <p><span className="text-muted-foreground">{tr("dobLabel")}:</span> {formatDate(patient.dateOfBirth)}</p>}
+                {patient?.gender && <p><span className="text-muted-foreground">{tr("gender")}:</span> {patient.gender}</p>}
+                {patient?.phone && <p><span className="text-muted-foreground">{tr("phone")}:</span> {patient.phone}</p>}
               </div>
               <div className="space-y-1">
-                <p><span className="text-muted-foreground">Doctor:</span> <span className="font-medium">{appt?.doctor?.fullName ?? "—"}</span></p>
-                <p><span className="text-muted-foreground">Reason:</span> {appt?.reason}</p>
-                <p><span className="text-muted-foreground">Status:</span> <span className="capitalize">{appt?.status?.replace(/_/g, " ")}</span></p>
-                {appt?.checkedInAt && <p><span className="text-muted-foreground">Checked In:</span> {formatDateTime(appt.checkedInAt)}</p>}
-                {appt?.consultationStartedAt && <p><span className="text-muted-foreground">Consultation:</span> {formatDateTime(appt.consultationStartedAt)}</p>}
-                <p><span className="text-muted-foreground">Printed:</span> {new Date().toLocaleString()}</p>
+                <p><span className="text-muted-foreground">{tr("doctorLabel")}:</span> <span className="font-medium">{appt?.doctor?.fullName ?? "—"}</span></p>
+                <p><span className="text-muted-foreground">{tr("reason")}:</span> {appt?.reason}</p>
+                <p><span className="text-muted-foreground">{tr("status")}:</span> <span className="capitalize">{appt?.status?.replace(/_/g, " ")}</span></p>
+                {appt?.checkedInAt && <p><span className="text-muted-foreground">{tr("checkedInLabel")}:</span> {formatDateTime(appt.checkedInAt)}</p>}
+                {appt?.consultationStartedAt && <p><span className="text-muted-foreground">{tr("consultationLabel")}:</span> {formatDateTime(appt.consultationStartedAt)}</p>}
+                <p><span className="text-muted-foreground">{tr("printedLabel")}:</span> {new Date().toLocaleString()}</p>
               </div>
             </div>
 
@@ -168,7 +196,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded p-2.5 mb-4 text-red-800">
                 <span className="text-red-600 font-black text-sm">⚠</span>
                 <div>
-                  <p className="font-bold text-xs uppercase tracking-wide">ALLERGIES / CONTRAINDICATIONS</p>
+                  <p className="font-bold text-xs uppercase tracking-wide">{tr("allergiesContraindications")}</p>
                   <p className="mt-0.5">{patient.allergies}</p>
                 </div>
               </div>
@@ -177,14 +205,14 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* Vitals */}
             {vitals && Object.values(vitals).some(v => v !== null && v !== undefined) && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">Vitals</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("vitals")}</h2>
                 <div className="grid grid-cols-3 gap-2">
-                  {vitals.bloodPressure && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">Blood Pressure</p><p className="font-bold">{vitals.bloodPressure}</p></div>}
-                  {vitals.heartRate && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">Heart Rate</p><p className="font-bold">{vitals.heartRate} bpm</p></div>}
-                  {vitals.temperature && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">Temperature</p><p className="font-bold">{vitals.temperature}°C</p></div>}
-                  {vitals.weight && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">Weight</p><p className="font-bold">{vitals.weight} kg</p></div>}
-                  {vitals.oxygenSaturation && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">SpO₂</p><p className="font-bold">{vitals.oxygenSaturation}%</p></div>}
-                  {vitals.respiratoryRate && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">Resp. Rate</p><p className="font-bold">{vitals.respiratoryRate}/min</p></div>}
+                  {vitals.bloodPressure && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("bloodPressure")}</p><p className="font-bold">{vitals.bloodPressure}</p></div>}
+                  {vitals.heartRate && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("heartRate")}</p><p className="font-bold">{vitals.heartRate} bpm</p></div>}
+                  {vitals.temperature && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("temperature")}</p><p className="font-bold">{vitals.temperature}°C</p></div>}
+                  {vitals.weight && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("weight")}</p><p className="font-bold">{vitals.weight} kg</p></div>}
+                  {vitals.oxygenSaturation && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("dischargeSpo2")}</p><p className="font-bold">{vitals.oxygenSaturation}%</p></div>}
+                  {vitals.respiratoryRate && <div className="bg-muted/30 rounded p-1.5 text-center"><p className="text-[10px] text-muted-foreground">{tr("dischargeRespRate")}</p><p className="font-bold">{vitals.respiratoryRate}/min</p></div>}
                 </div>
               </section>
             )}
@@ -192,12 +220,12 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* Diagnosis & Treatment */}
             {rec && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">Diagnosis & Treatment</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("diagnosis")} & {tr("treatment")}</h2>
                 <div className="space-y-2">
-                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">Chief Complaint</p><p className="mt-0.5">{rec.chiefComplaint}</p></div>
-                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">Diagnosis</p><p className="mt-0.5 font-medium">{rec.diagnosis}</p></div>
-                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">Treatment Plan</p><p className="mt-0.5">{rec.treatment}</p></div>
-                  {rec.notes && <div><p className="text-[10px] text-muted-foreground font-medium uppercase">Notes</p><p className="mt-0.5 italic">{rec.notes}</p></div>}
+                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">{tr("chiefComplaint")}</p><p className="mt-0.5">{rec.chiefComplaint}</p></div>
+                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">{tr("diagnosis")}</p><p className="mt-0.5 font-medium">{rec.diagnosis}</p></div>
+                  <div><p className="text-[10px] text-muted-foreground font-medium uppercase">{tr("treatmentPlan")}</p><p className="mt-0.5">{rec.treatment}</p></div>
+                  {rec.notes && <div><p className="text-[10px] text-muted-foreground font-medium uppercase">{tr("notes")}</p><p className="mt-0.5 italic">{rec.notes}</p></div>}
                 </div>
               </section>
             )}
@@ -205,17 +233,17 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* Prescriptions */}
             {d.prescriptions.length > 0 && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">Prescriptions</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("prescriptions")}</h2>
                 {d.prescriptions.map((rx, ri) => (
                   <div key={ri} className="mb-2">
                     <table className="w-full text-[10px] border-collapse">
                       <thead>
                         <tr className="bg-blue-50">
-                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Medication</th>
-                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Dosage</th>
-                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Frequency</th>
-                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Duration</th>
-                          <th className="text-start p-1.5 border border-blue-100 font-semibold">Instructions</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("medication")}</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("dosage")}</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("frequency")}</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("duration")}</th>
+                          <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("instructions")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -230,7 +258,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                         ))}
                       </tbody>
                     </table>
-                    {rx.notes && <p className="text-[10px] text-muted-foreground mt-1 italic">Notes: {rx.notes}</p>}
+                    {rx.notes && <p className="text-[10px] text-muted-foreground mt-1 italic">{tr("notes")}: {rx.notes}</p>}
                   </div>
                 ))}
               </section>
@@ -239,14 +267,14 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* Lab Tests */}
             {d.labTests.length > 0 && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">Lab Results</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("labResultsSection")}</h2>
                 <table className="w-full text-[10px] border-collapse">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Test</th>
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Status</th>
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Results</th>
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Notes</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("testName")}</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("status")}</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("results")}</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("notes")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -254,7 +282,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                       <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-muted/20"}>
                         <td className="p-1.5 border border-border/50 font-medium">{lt.testName}</td>
                         <td className="p-1.5 border border-border/50 capitalize">{lt.status.replace(/_/g, " ")}</td>
-                        <td className="p-1.5 border border-border/50">{lt.results ?? <span className="text-muted-foreground">Pending</span>}</td>
+                        <td className="p-1.5 border border-border/50">{lt.results ?? <span className="text-muted-foreground">{tr("pending")}</span>}</td>
                         <td className="p-1.5 border border-border/50 text-muted-foreground">{lt.notes ?? "—"}</td>
                       </tr>
                     ))}
@@ -266,13 +294,13 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* X-Rays */}
             {d.xrays.length > 0 && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">Radiology / X-Ray</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("radiologyXray")}</h2>
                 <table className="w-full text-[10px] border-collapse">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Body Part</th>
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Status</th>
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Report</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("bodyPart")}</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("status")}</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("report")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -280,7 +308,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                       <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-muted/20"}>
                         <td className="p-1.5 border border-border/50 font-medium capitalize">{xr.bodyPart}</td>
                         <td className="p-1.5 border border-border/50 capitalize">{xr.status}</td>
-                        <td className="p-1.5 border border-border/50">{xr.report ?? <span className="text-muted-foreground">Pending</span>}</td>
+                        <td className="p-1.5 border border-border/50">{xr.report ?? <span className="text-muted-foreground">{tr("pending")}</span>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -292,18 +320,18 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {inv && (
               <section className="mb-4">
                 <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">
-                  Invoice #{inv.invoiceNumber}
+                  {tr("invoice")} #{inv.invoiceNumber}
                   <span className={`ms-2 text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase ${inv.status === "paid" ? "bg-green-100 text-green-700" : inv.status === "cancelled" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
-                    {inv.status}
+                    {tr(inv.status === "paid" ? "paid" : inv.status === "cancelled" ? "cancelled" : "pending")}
                   </span>
                 </h2>
                 <table className="w-full text-[10px] border-collapse mb-2">
                   <thead>
                     <tr className="bg-blue-50">
-                      <th className="text-start p-1.5 border border-blue-100 font-semibold">Description</th>
-                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Qty</th>
-                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Unit Price</th>
-                      <th className="text-end p-1.5 border border-blue-100 font-semibold">Total</th>
+                      <th className="text-start p-1.5 border border-blue-100 font-semibold">{tr("description")}</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">{tr("qtyShort")}</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">{tr("unitPrice")}</th>
+                      <th className="text-end p-1.5 border border-blue-100 font-semibold">{tr("total")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -319,10 +347,10 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                 </table>
                 <div className="flex justify-end">
                   <div className="text-[10px] space-y-0.5 min-w-[180px]">
-                    <div className="flex justify-between gap-6"><span className="text-muted-foreground">Subtotal</span><span>${formatCurrency(inv.subtotal)}</span></div>
-                    {Number(inv.discount) > 0 && <div className="flex justify-between gap-6 text-green-700"><span>Discount</span><span>-${formatCurrency(inv.discount)}</span></div>}
-                    <div className="flex justify-between gap-6 font-bold border-t border-border pt-0.5 mt-0.5"><span>Total</span><span>${formatCurrency(inv.total)}</span></div>
-                    {inv.status === "paid" && inv.paidAt && <div className="flex justify-between gap-6 text-green-700 text-[9px]"><span>Paid</span><span>{formatDate(inv.paidAt)}</span></div>}
+                    <div className="flex justify-between gap-6"><span className="text-muted-foreground">{tr("subtotal")}</span><span>${formatCurrency(inv.subtotal)}</span></div>
+                    {Number(inv.discount) > 0 && <div className="flex justify-between gap-6 text-green-700"><span>{tr("discount")}</span><span>-${formatCurrency(inv.discount)}</span></div>}
+                    <div className="flex justify-between gap-6 font-bold border-t border-border pt-0.5 mt-0.5"><span>{tr("total")}</span><span>${formatCurrency(inv.total)}</span></div>
+                    {inv.status === "paid" && inv.paidAt && <div className="flex justify-between gap-6 text-green-700 text-[9px]"><span>{tr("paid")}</span><span>{formatDate(inv.paidAt)}</span></div>}
                   </div>
                 </div>
               </section>
@@ -331,7 +359,7 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             {/* Appointment notes */}
             {appt?.notes && (
               <section className="mb-4">
-                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">General Notes</h2>
+                <h2 className="text-xs font-bold uppercase tracking-wide text-primary border-b border-blue-100 pb-1 mb-2">{tr("generalNotes")}</h2>
                 <p className="italic text-muted-foreground">{appt.notes}</p>
               </section>
             )}
@@ -340,18 +368,18 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
             <div className="sig flex justify-between mt-8 border-t border-border/50 pt-4">
               <div className="line text-center min-w-[180px]">
                 <div className="mt-10 border-t border-foreground/40 pt-1 text-[10px] text-muted-foreground">
-                  Doctor Signature<br />{appt?.doctor?.fullName ?? ""}
+                  {tr("doctorSignature")}<br />{appt?.doctor?.fullName ?? ""}
                 </div>
               </div>
               <div className="line text-center min-w-[180px]">
                 <div className="mt-10 border-t border-foreground/40 pt-1 text-[10px] text-muted-foreground">
-                  Patient / Guardian Signature<br />{patient?.fullName ?? ""}
+                  {tr("patientGuardianSignature")}<br />{patient?.fullName ?? ""}
                 </div>
               </div>
             </div>
 
             <div className="footer text-center mt-5 pt-3 border-t border-border/30 text-[9px] text-muted-foreground">
-              This document is a confidential medical record. Wateen Clinic Management System — {new Date().getFullYear()}
+              {tr("confidentialFooter")} — {new Date().getFullYear()}
             </div>
           </div>
         )}

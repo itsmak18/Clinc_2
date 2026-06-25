@@ -2,6 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { useI18n } from "@/hooks/i18n";
 
 const STATUS_COLOR: Record<string, string> = {
   scheduled:           "bg-slate-100 border-slate-300 text-slate-700",
@@ -33,13 +34,14 @@ interface Props {
 }
 
 export default function DayScheduleView({ appointments, selectedDate }: Props) {
+  const { t } = useI18n();
   const [doctorFilter, setDoctorFilter] = useState("all");
 
   const doctors = Array.from(
     new Map(
       appointments
         .filter(a => a.doctor?.id)
-        .map(a => [a.doctor!.id, a.doctor!.fullName ?? "Unknown"])
+        .map(a => [a.doctor!.id, a.doctor!.fullName ?? t("unknown")])
     ).entries()
   );
 
@@ -66,13 +68,13 @@ export default function DayScheduleView({ appointments, selectedDate }: Props) {
       <div className="flex items-center gap-4 flex-wrap">
         {doctors.length > 0 && (
           <div className="flex items-center gap-2">
-            <Label className="text-xs">Doctor</Label>
+            <Label className="text-xs">{t("doctorLabel")}</Label>
             <Select value={doctorFilter} onValueChange={setDoctorFilter}>
               <SelectTrigger className="h-7 text-xs w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Doctors</SelectItem>
+                <SelectItem value="all">{t("allDoctors")}</SelectItem>
                 {doctors.map(([id, name]) => (
                   <SelectItem key={id} value={String(id)}>{name}</SelectItem>
                 ))}
@@ -81,17 +83,17 @@ export default function DayScheduleView({ appointments, selectedDate }: Props) {
           </div>
         )}
         <div className="flex gap-3 text-xs text-muted-foreground ms-auto">
-          <span className="font-medium text-foreground">{totalToday}</span> scheduled
+          <span className="font-medium text-foreground">{totalToday}</span> {t("scheduledCount")}
           <span>·</span>
-          <span className="text-blue-600 font-medium">{active}</span> active
+          <span className="text-blue-600 font-medium">{active}</span> {t("activeLabel")}
           <span>·</span>
-          <span className="text-green-600 font-medium">{completed}</span> completed
+          <span className="text-green-600 font-medium">{completed}</span> {t("completedLabel")}
         </div>
       </div>
 
       {totalToday === 0 ? (
         <div className="flex items-center justify-center py-12 text-sm text-muted-foreground border border-dashed border-border rounded-lg">
-          No appointments scheduled for this day
+          {t("noAppointmentsForDayView")}
         </div>
       ) : (
         <div className="border border-border rounded-lg overflow-hidden bg-card">

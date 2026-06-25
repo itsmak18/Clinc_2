@@ -11,6 +11,7 @@
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import DischargeSheet from "@/components/DischargeSheet";
+import { I18nProvider } from "@/hooks/i18n";
 
 const XSS = "<script>alert('xss-fp7-3')</script>";
 
@@ -45,7 +46,11 @@ describe("DischargeSheet — PHI is HTML-escaped (F-P7-3)", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("renders script-laden PHI fields as escaped text, not live DOM", async () => {
-    render(<DischargeSheet appointmentId={1} open={true} onClose={() => {}} />);
+    render(
+      <I18nProvider>
+        <DischargeSheet appointmentId={1} open={true} onClose={() => {}} />
+      </I18nProvider>,
+    );
 
     // Data loaded + the malicious string is present as TEXT (React-escaped).
     await waitFor(() => {
