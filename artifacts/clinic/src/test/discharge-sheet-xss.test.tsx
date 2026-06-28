@@ -10,6 +10,7 @@
  * sink in this component, this fails.
  */
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DischargeSheet from "@/components/DischargeSheet";
 import { I18nProvider } from "@/hooks/i18n";
 
@@ -40,16 +41,24 @@ describe("DischargeSheet — PHI is HTML-escaped (F-P7-3)", () => {
   beforeEach(() => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve({ ok: true, json: async () => dischargeData } as unknown as Response)),
+      vi.fn(() => Promise.resolve(
+        new Response(JSON.stringify(dischargeData), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )),
     );
   });
   afterEach(() => vi.unstubAllGlobals());
 
   it("renders script-laden PHI fields as escaped text, not live DOM", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <I18nProvider>
-        <DischargeSheet appointmentId={1} open={true} onClose={() => {}} />
-      </I18nProvider>,
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider>
+          <DischargeSheet appointmentId={1} open={true} onClose={() => {}} />
+        </I18nProvider>
+      </QueryClientProvider>,
     );
 
     // Data loaded + the malicious string is present as TEXT (React-escaped).

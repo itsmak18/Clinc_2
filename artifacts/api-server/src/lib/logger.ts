@@ -1,9 +1,8 @@
 import pino from "pino";
-
-const isProduction = process.env.NODE_ENV === "production";
+import { config } from "./config";
 
 export const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
+  level: config.logLevel,
   redact: {
     paths: [
       "req.headers.authorization",
@@ -28,7 +27,7 @@ export const logger = pino({
     ],
     censor: "[REDACTED]",
   },
-  ...(isProduction
+  ...(config.isProd
     ? {}
     : {
         transport: {

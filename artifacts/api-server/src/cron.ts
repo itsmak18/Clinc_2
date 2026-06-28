@@ -9,10 +9,12 @@ import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import type { Request } from "express";
 import { drainAuditOutbox, logAudit } from "./lib/audit";
+import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
 import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./services/csp-report.service";
 import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./services/imaging-attachments.service";
+import { config } from "./lib/config";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
 // the DB pool is drained (H7). Without this, an in-flight cron callback could
@@ -20,6 +22,7 @@ import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./servi
 const scheduledTasks: ScheduledTask[] = [];
 
 let drainInterval: ReturnType<typeof setInterval> | null = null;
+let bgReconcileInterval: ReturnType<typeof setInterval> | null = null;
 
 /** Start the 5-second audit-outbox drain loop. Idempotent. */
 export function startAuditDrain(): void {
@@ -36,6 +39,35 @@ export function stopAuditDrain(): void {
   clearInterval(drainInterval);
   drainInterval = null;
   logger.info("Audit outbox drain stopped");
+}
+
+/**
+ * Start the 60-second break-glass audit fallback reconcile loop.
+ * Drains any JSONL lines from the local fallback sink into audit_logs and
+ * re-records daily integrity hashes for affected dates. Idempotent.
+ */
+export function startBgAuditReconcile(): void {
+  if (bgReconcileInterval) return;
+  bgReconcileInterval = setInterval(async () => {
+    try {
+      const result = await reconcileBreakGlassAuditFallback();
+      if (result.inserted > 0) {
+        logger.info(result, "bg_break_glass_audit_reconcile_tick");
+      }
+    } catch (err) {
+      logger.warn({ err }, "bg_break_glass_audit_reconcile_tick_failed");
+    }
+  }, 60_000);
+  bgReconcileInterval.unref();
+  logger.info("Break-glass audit fallback reconcile started (60s interval)");
+}
+
+/** Stop the break-glass audit fallback reconcile loop. Idempotent. */
+export function stopBgAuditReconcile(): void {
+  if (!bgReconcileInterval) return;
+  clearInterval(bgReconcileInterval);
+  bgReconcileInterval = null;
+  logger.info("Break-glass audit fallback reconcile stopped");
 }
 
 // Start cron jobs
@@ -206,8 +238,7 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("30 3 * * *", async () => {
     logger.info("[Cron] Running CSP report retention purge");
     try {
-      const parsed = Number(process.env.CSP_REPORT_RETENTION_DAYS);
-      const retentionDays = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CSP_RETENTION_DAYS;
+      const retentionDays = config.cspReportRetentionDays || DEFAULT_CSP_RETENTION_DAYS;
       const purged = await purgeOldCspReports(retentionDays);
       logger.info({ purged, retentionDays }, "[Cron] CSP report retention purge complete");
     } catch (err) {
@@ -223,8 +254,7 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("0 4 * * *", async () => {
     logger.info("[Cron] Running imaging orphan-file reconciliation");
     try {
-      const parsed = Number(process.env.IMAGING_ORPHAN_GRACE_HOURS);
-      const graceHours = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ORPHAN_GRACE_HOURS;
+      const graceHours = config.imagingOrphanGraceHours || DEFAULT_ORPHAN_GRACE_HOURS;
       const summary = await reconcileOrphanImagingFiles(graceHours);
       logger.info({ ...summary, graceHours }, "[Cron] Imaging orphan-file reconciliation complete");
     } catch (err) {

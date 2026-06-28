@@ -990,6 +990,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Prescription"
 
+  /prescriptions/{prescriptionId}/dispense:
+    post:
+      operationId: dispensePrescription
+      tags: [prescriptions]
+      summary: Pharmacist marks a prescription as dispensed
+      parameters:
+        - name: prescriptionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Prescription marked dispensed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prescription"
+
   /prescriptions/{prescriptionId}/send-to-pharmacy:
     post:
       operationId: sendPrescriptionToPharmacy
@@ -1593,15 +1612,23 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of services
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ServiceCatalogItem"
+                $ref: "#/components/schemas/PaginatedServices"
     post:
       operationId: createService
       tags: [billing]
@@ -1693,15 +1720,23 @@ paths:
           schema:
             type: string
             format: date
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of operations
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Operation"
+                $ref: "#/components/schemas/PaginatedOperations"
     post:
       operationId: createOperation
       tags: [operations]
@@ -1781,15 +1816,23 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of inventory items
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/InventoryItem"
+                $ref: "#/components/schemas/PaginatedInventory"
     post:
       operationId: createInventoryItem
       tags: [inventory]
@@ -2041,15 +2084,23 @@ paths:
           required: true
           schema:
             type: integer
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of consents
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Consent"
+                $ref: "#/components/schemas/PaginatedConsents"
     post:
       operationId: grantPatientConsent
       tags: [consent]
@@ -2138,15 +2189,23 @@ paths:
           in: query
           schema:
             type: string
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of break-glass sessions
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BreakGlassSession"
+                $ref: "#/components/schemas/PaginatedBreakGlassSessions"
 
   /break-glass/sessions/{sessionId}/approve:
     post:
@@ -2192,15 +2251,24 @@ paths:
       operationId: listErasureRequests
       tags: [erasure]
       summary: List right-to-erasure requests
+      parameters:
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of erasure requests
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ErasureRequest"
+                $ref: "#/components/schemas/PaginatedErasureRequests"
     post:
       operationId: createErasureRequest
       tags: [erasure]
@@ -2980,8 +3048,95 @@ paths:
         "204":
           description: Report accepted (or feature disabled — always 204)
 
+  # SEARCH
+  /search:
+    get:
+      operationId: globalSearch
+      tags: [search]
+      summary: Global search across patients, appointments, and medical records
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalSearchResults"
+
 components:
   schemas:
+    GlobalSearchResults:
+      type: object
+      properties:
+        patients:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              fullName:
+                type: string
+              fullNameAr:
+                type: string
+                nullable: true
+              mrn:
+                type: string
+              phone:
+                type: string
+                nullable: true
+              dateOfBirth:
+                type: string
+                nullable: true
+            required: [id, fullName, mrn]
+        appointments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              reason:
+                type: string
+              status:
+                type: string
+              scheduledAt:
+                type: string
+              patientName:
+                type: string
+                nullable: true
+              patientMrn:
+                type: string
+                nullable: true
+            required: [id, reason, status, scheduledAt]
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              chiefComplaint:
+                type: string
+              createdAt:
+                type: string
+              patientName:
+                type: string
+                nullable: true
+              patientId:
+                type: integer
+            required: [id, chiefComplaint, createdAt, patientId]
+      required: [patients, appointments, records]
+
     HealthStatus:
       type: object
       properties:
@@ -3737,6 +3892,13 @@ components:
           nullable: true
         notesAr:
           type: string
+          nullable: true
+        dispensedAt:
+          type: string
+          format: date-time
+          nullable: true
+        dispensedById:
+          type: integer
           nullable: true
         createdAt:
           type: string
@@ -5688,3 +5850,75 @@ components:
         revenueGenerated:
           type: number
       required: [month, totalAppointments, completedAppointments, noShowCount, revenueGenerated]
+
+    PaginatedInventory:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedOperations:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Operation"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedBreakGlassSessions:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BreakGlassSession"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedServices:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceCatalogItem"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedConsents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Consent"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedErasureRequests:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErasureRequest"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]

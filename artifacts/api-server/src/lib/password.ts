@@ -1,8 +1,9 @@
 import bcrypt from "bcrypt";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { isStrictPasswordPolicyEnabled } from "./auth-constants";
+import { config } from "./config";
 
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS || "12", 10);
+const BCRYPT_ROUNDS = config.bcryptRounds;
 
 // Conservative blocklist — extend via PASSWORD_DICTIONARY_EXTRA env later.
 const DICTIONARY_BLOCKLIST = new Set([

@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -8,24 +8,33 @@ import {
   ultrasoundRecordsTable, appointmentsTable, vitalsTable,
   imagingAttachmentsTable,
 } from "@workspace/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, lt, desc } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
 import { deleteImageFile } from "../lib/imaging-storage";
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
+import { config } from "../lib/config";
 
 const ERASED = "[ERASED]";
 const ERASED_DOB = "1900-01-01";
 
-export async function listErasureRequests(req: AuthRequest) {
+export async function listErasureRequests(req: AuthRequest, params?: { cursor?: string; limit?: string }) {
   return runInTenantContext(req.user!, async (tx) => {
+    const lim = Math.min(parseInt(params?.limit ?? "100") || 100, 100);
+    const conditions: any[] = [eq(erasureRequestsTable.clinicId, req.user!.clinicId)];
+    if (params?.cursor) {
+      const cursorId = parseInt(params.cursor);
+      if (!isNaN(cursorId)) conditions.push(lt(erasureRequestsTable.id, cursorId));
+    }
     const rows = await tx
       .select()
       .from(erasureRequestsTable)
-      .where(eq(erasureRequestsTable.clinicId, req.user!.clinicId));
-    void logAudit(req, "READ_LIST", "erasure_request", undefined, { count: rows.length });
-    return rows;
+      .where(and(...conditions))
+      .orderBy(desc(erasureRequestsTable.id))
+      .limit(lim);
+    await logAudit(req, "READ_LIST", "erasure_request", undefined, { count: rows.length });
+    return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
   });
 }
 
@@ -114,13 +123,13 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
     if (request.executedAt) throw new ConflictError("Erasure has already been executed");
 
     const patientId = request.patientId;
-    const retentionDays = parseInt(process.env.BACKUP_RETENTION_DAYS ?? "7", 10);
+    const retentionDays = config.backupRetentionDays;
     const erasureBlackoutUntil = new Date(Date.now() + retentionDays * 86_400_000);
 
     const clinicId = req.user!.clinicId;
     const now = new Date();
     // Per-entity counts of rows actually scrubbed, so the audit record reflects
-    // exactly what was erased (F-P3-1 — the old hard-coded list overstated it).
+    // exactly what was erased (F-P3-1 â€” the old hard-coded list overstated it).
     const erasedCounts: Record<string, number> = {};
     // Physical image files to hard-delete AFTER the DB transaction commits
     // (filesystem unlink cannot participate in the SQL transaction).
@@ -131,7 +140,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
     await tx.transaction(async (nestedTx) => {
       // Anonymize patient demographics (keep record shell for audit trail).
       // Overwrites the encrypted allergies/emergencyContact ciphertext.
-      // Insurance fields are named HIPAA identifiers (§164.514(e)(2)).
+      // Insurance fields are named HIPAA identifiers (Â§164.514(e)(2)).
       const pt = await nestedTx.update(patientsTable).set({
         fullName: ERASED,
         fullNameAr: ERASED,
@@ -168,7 +177,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: medicalRecordsTable.id });
       erasedCounts.medical_records = mr.length;
 
-      // Prescriptions — overwrite the encrypted `medications` ciphertext (not just
+      // Prescriptions â€” overwrite the encrypted `medications` ciphertext (not just
       // soft-delete, which previously left the PHI recoverable) and soft-delete.
       const rx = await nestedTx.update(prescriptionsTable).set({
         medications: ERASED,
@@ -180,7 +189,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: prescriptionsTable.id });
       erasedCounts.prescriptions = rx.length;
 
-      // Lab tests — results/notes are plaintext PHI; null them and soft-delete.
+      // Lab tests â€” results/notes are plaintext PHI; null them and soft-delete.
       const lab = await nestedTx.update(labTestsTable).set({
         results: null,
         resultsAr: null,
@@ -192,7 +201,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: labTestsTable.id });
       erasedCounts.lab_tests = lab.length;
 
-      // X-ray records — report + image (URL/filename/jsonb) + notes are plaintext PHI.
+      // X-ray records â€” report + image (URL/filename/jsonb) + notes are plaintext PHI.
       const xray = await nestedTx.update(xrayRecordsTable).set({
         report: null,
         reportAr: null,
@@ -207,7 +216,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: xrayRecordsTable.id });
       erasedCounts.xray_records = xray.length;
 
-      // Ultrasound records — same shape as x-ray.
+      // Ultrasound records â€” same shape as x-ray.
       const us = await nestedTx.update(ultrasoundRecordsTable).set({
         report: null,
         reportAr: null,
@@ -222,7 +231,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: ultrasoundRecordsTable.id });
       erasedCounts.ultrasound_records = us.length;
 
-      // Imaging attachments — soft-delete the metadata rows and collect the
+      // Imaging attachments â€” soft-delete the metadata rows and collect the
       // storage keys so the encrypted bytes on disk are purged after commit.
       // Hard-deleting the file is what makes the imaging PHI irrecoverable (the
       // iv/tag envelope lives on the row, so the bytes alone are useless once gone).
@@ -234,7 +243,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
       for (const a of atts) imageFilesToPurge.push(a.storageKey);
       erasedCounts.imaging_attachments = atts.length;
 
-      // Vitals — encrypted JSONB PHI + free-text notes; overwrite + soft-delete.
+      // Vitals â€” encrypted JSONB PHI + free-text notes; overwrite + soft-delete.
       const vit = await nestedTx.update(vitalsTable).set({
         vitals: null,
         notes: null,
@@ -244,7 +253,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
         .returning({ id: vitalsTable.id });
       erasedCounts.vitals = vit.length;
 
-      // Appointments — reason/notes/cancellationReason are free-text that can hold
+      // Appointments â€” reason/notes/cancellationReason are free-text that can hold
       // PHI. Scrub them but keep the workflow shell (status/timestamps) for the
       // care-timeline audit trail.
       const appt = await nestedTx.update(appointmentsTable).set({
@@ -258,7 +267,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
 
       // Mark erasure request as executed.
       // erasureBlackoutUntil marks the window during which backups still contain
-      // this patient's pre-erasure PHI — see RUNBOOK §2.2 for restore procedure.
+      // this patient's pre-erasure PHI â€” see RUNBOOK Â§2.2 for restore procedure.
       await nestedTx.update(erasureRequestsTable).set({
         status: "executed",
         executedByUserId: req.user!.userId,
@@ -270,7 +279,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
 
     // Purge the encrypted image bytes from disk now the DB rows are committed.
     // Best-effort: a failed unlink (already-gone/permissions) is logged, not
-    // fatal — the metadata + jsonb pointers are already scrubbed.
+    // fatal â€” the metadata + jsonb pointers are already scrubbed.
     for (const key of imageFilesToPurge) {
       try {
         await deleteImageFile(key);
@@ -279,7 +288,7 @@ export async function executeErasure(req: AuthRequest, requestId: number) {
       }
     }
 
-    // Immutable audit entry outside the transaction — must survive even if something goes wrong post-tx.
+    // Immutable audit entry outside the transaction â€” must survive even if something goes wrong post-tx.
     // erasedEntities is derived from rows actually scrubbed (accurate evidence).
     const erasedEntities = Object.keys(erasedCounts).filter((k) => erasedCounts[k] > 0);
     await logAudit(req, "ERASURE_EXECUTED", "erasure_request", requestId, {

@@ -3,6 +3,7 @@ import { db, auditLogsTable, auditIntegrityChecksTable } from "@workspace/db";
 import { eq, gte, lt, asc, and } from "drizzle-orm";
 import { logger } from "./logger";
 import { auditIntegrityMismatchTotal } from "./metrics";
+import { config } from "./config";
 
 type AuditRow = {
   id: number;
@@ -136,10 +137,7 @@ export async function verifyIntegrity(
 // Default rolling re-verification window (days). The daily cron re-derives the
 // hashes for this many recent days so tampering of recent audit_logs rows is
 // caught within a day, not only at the quarterly restore drill (F-P4-1).
-const VERIFY_WINDOW_DAYS = (() => {
-  const n = parseInt(process.env.AUDIT_VERIFY_WINDOW_DAYS ?? "7", 10);
-  return Number.isFinite(n) && n > 0 ? n : 7;
-})();
+const VERIFY_WINDOW_DAYS = config.auditVerifyWindowDays;
 
 /**
  * Re-verify the daily integrity records for the last `windowDays` days by

@@ -65,18 +65,35 @@ export default tseslint.config(
       ],
     },
   },
+  // ── 3. Typed config guard ─────────────────────────────────────────────────────
+  // All source files must read env through lib/config.ts, not process.env.
+  // Severity is "warn" until the migration of the ~32 legacy call-sites is
+  // complete — then flip to "error" to block regressions permanently.
+  // Exempt: config.ts (the definition), tests (set env before import), scripts.
   {
-    // Ignore everything outside routes/** and services/** so the run is fast
-    // and only the rules we care about can fire.
+    files: ["src/**/*.ts"],
     ignores: [
-      "src/lib/**",
-      "src/middlewares/**",
+      "src/lib/config.ts",
       "src/tests/**",
       "src/scripts/**",
-      "src/index.ts",
-      "src/app.ts",
-      "src/cron.ts",
-      "src/errors.ts",
+    ],
+    rules: {
+      "no-restricted-properties": [
+        "warn",
+        {
+          object: "process",
+          property: "env",
+          message:
+            "Read env through 'lib/config' (config.ts) instead of process.env directly. " +
+            "See docs/ARCHITECTURE_AUDIT_2026-06-29.md §4.",
+        },
+      ],
+    },
+  },
+  {
+    // Ignore everything outside routes/**, services/**, and the new typed-config
+    // guard scope so the run stays fast.
+    ignores: [
       "dist/**",
       "node_modules/**",
     ],
