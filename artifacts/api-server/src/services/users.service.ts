@@ -94,7 +94,7 @@ export async function getUser(req: AuthRequest, userId: number) {
   return runInTenantContext(req.user!, async (tx) => {
     const [user] = await tx.select(userSelect).from(usersTable).where(and(eq(usersTable.id, userId), eq(usersTable.clinicId, req.user!.clinicId)));
     if (!user) throw new NotFoundError("User not found");
-    void logRead(req, "user", userId);
+    await logRead(req, "user", userId);
     return user;
   });
 }
@@ -124,7 +124,7 @@ export async function createUser(
   }
 
   if (role === "super_admin" && req.user!.role !== "super_admin") {
-    void logAudit(req, "ESCALATION_DENIED", "user", undefined, { attemptedRole: role });
+    await logAudit(req, "ESCALATION_DENIED", "user", undefined, { attemptedRole: role });
     throw new ForbiddenError("Only super admins can create super admin users");
   }
 
@@ -158,7 +158,7 @@ export async function createUser(
       })
       .returning();
 
-    void logAudit(req, "CREATE", "user", user.id);
+    await logAudit(req, "CREATE", "user", user.id);
     return { ...user, passwordHash: undefined };
   });
 }
@@ -190,7 +190,7 @@ export async function updateUser(
   const { fullName, fullNameAr, email, role, phone, isActive, isOnShift, specialty, department, addressLine, city, region, postalCode, country } = body;
 
   if (role === "super_admin" && req.user!.role !== "super_admin") {
-    void logAudit(req, "ESCALATION_DENIED", "user", userId, { attemptedRole: role });
+    await logAudit(req, "ESCALATION_DENIED", "user", userId, { attemptedRole: role });
     throw new ForbiddenError("Only super admins can promote users to super admin");
   }
 
@@ -206,7 +206,7 @@ export async function updateUser(
     // F-1: an admin must not be able to modify a super_admin (demote/deactivate/
     // change email → password-reset takeover). Only super_admin manages super_admin.
     if (!canManageTarget(req.user!.role, before.role)) {
-      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: before.role, action: "update_user" });
+      await logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: before.role, action: "update_user" });
       throw new ForbiddenError("Only a super admin can modify a super admin account");
     }
 
@@ -222,7 +222,7 @@ export async function updateUser(
       await revokeAllTokensForUser(userId);
     }
 
-    void logAudit(
+    await logAudit(
       req,
       "UPDATE",
       "user",
@@ -246,7 +246,7 @@ export async function toggleShift(req: AuthRequest, userId: number) {
 
     // F-1: only a super_admin may toggle a super_admin's shift state.
     if (!canManageTarget(req.user!.role, current.role)) {
-      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: current.role, action: "toggle_shift" });
+      await logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: current.role, action: "toggle_shift" });
       throw new ForbiddenError("Only a super admin can manage a super admin account");
     }
 
@@ -257,7 +257,7 @@ export async function toggleShift(req: AuthRequest, userId: number) {
       .where(and(...conditions))
       .returning();
 
-    void logAudit(req, "TOGGLE_SHIFT", "user", userId, { isOnShift: user.isOnShift });
+    await logAudit(req, "TOGGLE_SHIFT", "user", userId, { isOnShift: user.isOnShift });
 
     let shiftSummary: Record<string, number> | undefined;
     if (!newShiftState && current.role === "doctor") {
@@ -298,7 +298,7 @@ export async function deleteUser(req: AuthRequest, userId: number) {
     const [target] = await tx.select({ role: usersTable.role }).from(usersTable).where(and(...conditions));
     if (!target) throw new NotFoundError("User not found");
     if (!canManageTarget(req.user!.role, target.role)) {
-      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "delete_user" });
+      await logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "delete_user" });
       throw new ForbiddenError("Only a super admin can delete a super admin account");
     }
 
@@ -309,7 +309,7 @@ export async function deleteUser(req: AuthRequest, userId: number) {
       .returning();
 
     if (!user) throw new NotFoundError("User not found");
-    void logAudit(req, "DELETE", "user", user.id);
+    await logAudit(req, "DELETE", "user", user.id);
   });
 }
 
@@ -329,7 +329,7 @@ export async function resetPassword(req: AuthRequest, userId: number, newPasswor
     const [target] = await tx.select({ role: usersTable.role }).from(usersTable).where(and(...conditions));
     if (!target) throw new NotFoundError("User not found");
     if (!canManageTarget(req.user!.role, target.role)) {
-      void logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "reset_password" });
+      await logAudit(req, "ESCALATION_DENIED", "user", userId, { actorRole: req.user!.role, targetRole: target.role, action: "reset_password" });
       throw new ForbiddenError("Only a super admin can reset a super admin's password");
     }
 
@@ -340,6 +340,6 @@ export async function resetPassword(req: AuthRequest, userId: number, newPasswor
       .returning();
     if (!updated) throw new NotFoundError("User not found");
 
-    void logAudit(req, "RESET_PASSWORD", "user", userId);
+    await logAudit(req, "RESET_PASSWORD", "user", userId);
   });
 }

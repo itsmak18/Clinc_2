@@ -3,15 +3,16 @@
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { inventoryTable, inventoryTransactionsTable, usersTable } from "@workspace/db";
-import { eq, isNull, and, desc, or, ilike } from "drizzle-orm";
+import { eq, isNull, and, desc, lt, or, ilike } from "drizzle-orm";
 import { logAudit, auditSnapshot } from "../lib/audit";
 import { NotFoundError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
 type TxnReason = "initial" | "restock" | "consumed" | "expired" | "adjustment";
 
-export async function listInventory(req: AuthRequest, params: { search?: string; category?: string }) {
+export async function listInventory(req: AuthRequest, params: { search?: string; category?: string; cursor?: string; limit?: string }) {
   return runInTenantContext(req.user!, async (tx) => {
+    const lim = Math.min(parseInt(params.limit ?? "100") || 100, 100);
     const conditions: any[] = [isNull(inventoryTable.deletedAt), eq(inventoryTable.clinicId, req.user!.clinicId)];
 
     if (params.category) {
@@ -23,10 +24,17 @@ export async function listInventory(req: AuthRequest, params: { search?: string;
       const term = `%${params.search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
       conditions.push(or(ilike(inventoryTable.name, term), ilike(inventoryTable.category, term)));
     }
+    if (params.cursor) {
+      const cursorId = parseInt(params.cursor);
+      if (!isNaN(cursorId)) conditions.push(lt(inventoryTable.id, cursorId));
+    }
 
-    return tx.select().from(inventoryTable)
+    const rows = await tx.select().from(inventoryTable)
       .where(and(...conditions))
-      .orderBy(inventoryTable.name);
+      .orderBy(desc(inventoryTable.id))
+      .limit(lim);
+
+    return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
   });
 }
 

@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -8,8 +8,9 @@ import { emitToUser } from "../lib/sse";
 import { logAudit, logRead, auditSnapshot } from "../lib/audit";
 import { isDoctorScoped, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { medicationsSchema } from "../lib/jsonb-schemas";
-import { encryptJson, decryptJson, isEncrypted } from "../lib/field-encryption";
+import { encryptJson, decryptJson, isEncrypted, decryptNullable } from "../lib/field-encryption";
 import { hasActiveConsent } from "./consent.service";
 import { NotFoundError, ValidationError, ConsentRequiredError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
@@ -68,7 +69,7 @@ export async function listPrescriptions(
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "prescription", undefined, { count: rows.length });
+  await logAudit(req, "READ_LIST", "prescription", undefined, { count: rows.length });
   return { data: rows.map(r => decryptPrescription(r)), nextCursor };
 }
 
@@ -83,12 +84,38 @@ export async function createPrescription(
 
   const pid = Number(data.patientId);
 
-  const [patient] = await db.select({ id: patientsTable.id }).from(patientsTable)
+  const [patient] = await db
+    .select({ id: patientsTable.id, allergies: patientsTable.allergies })
+    .from(patientsTable)
     .where(and(eq(patientsTable.id, pid), eq(patientsTable.clinicId, req.user!.clinicId), isNull(patientsTable.deletedAt)));
   if (!patient) throw new NotFoundError("patient", String(pid));
 
   if (!await hasActiveConsent(pid, "treatment", req.user!.clinicId)) {
     throw new ConsentRequiredError("treatment consent is required before creating a prescription");
+  }
+
+  // Allergy contraindication check: compare medication names against the patient's
+  // decrypted allergies field using case-insensitive word boundary matching.
+  // No external drug DB — relies on the doctor having entered medication names in
+  // allergies (e.g., "Penicillin, Sulfa"). Override: clear the allergy record or
+  // use a non-overlapping name. Flagged hits raise ValidationError; if the doctor
+  // intends to prescribe despite the allergy, they must document it in the record.
+  const allergyText = decryptNullable(patient.allergies ?? null);
+  if (allergyText) {
+    const allergyTokens = allergyText
+      .toLowerCase()
+      .split(/[\s,;/]+/)
+      .map(t => t.trim())
+      .filter(t => t.length >= 3);
+    const flagged = parsedMeds.data
+      .map(m => m.name.toLowerCase())
+      .filter(name => allergyTokens.some(token => name.includes(token) || token.includes(name)));
+    if (flagged.length > 0) {
+      throw Object.assign(
+        new ValidationError(`Allergy contraindication: ${flagged.join(", ")} overlaps with patient allergy record`),
+        { code: "ALLERGY_CONTRAINDICATION", status: 422 },
+      );
+    }
   }
 
   const [prescription] = await db.insert(prescriptionsTable).values({
@@ -118,10 +145,10 @@ export async function getPrescription(req: AuthRequest, id: number) {
   if (!prescription) throw new NotFoundError("prescription", id);
 
   if (isDoc && breakGlassPatientIds.includes(prescription.patientId)) {
-    await logAudit(req, "BREAK_GLASS_ACCESS", "prescription", id, { patientId: prescription.patientId, via: "get" } as object);
+    await auditBreakGlass(req, "BREAK_GLASS_ACCESS", "prescription", id, { patientId: prescription.patientId, via: "get" });
   }
 
-  void logRead(req, "prescription", id);
+  await logRead(req, "prescription", id);
   return decryptPrescription(prescription);
 }
 
@@ -147,12 +174,32 @@ export async function sendPrescriptionToPharmacy(req: AuthRequest, id: number) {
         type: "general" as const,
       })),
     );
-    // SSE carries IDs only — no PHI (clients fetch the record via the API).
+    // SSE carries IDs only â€” no PHI (clients fetch the record via the API).
     for (const p of pharmacists) emitToUser(p.id, "notification", { prescriptionId: id });
   }
 
   await logAudit(req, "SEND_TO_PHARMACY", "prescription", id, { pharmacistsNotified: pharmacists.length } as object);
   return { sent: true, pharmacistsNotified: pharmacists.length };
+}
+
+export async function dispensePrescription(req: AuthRequest, id: number) {
+  const conditions: any[] = [
+    eq(prescriptionsTable.id, id),
+    eq(prescriptionsTable.clinicId, req.user!.clinicId),
+    isNull(prescriptionsTable.deletedAt),
+  ];
+  const [before] = await db.select().from(prescriptionsTable).where(and(...conditions));
+  if (!before) throw new NotFoundError("prescription", id);
+  if (before.dispensedAt) throw new ValidationError("Prescription already dispensed");
+
+  const [after] = await db
+    .update(prescriptionsTable)
+    .set({ dispensedAt: new Date(), dispensedById: req.user!.userId, updatedAt: new Date() })
+    .where(and(...conditions))
+    .returning();
+
+  await logAudit(req, "DISPENSE", "prescription", id, null, auditSnapshot(before), auditSnapshot(after));
+  return decryptPrescription(after);
 }
 
 export async function voidPrescription(req: AuthRequest, id: number, reason: string) {

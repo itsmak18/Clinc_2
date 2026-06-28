@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -33,7 +33,7 @@ export async function listMedicalRecords(
     const scope = await getDoctorListScope(req, "medical_record");
     breakGlassPatientIds = scope.breakGlassPatientIds;
     if (scope.allowed.length === 0) {
-      void logAudit(req, "READ_LIST", "medical_record", undefined, { count: 0 });
+      await logAudit(req, "READ_LIST", "medical_record", undefined, { count: 0 });
       return { data: [], nextCursor: null };
     }
     conditions.push(inArray(medicalRecordsTable.patientId, scope.allowed));
@@ -79,7 +79,7 @@ export async function listMedicalRecords(
   );
 
   const nextCursor = results.length === lim ? results[results.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "medical_record", undefined, { count: results.length });
+  await logAudit(req, "READ_LIST", "medical_record", undefined, { count: results.length });
   return { data: results.map(r => decryptRecord(r)), nextCursor };
 }
 
@@ -143,7 +143,7 @@ export async function getMedicalRecord(req: AuthRequest, recordId: number) {
   }, { breakGlassPatientIds });
   if (!record) throw new NotFoundError("medical record", recordId);
 
-  void logRead(req, "medical_record", recordId);
+  await logRead(req, "medical_record", recordId);
   return decryptRecord(record);
 }
 

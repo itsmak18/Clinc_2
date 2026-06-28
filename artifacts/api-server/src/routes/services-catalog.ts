@@ -16,8 +16,8 @@ router.use(requireAuth);
 router.get("/services-catalog",
   requireRole("super_admin", "admin", "billing_manager", "front_desk"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { category, includeInactive } = req.query as Record<string, string | undefined>;
-    res.json(await listServices(req, { category, includeInactive: includeInactive === "true" }));
+    const { category, includeInactive, cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listServices(req, { category, includeInactive: includeInactive === "true", cursor, limit }));
   }),
 );
 

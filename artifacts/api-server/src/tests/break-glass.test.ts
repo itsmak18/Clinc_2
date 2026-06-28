@@ -29,6 +29,10 @@ vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../lib/break-glass-audit", () => ({
+  auditBreakGlass: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/sse", () => ({
   emitToUser: vi.fn(),
 }));

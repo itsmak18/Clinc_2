@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -8,6 +8,7 @@ import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
@@ -24,7 +25,7 @@ export async function listUltrasounds(
     const scope = await getDoctorListScope(req, "ultrasound");
     breakGlassPatientIds = scope.breakGlassPatientIds;
     if (scope.allowed.length === 0) {
-      void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: 0 });
+      await logAudit(req, "READ_LIST", "ultrasound", undefined, { count: 0 });
       return { data: [], nextCursor: null };
     }
     conditions.push(inArray(ultrasoundRecordsTable.patientId, scope.allowed));
@@ -70,7 +71,7 @@ export async function listUltrasounds(
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "ultrasound", undefined, { count: rows.length });
+  await logAudit(req, "READ_LIST", "ultrasound", undefined, { count: rows.length });
   return { data: rows, nextCursor };
 }
 
@@ -112,11 +113,11 @@ export async function getUltrasound(req: AuthRequest, id: number) {
     const viaBreakGlass = breakGlassPatientIds.includes(record.patientId);
     if (!allowed.includes(record.patientId) && !viaBreakGlass) throw new ForbiddenError();
     if (viaBreakGlass) {
-      await logAudit(req, "BREAK_GLASS_ACCESS", "ultrasound", id, { patientId: record.patientId, via: "get" } as object);
+      await auditBreakGlass(req, "BREAK_GLASS_ACCESS", "ultrasound", id, { patientId: record.patientId, via: "get" });
     }
   }
 
-  void logRead(req, "ultrasound", id);
+  await logRead(req, "ultrasound", id);
   return record;
 }
 

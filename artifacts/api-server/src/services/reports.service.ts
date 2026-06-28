@@ -1,4 +1,4 @@
-// All queries run inside runInTenantContext (RLS-enforced) with belt-and-braces
+﻿// All queries run inside runInTenantContext (RLS-enforced) with belt-and-braces
 // eq(clinicId) filters. No raw dbUnsafe call sites in this service.
 //
 // Aggregation is performed in SQL (COUNT/SUM/AVG ... GROUP BY) rather than by
@@ -99,7 +99,7 @@ export async function appointmentsSummary(
         doctorScoped ? eq(appointmentsTable.doctorId, req.user!.userId) : undefined,
       );
 
-    // Totals for an arbitrary window — reused for current + previous period.
+    // Totals for an arbitrary window â€” reused for current + previous period.
     const totalsFor = async (f: string, t: string) => {
       const [row] = await tx
         .select({
@@ -107,7 +107,7 @@ export async function appointmentsSummary(
           completed: sql<number>`(count(*) filter (where ${appointmentsTable.status} = 'completed'))::int`,
           cancelled: sql<number>`(count(*) filter (where ${appointmentsTable.status} = 'cancelled'))::int`,
           noShow: sql<number>`(count(*) filter (where ${appointmentsTable.status} = 'no_show'))::int`,
-          // True waiting-room time: check-in → consultation start. Clamp at 0 so a
+          // True waiting-room time: check-in â†’ consultation start. Clamp at 0 so a
           // clock skew never pulls the average negative. Only counts appts that
           // actually reached consultation.
           avgWait: sql<number>`coalesce(avg(greatest(extract(epoch from (${appointmentsTable.consultationStartedAt} - ${appointmentsTable.checkedInAt})) / 60, 0)) filter (where ${appointmentsTable.consultationStartedAt} is not null and ${appointmentsTable.checkedInAt} is not null), 0)::float8`,
@@ -144,7 +144,7 @@ export async function appointmentsSummary(
       .from(appointmentsTable)
       .where(rangeWhere(fromStr, toStr))
       // Ordinal GROUP/ORDER on the selected bucketed date: repeating the parameterized
-      // `day` expr would re-bind the tz as a new placeholder → Postgres "must appear in
+      // `day` expr would re-bind the tz as a new placeholder â†’ Postgres "must appear in
       // the GROUP BY clause" (different param = different expression). See reports byDay fix.
       .groupBy(sql`1`)
       .orderBy(sql`1`);
@@ -156,7 +156,7 @@ export async function appointmentsSummary(
   const byDayMap = new Map(result.byDayRows.map((r) => [r.date, r]));
   const byDay = enumerateDays(fromStr, toStr).map((date) => byDayMap.get(date) ?? { date, count: 0 });
 
-  void logAudit(req, "READ", "REPORT", undefined, { report: "appointments", dateFrom: fromStr, dateTo: toStr });
+  await logAudit(req, "READ", "REPORT", undefined, { report: "appointments", dateFrom: fromStr, dateTo: toStr });
   return {
     totalAppointments: total,
     completed: result.totals.completed,
@@ -200,7 +200,7 @@ export async function revenueSummary(
     const totalsFor = async (f: string, t: string) => {
       const [row] = await tx
         .select({
-          // numeric SUM → exact money; ::float8 only for transport.
+          // numeric SUM â†’ exact money; ::float8 only for transport.
           totalRevenue: sql<number>`coalesce(sum(${invoicesTable.total}) filter (where ${invoicesTable.status} = 'paid'), 0)::float8`,
           pendingAmount: sql<number>`coalesce(sum(${invoicesTable.total}) filter (where ${invoicesTable.status} = 'pending'), 0)::float8`,
           totalInvoices: sql<number>`count(*)::int`,
@@ -225,7 +225,7 @@ export async function revenueSummary(
       .from(invoicesTable)
       .where(rangeWhere(fromStr, toStr))
       // Ordinal GROUP/ORDER on the selected bucketed date: repeating the parameterized
-      // `day` expr would re-bind the tz as a new placeholder → Postgres "must appear in
+      // `day` expr would re-bind the tz as a new placeholder â†’ Postgres "must appear in
       // the GROUP BY clause" (different param = different expression). See reports byDay fix.
       .groupBy(sql`1`)
       .orderBy(sql`1`);
@@ -265,7 +265,7 @@ export async function revenueSummary(
     (date) => byDayMap.get(date) ?? { date, revenue: 0, invoices: 0 },
   );
 
-  void logAudit(req, "READ", "REPORT", undefined, { report: "revenue", dateFrom: fromStr, dateTo: toStr });
+  await logAudit(req, "READ", "REPORT", undefined, { report: "revenue", dateFrom: fromStr, dateTo: toStr });
   return {
     totalRevenue: totals.totalRevenue,
     totalInvoices: totals.totalInvoices,
@@ -298,7 +298,7 @@ export async function diagnosticsSummary(
     // Doctor patient-scoping is enforced at the DB layer: lab_tests / xray_records
     // carry the doctor_scope RLS policy (migration 0017), which self-derives from
     // app.user_id / app.role set by runInTenantContext. A doctor's aggregates are
-    // therefore automatically limited to their assigned patients — no manual
+    // therefore automatically limited to their assigned patients â€” no manual
     // patient filter needed here. Break-glass patients are intentionally excluded
     // from bulk reports (no breakGlassPatientIds passed): a report is not an
     // emergency individual-record access.
@@ -345,7 +345,7 @@ export async function diagnosticsSummary(
       .orderBy(sql`count(*) desc`)
       .limit(10);
 
-    // Ultrasound — same doctor_scope RLS as lab/xray; mirrors the xray blocks.
+    // Ultrasound â€” same doctor_scope RLS as lab/xray; mirrors the xray blocks.
     const ultrasoundDay = localDate(ultrasoundRecordsTable.createdAt, tz);
     const ultrasoundWhere = and(
       isNull(ultrasoundRecordsTable.deletedAt),
@@ -379,7 +379,7 @@ export async function diagnosticsSummary(
   const totalUltrasounds = sumCounts(result.ultrasoundByStatus);
   const ultrasoundsReviewed = result.ultrasoundByStatus.find((r) => r.status === "completed")?.count ?? 0;
 
-  void logAudit(req, "READ", "REPORT", undefined, { report: "diagnostics", dateFrom: fromStr, dateTo: toStr });
+  await logAudit(req, "READ", "REPORT", undefined, { report: "diagnostics", dateFrom: fromStr, dateTo: toStr });
   return {
     totalLabTests,
     labCompleted,
@@ -449,13 +449,13 @@ export async function operationsSummary(
       .from(operationsTable)
       .where(and(baseWhere, occurred))
       // Ordinal GROUP/ORDER on the selected bucketed date: repeating the parameterized
-      // `day` expr would re-bind the tz as a new placeholder → Postgres "must appear in
+      // `day` expr would re-bind the tz as a new placeholder â†’ Postgres "must appear in
       // the GROUP BY clause" (different param = different expression). See reports byDay fix.
       .groupBy(sql`1`)
       .orderBy(sql`1`);
 
     // OR-team participation: how many performed operations each assisting staff
-    // member (nurse, anesthetist, assistant …) was part of. Unnest the
+    // member (nurse, anesthetist, assistant â€¦) was part of. Unnest the
     // staff_assigned jsonb array and group by the referenced user.
     // Extract the assigned user id per operation row FIRST (subquery), then
     // aggregate. Doing the unnest + aggregate in one level fails because the
@@ -496,7 +496,7 @@ export async function operationsSummary(
   const byDayMap = new Map(result.byDayRows.map((r) => [r.date, r]));
   const byDay = enumerateDays(fromStr, toStr).map((date) => byDayMap.get(date) ?? { date, count: 0 });
 
-  void logAudit(req, "READ", "REPORT", undefined, { report: "operations", dateFrom: fromStr, dateTo: toStr });
+  await logAudit(req, "READ", "REPORT", undefined, { report: "operations", dateFrom: fromStr, dateTo: toStr });
   return {
     totalOperations,
     completed: findStatus("completed"),

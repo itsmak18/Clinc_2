@@ -87,6 +87,36 @@ export const auditPartitionMonthsRemainingGauge = new client.Gauge({
 });
 register.registerMetric(auditPartitionMonthsRemainingGauge);
 
+// Break-glass audit durability metrics (2026-06-27).
+// Primary path: synchronous direct insert into audit_logs.
+// Fallback path: durable local JSONL sink when primary fails.
+export const breakGlassActivationsTotal = new client.Counter({
+  name: "break_glass_activations_total",
+  help: "Break-glass sessions activated — high rate per user indicates possible insider abuse",
+  labelNames: ["user_id", "clinic_id"],
+});
+register.registerMetric(breakGlassActivationsTotal);
+
+export const breakGlassAuditFallbackTotal = new client.Counter({
+  name: "break_glass_audit_fallback_total",
+  help: "Break-glass audit events that failed the primary audit_logs insert and were written to the local fallback sink",
+  labelNames: ["action"],
+});
+register.registerMetric(breakGlassAuditFallbackTotal);
+
+export const breakGlassAuditFailuresTotal = new client.Counter({
+  name: "break_glass_audit_failures_total",
+  help: "Break-glass audit events where BOTH the primary audit_logs insert AND the local fallback sink failed — HIPAA incident: event potentially unrecorded",
+  labelNames: ["action"],
+});
+register.registerMetric(breakGlassAuditFailuresTotal);
+
+export const breakGlassAuditFallbackPendingGauge = new client.Gauge({
+  name: "break_glass_audit_fallback_pending",
+  help: "Number of break-glass audit events in the local fallback JSONL sink awaiting reconcile into audit_logs",
+});
+register.registerMetric(breakGlassAuditFallbackPendingGauge);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",

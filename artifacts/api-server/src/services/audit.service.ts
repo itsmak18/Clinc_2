@@ -1,5 +1,5 @@
-// dbUnsafe: every audit read applies a manual eq(clinicId) filter (each clinic —
-// including super_admin — sees only its own audit trail; cross-tenant governance
+﻿// dbUnsafe: every audit read applies a manual eq(clinicId) filter (each clinic â€”
+// including super_admin â€” sees only its own audit trail; cross-tenant governance
 // would need an explicit opt-in endpoint, which does not exist). Raw db is used
 // because these are read-only reporting/export queries that don't need RLS on top
 // of the explicit clinicId filter.
@@ -62,7 +62,7 @@ export async function listAuditLogs(
     offset?: string;
   },
 ) {
-  void logAudit(req, "AUDIT_LOG_READ", "audit_log");
+  await logAudit(req, "AUDIT_LOG_READ", "audit_log");
   const conditions = [eq(auditLogsTable.clinicId, req.user!.clinicId), ...buildConditions(params)];
 
   return db
@@ -81,7 +81,7 @@ export async function getAuditLogsByEntity(
   entityId: string,
 ) {
   if (!entityType || !entityId) throw new ValidationError("Invalid entity type or ID");
-  void logAudit(req, "AUDIT_LOG_READ", "audit_log");
+  await logAudit(req, "AUDIT_LOG_READ", "audit_log");
 
   return db
     .select(auditRowSelect)
@@ -107,7 +107,7 @@ export async function exportAuditLogs(
     format?: string;
   },
 ) {
-  void logAudit(req, "AUDIT_LOG_EXPORT", "audit_log");
+  await logAudit(req, "AUDIT_LOG_EXPORT", "audit_log");
   const conditions = [eq(auditLogsTable.clinicId, req.user!.clinicId), ...buildConditions(params)];
 
   const rows = await db

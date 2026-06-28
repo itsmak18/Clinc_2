@@ -80,13 +80,16 @@ export default function BreakGlassButton({ patientId }: { patientId: number }) {
                 onChange={e => setJustification(e.target.value)}
                 className="text-sm"
               />
-              <span className="text-[11px] text-[var(--ink-muted)]">{justification.trim().length}/{MIN_JUSTIFICATION}</span>
+              <span className={`text-[11px] ${tooShort ? "text-[var(--rose-500)]" : "text-[var(--ink-muted)]"}`}>
+                {justification.trim().length}/{MIN_JUSTIFICATION}
+              </span>
             </div>
             <div className="flex justify-end gap-2">
               <button className="btn btn-outline btn-sm" onClick={() => setOpen(false)}>{t("cancel")}</button>
               <button
                 className="btn btn-danger btn-sm"
                 disabled={tooShort || activate.isPending}
+                data-pending={activate.isPending ? "true" : undefined}
                 onClick={() => activate.mutate({ patientId, data: { justification: justification.trim(), reasonCategory: reasonCategory as any } })}
               >
                 {activate.isPending ? t("loading") : t("breakGlassActivateBtn")}

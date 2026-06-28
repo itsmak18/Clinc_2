@@ -2,18 +2,24 @@
 // db calls carry explicit eq(clinicId) filters (belt-and-braces).
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { servicesCatalogTable } from "@workspace/db";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, lt, desc } from "drizzle-orm";
 import { logAudit, auditSnapshot } from "../lib/audit";
 import { NotFoundError, ValidationError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
 
-export async function listServices(req: AuthRequest, params: { category?: string; includeInactive?: boolean }) {
+export async function listServices(req: AuthRequest, params: { category?: string; includeInactive?: boolean; cursor?: string; limit?: string }) {
   return runInTenantContext(req.user!, async (tx) => {
+    const lim = Math.min(parseInt(params.limit ?? "100") || 100, 100);
     const conditions: any[] = [isNull(servicesCatalogTable.deletedAt), eq(servicesCatalogTable.clinicId, req.user!.clinicId)];
-    let rows = await tx.select().from(servicesCatalogTable).where(and(...conditions)).orderBy(servicesCatalogTable.name);
-    if (params.category) rows = rows.filter(r => r.category === params.category);
-    if (!params.includeInactive) rows = rows.filter(r => r.active);
-    return rows;
+    // Filters moved from JS post-fetch to SQL WHERE so they apply before the limit
+    if (params.category) conditions.push(eq(servicesCatalogTable.category, params.category));
+    if (!params.includeInactive) conditions.push(eq(servicesCatalogTable.active, true));
+    if (params.cursor) {
+      const cursorId = parseInt(params.cursor);
+      if (!isNaN(cursorId)) conditions.push(lt(servicesCatalogTable.id, cursorId));
+    }
+    const rows = await tx.select().from(servicesCatalogTable).where(and(...conditions)).orderBy(desc(servicesCatalogTable.id)).limit(lim);
+    return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
   });
 }
 

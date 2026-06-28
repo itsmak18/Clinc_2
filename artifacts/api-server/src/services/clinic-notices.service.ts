@@ -39,7 +39,7 @@ export async function listClinicNotices(
       .limit(lim);
 
     const nextCursor = results.length === lim ? results[results.length - 1].id : null;
-    void logAudit(req, "READ_LIST", "clinic_notice", undefined, { count: results.length });
+    await logAudit(req, "READ_LIST", "clinic_notice", undefined, { count: results.length });
     return { data: results, nextCursor };
   });
 }

@@ -129,7 +129,7 @@ export async function listPatients(
   });
 
   const nextCursor = patients.length === lim ? patients[patients.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "patient", undefined, { count: patients.length });
+  await logAudit(req, "READ_LIST", "patient", undefined, { count: patients.length });
   return { patients: patients.map(p => serializeForRole(decryptPatient(p), req.user!.role)), total: Number(count), nextCursor };
 }
 
@@ -198,7 +198,7 @@ export async function getPatient(req: AuthRequest, patientId: number) {
   });
   if (!patient) throw new NotFoundError("patient", patientId);
 
-  void logRead(req, "patient", patientId);
+  await logRead(req, "patient", patientId);
   return serializeForRole(decryptPatient(patient), req.user!.role);
 }
 
@@ -329,7 +329,7 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
   });
 
   if (!result) throw new NotFoundError("patient", patientId);
-  void logRead(req, "patient_summary", patientId);
+  await logRead(req, "patient_summary", patientId);
   const role = req.user!.role;
   const decrypted = decryptPatient(result.patient);
   // Minimum-necessary projection: only return the sections this role has module
