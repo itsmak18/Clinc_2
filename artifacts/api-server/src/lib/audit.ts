@@ -30,6 +30,38 @@ export async function logDenied(req: Request, entityType: string, entityId: stri
   return logAudit(req, "DENIED", entityType, entityId, { reason });
 }
 
+/**
+ * Build the shared row object used by both the outbox insert (logAudit) and the
+ * direct audit_logs insert (auditBreakGlass). Exported so break-glass-audit.ts
+ * can reuse the exact same field-building logic without duplication.
+ */
+export function buildAuditRow(
+  req: Request,
+  action: string,
+  entityType: string,
+  entityId?: string | number,
+  details?: object | null,
+  beforeState?: object | null,
+  afterState?: object | null,
+) {
+  const user = req.user;
+  const userId: number = user?.userId ?? SYSTEM_USER_ID;
+  const clinicId: number = user?.clinicId ?? SYSTEM_CLINIC_ID;
+  return {
+    clinicId,
+    userId,
+    action,
+    entityType,
+    entityId: entityId != null ? String(entityId) : null,
+    ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
+    userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+    details: details ?? null,
+    beforeState: beforeState ?? null,
+    afterState: afterState ?? null,
+    requestId: req.id != null ? String(req.id) : null,
+  };
+}
+
 export async function logAudit(
   req: Request,
   action: string,
@@ -44,8 +76,6 @@ export async function logAudit(
   // `audit_system_actor_total` indicates a call path that's emitting audit
   // events without an authenticated user — investigate the source.
   const user = req.user;
-  const userId = user?.userId ?? SYSTEM_USER_ID;
-  const clinicId = user?.clinicId ?? SYSTEM_CLINIC_ID;
   if (!user) {
     auditSystemActorTotal.labels(action, entityType).inc();
     logger.warn(
@@ -54,24 +84,12 @@ export async function logAudit(
     );
   }
   try {
-    await db.insert(auditOutboxTable).values({
-      clinicId,
-      userId,
-      action,
-      entityType,
-      entityId: entityId != null ? String(entityId) : null,
-      ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
-      userAgent: req.headers["user-agent"] || null,
-      details: details ?? null,
-      beforeState: beforeState ?? null,
-      afterState: afterState ?? null,
-      requestId: req.id != null ? String(req.id) : null,
-    });
+    await db.insert(auditOutboxTable).values(buildAuditRow(req, action, entityType, entityId, details, beforeState, afterState));
   } catch (err) {
     // Outbox insert failed — the audit event is lost. Count it and log.
     auditLogWriteFailuresTotal.labels(action, entityType).inc();
     logger.error(
-      { err, action, entityType, entityId, userId, requestId: req.id != null ? String(req.id) : null },
+      { err, action, entityType, entityId, userId: user?.userId ?? SYSTEM_USER_ID, requestId: req.id != null ? String(req.id) : null },
       "audit_outbox_write_failed",
     );
   }

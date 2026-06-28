@@ -1,4 +1,4 @@
-import { runInTenantContext } from "@workspace/db";
+﻿import { runInTenantContext } from "@workspace/db";
 import {
   appointmentsTable,
   invoicesTable,
@@ -75,7 +75,7 @@ async function computeKPIsForDoctorIds(
   const out = new Map<number, DoctorKPIs>();
   if (doctorIds.length === 0) return out;
 
-  // 1. Appointments — fetch in one go, aggregate per doctor in memory.
+  // 1. Appointments â€” fetch in one go, aggregate per doctor in memory.
   const appts = await tx
     .select({
       doctorId: appointmentsTable.doctorId,
@@ -134,7 +134,7 @@ async function computeKPIsForDoctorIds(
   const labByDoctor = new Map<number, number>(labRows.map((r: any) => [r.doctorId, r.count]));
   const xrayByDoctor = new Map<number, number>(xrayRows.map((r: any) => [r.doctorId, r.count]));
 
-  // 3. Revenue: loose attribution — sum paid invoices for patients seen by this
+  // 3. Revenue: loose attribution â€” sum paid invoices for patients seen by this
   //    doctor in the period. Approximation because invoices.appointmentId does
   //    not exist; revisit when billing-appointment linkage lands.
   const apptsByDoctor = new Map<number, Set<number>>();
@@ -145,7 +145,7 @@ async function computeKPIsForDoctorIds(
 
   // Revenue per patient in ONE grouped query, then fan out to each doctor by their
   // patient set. Was an N+1 (one SUM query per doctor); the result is identical because
-  // a doctor's revenue = Σ over their patients of that patient's paid-invoice total.
+  // a doctor's revenue = Î£ over their patients of that patient's paid-invoice total.
   const allPatientIds = [...new Set<number>(appts.map((a: any) => a.patientId))];
   const revenueByPatient = new Map<number, number>();
   if (allPatientIds.length > 0) {
@@ -185,7 +185,7 @@ async function computeKPIsForDoctorIds(
     const noShows = docAppts.filter((a: any) => a.status === "no_show").length;
     const cancelled = docAppts.filter((a: any) => a.status === "cancelled").length;
 
-    // Consult time: status='completed' → updatedAt as proxy for completion (no
+    // Consult time: status='completed' â†’ updatedAt as proxy for completion (no
     // completedAt column exists). Skip rows missing consultationStartedAt.
     const consultTimes = docAppts
       .filter((a: any) => a.status === "completed" && a.consultationStartedAt && a.updatedAt)
@@ -321,7 +321,7 @@ export async function getDoctorAnalytics(
     };
   });
 
-  void logRead(req, "ANALYTICS", doctorId);
+  await logRead(req, "ANALYTICS", doctorId);
   return result;
 }
 
@@ -355,6 +355,6 @@ export async function listDoctorAnalytics(
     };
   });
 
-  void logRead(req, "ANALYTICS", "all-doctors");
+  await logRead(req, "ANALYTICS", "all-doctors");
   return result;
 }

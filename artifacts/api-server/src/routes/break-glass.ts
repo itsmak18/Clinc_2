@@ -51,8 +51,8 @@ router.post("/break-glass/sessions/:sessionId/approve",
 router.get("/break-glass/sessions",
   requireRole("super_admin", "admin", "compliance_officer"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { patientId, active } = req.query as Record<string, string | undefined>;
-    res.json(await listBreakGlassSessions(req, { patientId, active }));
+    const { patientId, active, cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listBreakGlassSessions(req, { patientId, active, cursor, limit }));
   }),
 );
 

@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI writes/reads (tx).
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI writes/reads (tx).
 // The lone raw db read (patient existence) carries an explicit eq(clinicId) filter.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { vitalsTable, patientsTable, usersTable } from "@workspace/db";
@@ -16,7 +16,7 @@ function decryptVitals<T extends { vitals: unknown }>(row: T): T {
 }
 
 /**
- * Record vital signs as a first-class clinical record — NOT a medical record.
+ * Record vital signs as a first-class clinical record â€” NOT a medical record.
  * Deliberately has NO treatment-consent gate and NO placeholder diagnosis: a
  * nurse can take vitals at triage without the doctor's consultation paperwork.
  * The `vitals` JSONB is field-encrypted (PHI), shape-guarded by `vitalsSchema`.
@@ -52,7 +52,7 @@ export async function createVitals(
 
   await logAudit(req, "CREATE", "vitals", row.id);
 
-  // Recording vitals advances the visit checked_in → in_triage → ready_for_doctor
+  // Recording vitals advances the visit checked_in â†’ in_triage â†’ ready_for_doctor
   // (Phase 2 auto-advance; best-effort + idempotent). This is the trigger that
   // used to live on createMedicalRecord's rapid-vitals hack.
   await autoAdvanceVisit(req, { patientId: pid, appointmentId, actions: ["triage", "ready"] });
@@ -101,6 +101,6 @@ export async function listVitals(
     { breakGlassPatientIds },
   );
 
-  void logAudit(req, "READ_LIST", "vitals", undefined, { count: rows.length });
+  await logAudit(req, "READ_LIST", "vitals", undefined, { count: rows.length });
   return rows.map(decryptVitals);
 }

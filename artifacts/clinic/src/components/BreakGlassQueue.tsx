@@ -32,9 +32,10 @@ export default function BreakGlassQueue() {
   const queryClient = useQueryClient();
 
   const listKey = getListBreakGlassSessionsQueryKey();
-  const { data: sessions } = useListBreakGlassSessions(undefined, {
+  const { data: sessionsResp } = useListBreakGlassSessions(undefined, {
     query: { queryKey: listKey, refetchInterval: 30000 },
   });
+  const sessions = sessionsResp?.data ?? [];
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
 

@@ -13,7 +13,8 @@ router.get("/patients/:patientId/consents",
   asyncHandler(async (req: AuthRequest, res) => {
     const patientId = safeParseInt(req.params.patientId);
     if (!patientId) throw new ValidationError("Invalid patientId");
-    res.json(await listConsents(req, patientId));
+    const { cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listConsents(req, patientId, { cursor, limit }));
   }),
 );
 

@@ -22,10 +22,10 @@ router.use(requireAuth);
 // Only admins may add or update items
 router.get(
   "/inventory",
-  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { search, category } = req.query as Record<string, string | undefined>;
-    res.json(await listInventory(req, { search, category }));
+    const { search, category, cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listInventory(req, { search, category, cursor, limit }));
   }),
 );
 
@@ -40,7 +40,7 @@ router.post(
 
 router.get(
   "/inventory/:itemId",
-  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
     const itemId = safeParseInt(req.params.itemId);
     if (!itemId) throw new ValidationError("Invalid item ID");
@@ -83,7 +83,7 @@ router.post(
 
 router.get(
   "/inventory/:itemId/transactions",
-  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "lab_staff", "xray_staff", "pharmacist"),
   asyncHandler(async (req: AuthRequest, res) => {
     const itemId = safeParseInt(req.params.itemId);
     if (!itemId) throw new ValidationError("Invalid item ID");

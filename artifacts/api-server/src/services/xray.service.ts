@@ -8,6 +8,7 @@ import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
@@ -66,7 +67,7 @@ export async function listXrays(
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "xray", undefined, { count: rows.length });
+  await logAudit(req, "READ_LIST", "xray", undefined, { count: rows.length });
   return { data: rows, nextCursor };
 }
 
@@ -110,11 +111,11 @@ export async function getXray(req: AuthRequest, xrayId: number) {
     const viaBreakGlass = breakGlassPatientIds.includes(xray.patientId);
     if (!allowed.includes(xray.patientId) && !viaBreakGlass) throw new ForbiddenError();
     if (viaBreakGlass) {
-      await logAudit(req, "BREAK_GLASS_ACCESS", "xray", xrayId, { patientId: xray.patientId, via: "get" } as object);
+      await auditBreakGlass(req, "BREAK_GLASS_ACCESS", "xray", xrayId, { patientId: xray.patientId, via: "get" });
     }
   }
 
-  void logRead(req, "xray", xrayId);
+  await logRead(req, "xray", xrayId);
   return xray;
 }
 

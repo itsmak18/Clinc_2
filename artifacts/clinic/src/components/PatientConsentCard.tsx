@@ -43,9 +43,10 @@ export default function PatientConsentCard({ patientId }: { patientId: number })
   const [notes, setNotes] = useState("");
 
   const listKey = getListPatientConsentsQueryKey(patientId);
-  const { data: consents } = useListPatientConsents(patientId, {
+  const { data: consentsResp } = useListPatientConsents(patientId, undefined, {
     query: { enabled: canView && !!patientId, queryKey: listKey },
   });
+  const consents = consentsResp?.data ?? [];
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
 

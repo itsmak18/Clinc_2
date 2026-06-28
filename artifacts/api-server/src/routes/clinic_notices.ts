@@ -15,7 +15,7 @@ router.use(requireAuth);
 
 router.get(
   "/clinic-notices",
-  requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff", "ultrasound_staff", "pharmacist", "compliance_officer"),
+  requireRole("super_admin", "admin", "doctor", "nurse", "front_desk", "lab_staff", "xray_staff", "pharmacist", "compliance_officer"),
   asyncHandler(async (req: AuthRequest, res) => {
     const { limit, cursor } = req.query as Record<string, string | undefined>;
     res.json(await listClinicNotices(req, { limit, cursor }));

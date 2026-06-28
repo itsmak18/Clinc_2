@@ -4,7 +4,7 @@
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { operationsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
 import { alias } from "drizzle-orm/pg-core";
-import { eq, isNull, desc, and, inArray } from "drizzle-orm";
+import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { staffAssignedSchema, type StaffAssignedItem } from "../lib/jsonb-schemas";
@@ -26,13 +26,18 @@ async function notifyUsers(clinicId: number, userIds: number[], title: string, m
   }
 }
 
-export async function listOperations(req: AuthRequest, status?: string) {
+export async function listOperations(req: AuthRequest, params: { status?: string; cursor?: string; limit?: string }) {
   const requester = alias(usersTable, "requester");
   return runInTenantContext(req.user!, async (tx) => {
+    const lim = Math.min(parseInt(params.limit ?? "100") || 100, 100);
     const conditions: any[] = [isNull(operationsTable.deletedAt), eq(operationsTable.clinicId, req.user!.clinicId)];
-    if (status) conditions.push(eq(operationsTable.status, status as any));
+    if (params.status) conditions.push(eq(operationsTable.status, params.status as any));
+    if (params.cursor) {
+      const cursorId = parseInt(params.cursor);
+      if (!isNaN(cursorId)) conditions.push(lt(operationsTable.id, cursorId));
+    }
 
-    return tx
+    const rows = await tx
       .select({
         id: operationsTable.id,
         patientId: operationsTable.patientId,
@@ -54,7 +59,10 @@ export async function listOperations(req: AuthRequest, status?: string) {
       .leftJoin(usersTable, eq(operationsTable.surgeonId, usersTable.id))
       .leftJoin(requester, eq(operationsTable.requestedById, requester.id))
       .where(and(...conditions))
-      .orderBy(desc(operationsTable.scheduledAt));
+      .orderBy(desc(operationsTable.id))
+      .limit(lim);
+
+    return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
   });
 }
 
@@ -114,7 +122,7 @@ export async function createOperation(
         notes,
       })
       .returning();
-    void logAudit(req, "CREATE", "operation", row.id);
+    await logAudit(req, "CREATE", "operation", row.id);
     return row;
   });
 
@@ -209,7 +217,7 @@ export async function updateOperation(
       : status === "in_progress" ? "START"
       : status === "completed" ? "COMPLETE"
       : "UPDATE";
-    void logAudit(req, action, "operation", row.id);
+    await logAudit(req, action, "operation", row.id);
     return { row, wasApproval: isApproval, wasRejection: isRejection, reason };
   });
 

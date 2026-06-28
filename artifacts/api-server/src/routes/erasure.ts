@@ -14,7 +14,8 @@ router.use(requireAuth);
 router.get("/erasure-requests",
   requireRole("super_admin", "admin", "compliance_officer"),
   asyncHandler(async (req: AuthRequest, res) => {
-    res.json(await listErasureRequests(req));
+    const { cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listErasureRequests(req, { cursor, limit }));
   }),
 );
 

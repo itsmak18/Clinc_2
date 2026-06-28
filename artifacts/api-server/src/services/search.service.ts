@@ -28,7 +28,7 @@ export async function globalSearch(req: AuthRequest, query: string) {
     allowed = scope.allowed;
     breakGlassPatientIds = scope.breakGlassPatientIds;
     if (allowed.length === 0) {
-      void logRead(req, "SEARCH", undefined);
+      await logRead(req, "SEARCH", undefined);
       return { patients: [], appointments: [], records: [] };
     }
   }
@@ -102,7 +102,7 @@ export async function globalSearch(req: AuthRequest, query: string) {
         .limit(5),
     ]);
 
-    void logRead(req, "SEARCH", undefined);
+    await logRead(req, "SEARCH", undefined);
     return { patients, appointments, records };
   }, { breakGlassPatientIds });
 }

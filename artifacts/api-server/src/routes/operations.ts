@@ -14,8 +14,8 @@ router.get(
   "/operations",
   requireRole("super_admin", "admin", "doctor", "nurse"),
   asyncHandler(async (req: AuthRequest, res) => {
-    const { status } = req.query as Record<string, string | undefined>;
-    res.json(await listOperations(req, status));
+    const { status, cursor, limit } = req.query as Record<string, string | undefined>;
+    res.json(await listOperations(req, { status, cursor, limit }));
   }),
 );
 

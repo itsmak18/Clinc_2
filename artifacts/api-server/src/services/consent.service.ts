@@ -1,4 +1,4 @@
-// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
+﻿// dbUnsafe: this service uses runInTenantContext for RLS-enforced PHI queries (tx). The
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -6,7 +6,7 @@ import {
   patientConsentsTable, patientsTable,
   type PatientConsent,
 } from "@workspace/db";
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { eq, and, isNull, lt, desc } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
 import { NotFoundError, ValidationError, ConflictError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
@@ -38,21 +38,32 @@ export async function hasActiveConsent(patientId: number, consentType: ConsentTy
   return !!row;
 }
 
-export async function listConsents(req: AuthRequest, patientId: number): Promise<PatientConsent[]> {
+export async function listConsents(req: AuthRequest, patientId: number, params?: { cursor?: string; limit?: string }) {
   return runInTenantContext(req.user!, async (tx) => {
-    const conditions: any[] = [eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)];
+    const lim = Math.min(parseInt(params?.limit ?? "100") || 100, 100);
     const [patient] = await tx
       .select({ id: patientsTable.id })
       .from(patientsTable)
-      .where(and(...conditions));
+      .where(and(eq(patientsTable.id, patientId), eq(patientsTable.clinicId, req.user!.clinicId)));
     if (!patient) throw new NotFoundError("patient", patientId);
 
-    void logAudit(req, "READ_LIST", "patient_consent", patientId);
-    return tx
+    const conditions: any[] = [
+      eq(patientConsentsTable.patientId, patientId),
+      eq(patientConsentsTable.clinicId, req.user!.clinicId),
+    ];
+    if (params?.cursor) {
+      const cursorId = parseInt(params.cursor);
+      if (!isNaN(cursorId)) conditions.push(lt(patientConsentsTable.id, cursorId));
+    }
+
+    await logAudit(req, "READ_LIST", "patient_consent", patientId);
+    const rows = await tx
       .select()
       .from(patientConsentsTable)
-      .where(and(eq(patientConsentsTable.patientId, patientId), eq(patientConsentsTable.clinicId, req.user!.clinicId)))
-      .orderBy(desc(patientConsentsTable.createdAt));
+      .where(and(...conditions))
+      .orderBy(desc(patientConsentsTable.id))
+      .limit(lim);
+    return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
   });
 }
 

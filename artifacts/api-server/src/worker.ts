@@ -2,8 +2,9 @@ import { initTracer } from "./lib/tracer";
 initTracer(); // Must run before any database or queue handling; noop when OTEL_EXPORTER_OTLP_ENDPOINT unset
 
 import { logger } from "./lib/logger";
-import { startCronJobs, stopCronJobs, startAuditDrain, stopAuditDrain } from "./cron";
+import { startCronJobs, stopCronJobs, startAuditDrain, stopAuditDrain, startBgAuditReconcile, stopBgAuditReconcile } from "./cron";
 import { drainAuditOutbox } from "./lib/audit";
+import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
 import { runtime } from "./lib/runtime";
 
 logger.info("Starting background worker process...");
@@ -11,6 +12,7 @@ logger.info("Starting background worker process...");
 // Start background services
 startCronJobs();
 startAuditDrain();
+startBgAuditReconcile();
 
 let shutdownInProgress = false;
 const isTest = process.env.NODE_ENV === "test";
@@ -33,18 +35,20 @@ async function gracefulShutdown(signal: string): Promise<void> {
   failsafe.unref();
 
   try {
-    // 1. Stop cron triggers and the audit outbox drain interval
+    // 1. Stop cron triggers, audit outbox drain, and break-glass audit reconcile
     stopCronJobs();
     stopAuditDrain();
+    stopBgAuditReconcile();
     logger.info("Background intervals and crons stopped");
 
     // 2. Dispose of runtime adapters (Redis scope cache, revocation, etc.)
     await runtime.dispose();
     logger.info("Runtime disposed");
 
-    // 3. Final audit outbox flush — ensure no lingering outbox items remain
+    // 3. Final audit outbox flush + break-glass fallback reconcile
     await drainAuditOutbox();
-    logger.info("Final audit outbox flush complete");
+    await reconcileBreakGlassAuditFallback();
+    logger.info("Final audit outbox flush and break-glass reconcile complete");
 
     // 4. Drain the database pool
     const { pool } = await import("@workspace/db");

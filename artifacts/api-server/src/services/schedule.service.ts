@@ -1,4 +1,4 @@
-// dbUnsafe: the raw db reads here (doctor lists + appointment availability) all
+﻿// dbUnsafe: the raw db reads here (doctor lists + appointment availability) all
 // carry explicit eq(clinicId) filters; PHI schedule/override reads use
 // runInTenantContext (RLS-enforced). The intentional bypass is the doctor/user
 // lookups and slot-availability scans.
@@ -16,7 +16,7 @@ import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import { generateSlots, DOW, todayDateStr } from "./schedule.slots";
 import type { AuthRequest } from "../middlewares/auth";
 
-// ── Doctors list with weekly templates ──────────────────────────────────────
+// â”€â”€ Doctors list with weekly templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function listDoctorsWithTemplates(req: AuthRequest) {
   const clinicId = req.user!.clinicId;
@@ -60,7 +60,7 @@ export async function listDoctorsWithTemplates(req: AuthRequest) {
   }));
 }
 
-// ── Single doctor: template + overrides ─────────────────────────────────────
+// â”€â”€ Single doctor: template + overrides â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getDoctorSchedule(req: AuthRequest, doctorId: number) {
   if (isDoctorScoped(req.user?.role) && req.user!.userId !== doctorId) {
@@ -92,11 +92,11 @@ export async function getDoctorSchedule(req: AuthRequest, doctorId: number) {
         .where(and(eq(scheduleOverridesTable.doctorId, doctorId), eq(scheduleOverridesTable.clinicId, clinicId))),
     ]));
 
-  void logRead(req, "doctor_schedule", doctorId);
+  await logRead(req, "doctor_schedule", doctorId);
   return { doctor, weeklyTemplate, overrides };
 }
 
-// ── Availability for a single date ──────────────────────────────────────────
+// â”€â”€ Availability for a single date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getDoctorAvailability(req: AuthRequest, doctorId: number, dateStr: string) {
   if (isDoctorScoped(req.user?.role) && req.user!.userId !== doctorId) {
@@ -186,7 +186,7 @@ export async function getDoctorAvailability(req: AuthRequest, doctorId: number, 
   return { available: true, date: dateStr, slots: slotAvailability };
 }
 
-// ── 7-day week view ──────────────────────────────────────────────────────────
+// â”€â”€ 7-day week view â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function getWeekView(req: AuthRequest, doctorId: number, weekStartStr: string) {
   if (isDoctorScoped(req.user?.role) && req.user!.userId !== doctorId) {
@@ -285,7 +285,7 @@ export async function getWeekView(req: AuthRequest, doctorId: number, weekStartS
   return { doctorId, weekStart: weekStartStr, days };
 }
 
-// ── Upsert weekly block ──────────────────────────────────────────────────────
+// â”€â”€ Upsert weekly block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function upsertWeeklyBlock(
   req: AuthRequest,
@@ -336,11 +336,11 @@ export async function upsertWeeklyBlock(
       })
       .returning());
 
-  void logAudit(req, "UPSERT", "doctor_schedule", row.id);
+  await logAudit(req, "UPSERT", "doctor_schedule", row.id);
   return row;
 }
 
-// ── Toggle weekly block status ───────────────────────────────────────────────
+// â”€â”€ Toggle weekly block status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function setWeeklyBlockStatus(
   req: AuthRequest,
@@ -368,11 +368,11 @@ export async function setWeeklyBlockStatus(
       .returning());
 
   if (!row) throw new NotFoundError("Schedule block not found");
-  void logAudit(req, "UPDATE", "doctor_schedule", row.id);
+  await logAudit(req, "UPDATE", "doctor_schedule", row.id);
   return row;
 }
 
-// ── Delete weekly block ──────────────────────────────────────────────────────
+// â”€â”€ Delete weekly block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function deleteWeeklyBlock(req: AuthRequest, doctorId: number, day: string) {
   const clinicId = req.user!.clinicId;
@@ -390,10 +390,10 @@ export async function deleteWeeklyBlock(req: AuthRequest, doctorId: number, day:
       .returning());
 
   if (!row) throw new NotFoundError("Schedule block not found");
-  void logAudit(req, "DELETE", "doctor_schedule", row.id);
+  await logAudit(req, "DELETE", "doctor_schedule", row.id);
 }
 
-// ── Upsert schedule override ─────────────────────────────────────────────────
+// â”€â”€ Upsert schedule override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function upsertOverride(
   req: AuthRequest,
@@ -438,11 +438,11 @@ export async function upsertOverride(
       })
       .returning());
 
-  void logAudit(req, "UPSERT", "schedule_override", row.id);
+  await logAudit(req, "UPSERT", "schedule_override", row.id);
   return row;
 }
 
-// ── Delete schedule override ─────────────────────────────────────────────────
+// â”€â”€ Delete schedule override â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function deleteOverride(req: AuthRequest, doctorId: number, date: string) {
   const clinicId = req.user!.clinicId;
@@ -460,5 +460,5 @@ export async function deleteOverride(req: AuthRequest, doctorId: number, date: s
       .returning());
 
   if (!row) throw new NotFoundError("Override not found");
-  void logAudit(req, "DELETE", "schedule_override", row.id);
+  await logAudit(req, "DELETE", "schedule_override", row.id);
 }

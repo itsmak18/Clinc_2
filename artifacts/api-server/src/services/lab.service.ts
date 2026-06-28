@@ -8,6 +8,7 @@ import { logAudit, logRead } from "../lib/audit";
 import { emitToUser } from "../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
 import { autoAdvanceVisit } from "./appointments.service";
 import type { AuthRequest } from "../middlewares/auth";
@@ -64,7 +65,7 @@ export async function listLabTests(
   );
 
   const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  void logAudit(req, "READ_LIST", "lab_test", undefined, { count: rows.length });
+  await logAudit(req, "READ_LIST", "lab_test", undefined, { count: rows.length });
   return { data: rows, nextCursor };
 }
 
@@ -110,11 +111,11 @@ export async function getLabTest(req: AuthRequest, testId: number) {
     const viaBreakGlass = breakGlassPatientIds.includes(test.patientId);
     if (!allowed.includes(test.patientId) && !viaBreakGlass) throw new ForbiddenError();
     if (viaBreakGlass) {
-      await logAudit(req, "BREAK_GLASS_ACCESS", "lab_test", testId, { patientId: test.patientId, via: "get" } as object);
+      await auditBreakGlass(req, "BREAK_GLASS_ACCESS", "lab_test", testId, { patientId: test.patientId, via: "get" });
     }
   }
 
-  void logRead(req, "lab_test", testId);
+  await logRead(req, "lab_test", testId);
   return test;
 }
 

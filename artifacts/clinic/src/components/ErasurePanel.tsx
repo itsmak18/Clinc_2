@@ -51,9 +51,10 @@ export default function ErasurePanel() {
   const [confirmText, setConfirmText] = useState("");
 
   const listKey = getListErasureRequestsQueryKey();
-  const { data: requests } = useListErasureRequests({
+  const { data: requestsResp } = useListErasureRequests(undefined, {
     query: { enabled: canView, queryKey: listKey },
   });
+  const requests = requestsResp?.data ?? [];
   const invalidate = () => queryClient.invalidateQueries({ queryKey: listKey });
   const onErr = () => toast({ title: t("failed"), variant: "destructive" });
 
