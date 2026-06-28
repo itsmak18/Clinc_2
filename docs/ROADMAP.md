@@ -18,7 +18,7 @@
 > - ⏳ **Imaging integration-db test** — fold upload/download/erasure into the real-Postgres suite (overlaps the ADR-012 "imaging" item below).
 > - 💡 **DICOM** — current pipeline is PNG/JPEG/WEBP (browser-renderable). A DICOM viewer + `.dcm` ingest is a separate future feature.
 
-> As of 2026-06-14: **Independent principal zero-trust re-audit — 8.4/10, no open criticals.** Full report [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + task-level plan `../HANDOFF.md`. **Next actions:**
+> As of 2026-06-14: **Independent principal zero-trust re-audit — 8.4/10, no open criticals.** Full report [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + task-level plan `HANDOFF.md`. **Next actions:**
 > - ⏳ **F-Z1 (Medium, security) — arm or formally disarm the jti replay defense** (`policy.ts:169` checks `isJtiUsed()` but prod never calls `markJtiUsed()` → unarmed). Recommend arming for break-glass activate / step-up / admin-reset / erasure execute; author **ADR-014**.
 > - ⏳ **Phase 0 go-live drills:** stand up staging (+`STAGING_URL`), verify **live** alert/probe delivery (`amtool` + blackbox), restore drill on real hardware (record RTO).
 > - ⏳ **Test breadth (ADR-012):** real-Postgres `*.integration-db` tests for billing SoD, appointments FSM, prescriptions/consent, imaging, break-glass e2e.

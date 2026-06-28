@@ -136,34 +136,17 @@ backup tape stolen, etc.) is a SEV-1.
 
 ## Rotation
 
-Field-encryption key rotation is **destructive** in this codebase today —
-the envelope format `enc:v1:<iv>:<tag>:<data>` has no key ID, so we cannot
-mix v1 and v2 ciphertext in the same DB. Plan item B9 calls for adding
-`enc:v2:<keyid>:...` + dual-read to enable seamless rotation. **Until B9
-ships, rotation requires downtime.**
+> **`enc:v2:<kid>:` is already live.** The dual-read, zero-downtime rotation path is the current procedure — the old `enc:v1:` downtime path is no longer applicable. The complete step-by-step rotation procedure (generate new key, register alongside old, promote writes, sweep old rows, retire old kid) is in **[`docs/SECURITY.md` — Field-encryption key rotation](SECURITY.md#field-encryption-key-rotation)**.
 
-Procedure (with v1 envelopes, downtime required):
+Summary of the live procedure:
+1. Generate new 64-hex key; write to `./secrets/field_encryption_key_next`.
+2. Mount it as `FIELD_ENCRYPTION_KEY_NEXT` alongside the existing key — both kids active.
+3. Redeploy. New writes use kid=2; old rows still decrypt with kid=1.
+4. Promote kid=2 for writes via `FIELD_ENCRYPTION_KEY_WRITE_KID=2`. Redeploy.
+5. Sweep old rows (text/JSONB columns + imaging `.enc` files) — see `SECURITY.md` for the full column list and imaging-specific procedure.
+6. Verify all stores show 0 rows/files under kid=1, then retire the old key.
 
-1. Schedule maintenance window. Stop the api containers.
-2. Generate the new key. Escrow it (new Shamir split).
-3. Run a one-off migration script that, for each encrypted column:
-   - reads with the OLD key
-   - re-encrypts with the NEW key
-   - writes back in a single transaction
-4. Verify a sample of decrypted rows match expected plaintext.
-5. Rotate `FIELD_ENCRYPTION_KEY` in `.env`.
-6. Bring api containers back.
-7. Destroy old key material once monitoring confirms steady state for 7
-   days (in case rollback is needed).
-
-Procedure (post-B9, dual-read):
-
-1. Generate new key + new keyid (e.g., `2`).
-2. Add new key to `.env` as `FIELD_ENCRYPTION_KEY_V2`; old key stays as
-   `FIELD_ENCRYPTION_KEY_V1`.
-3. Deploy — writes use v2, reads accept either.
-4. Background re-encrypt sweep.
-5. Once all v1 rows are gone, remove v1 key + escrow shares.
+**No downtime required.** Generate a new Shamir split of the new key and distribute per the escrow procedure above before retiring the old split.
 
 ---
 

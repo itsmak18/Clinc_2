@@ -33,7 +33,7 @@ require('fs').writeFileSync('./secrets/jwt_public_key',  kp.publicKey);
 chmod 600 ./secrets/jwt_private_key ./secrets/jwt_public_key
 ```
 
-**Losing `field_encryption_key` = total PHI loss.** Escrow it before first prod boot — see [docs/FIELD_ENCRYPTION_KEY_MANAGEMENT.md](../docs/FIELD_ENCRYPTION_KEY_MANAGEMENT.md). Rotation procedures live in [SECURITY.md](../SECURITY.md#secret-management).
+**Losing `field_encryption_key` = total PHI loss.** Escrow it before first prod boot — see [docs/FIELD_ENCRYPTION_KEY_MANAGEMENT.md](../docs/FIELD_ENCRYPTION_KEY_MANAGEMENT.md). Rotation procedures live in [SECURITY.md](../docs/SECURITY.md#secret-management).
 
 ## Why files instead of env vars
 
