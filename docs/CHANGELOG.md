@@ -441,7 +441,7 @@ Fixed a latent response-shape regression on the five doctor-bound clinical **lis
 
 ## Principal zero-trust re-audit — 8.4/10, no open criticals; jti control found unarmed (2026-06-14)
 
-Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `../HANDOFF.md`.
+Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `HANDOFF.md`.
 
 - **20 security/architecture claims VERIFIED first-hand** (auth kernel, dormant RLS + `medicore_app`, break-glass read-only `0024`, AES-256-GCM prod-fail-closed, batched audit outbox, **daily** integrity verification wired in `cron.ts:127-142`, ESLint service/route + raw-`db` boundary, login CSRF-exempt-by-design).
 - **F-Z1 (Medium, net-new) — jti replay defense is UNARMED:** `policy.ts:169` checks `isJtiUsed()` but **nothing in prod calls `markJtiUsed()`** (grep: stores+tests only) → protects zero live routes. ADR-007 acknowledges "latent." Decide arm-vs-remove (→ ADR-014).
@@ -814,7 +814,7 @@ Closes the four operational gaps that left the platform blind in production. All
 - After each successful run, `monitoring/backup-metrics.sh` writes `backup_last_success_timestamp_seconds` to a shared `backup_metrics` volume for the future node_exporter textfile collector.
 - New alerts in `prometheus-alerts.yml`: `BackupStale` (>26 h since success, critical) and `BackupMissingTextfile` (>6 h absent series, warning).
 
-### Rollback procedure ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [.github/workflows/ci.yml](Clinic-Hub/.github/workflows/ci.yml), [RUNBOOK.md](Clinic-Hub/RUNBOOK.md))
+### Rollback procedure ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [.github/workflows/ci.yml](Clinic-Hub/.github/workflows/ci.yml), [RUNBOOK.md](Clinic-Hub/docs/RUNBOOK.md))
 - `api` and `worker` services now resolve `image: ${API_IMAGE:-medicore-api:latest}` / `${WORKER_IMAGE:-${API_IMAGE:-medicore-api:latest}}`, keeping `build:` as a fallback. Deploys flip the tag in `.env` and `docker compose up -d --no-build`.
 - CI gained an `Emit deploy tag` step on main that writes `API_IMAGE=registry/medicore-api:<short-sha>` to the GitHub Actions step summary — copy-paste into `.env` to deploy. PRs skip this step.
 - RUNBOOK §10 (Deployment & Rollback) documents the env-snapshot workflow, migration-direction check (Drizzle has no down migrations — rolling back a destructive migration is roll-forward-hotfix or restore-from-backup), and explicitly notes blue-green is deferred to D2.

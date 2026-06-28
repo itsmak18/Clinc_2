@@ -126,7 +126,7 @@ groups:
           severity: warning
         annotations:
           summary: "audit_logs partition horizon < 24 months"
-          description: "Only {{ $value }} future monthly audit_logs partitions remain. Rows will overflow into the DEFAULT partition when the horizon is exhausted, preventing month-granularity pruning and HIPAA partition-drop retention. Land a follow-up migration (see ADR-009-audit-partitioning.md) to pre-create additional monthly partitions."
+          description: "Only {{ $value }} future monthly audit_logs partitions remain. Rows will overflow into the DEFAULT partition when the horizon is exhausted, preventing month-granularity pruning and HIPAA partition-drop retention. Land a follow-up migration (see docs/adr/ADR-009-audit-partitioning.md) to pre-create additional monthly partitions."
 
       # SSE connection capacity: active client connections approaching the limit.
       # Capped at 500 per process (SSE_MAX_CONNECTIONS). Above 400 (80%) starts to
@@ -139,6 +139,38 @@ groups:
         annotations:
           summary: "High SSE Connections (> 80% capacity)"
           description: "Active Server-Sent Events connections are {{ $value }}, which is exceeding 80% of the 500-connection limit per process."
+
+      # Break-glass audit durability (2026-06-27). Three tiers:
+      # 1. Fallback used — primary audit_logs insert failed, event diverted to local sink.
+      # 2. Loss — both primary AND fallback failed — HIPAA compliance incident.
+      # 3. Backlog — fallback sink not draining (reconcile stuck or DB sustained outage).
+
+      - alert: BreakGlassAuditFallback
+        expr: increase(break_glass_audit_fallback_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Break-glass audit primary failed — events in local fallback sink"
+          description: "{{ $value }} break-glass audit event(s) could not be written directly to audit_logs in the last 5 minutes and were diverted to the local JSONL fallback sink. This indicates the audit DB is degraded. Events are NOT lost — they will reconcile when the DB recovers. Check audit_logs Postgres health and disk space."
+
+      - alert: BreakGlassAuditLoss
+        expr: increase(break_glass_audit_failures_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Break-glass audit loss — PHI accessed without durable audit record"
+          description: "{{ $value }} break-glass audit event(s) could not be written to EITHER audit_logs OR the local fallback sink in the last 5 minutes. Emergency PHI was accessed without a durable audit trail. This is a HIPAA §164.312(a)(2)(ii) compliance incident requiring immediate investigation. Check break_glass_audit_fallback_failed_event_unrecorded log entries."
+
+      - alert: BreakGlassAuditFallbackBacklog
+        expr: break_glass_audit_fallback_pending > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Break-glass audit fallback sink has unreconciled events (> 10 min)"
+          description: "{{ $value }} break-glass audit event(s) have been sitting in the local JSONL fallback sink for more than 10 minutes without reconciling into audit_logs. The 60-second reconcile loop may be stuck or Postgres sustained write pressure. Check audit_logs insert health and worker process status."
 
   # ── Infrastructure-level alerts ───────────────────────────────────────────────
   # The exporters these rules depend on ARE deployed in docker-compose.prod.yml as
@@ -231,3 +263,19 @@ groups:
         annotations:
           summary: "backup_last_success_timestamp_seconds series missing"
           description: "node_exporter has not exposed a backup textfile metric for 6 hours. Either backup-metrics.sh is not running on success or the /metrics volume mount is broken."
+
+  - name: medicore-security-alerts
+    rules:
+      # Break-glass velocity: a user activating more than 3 sessions per hour
+      # is statistically anomalous and may indicate insider PHI-browsing abuse.
+      # Real emergencies rarely require > 3 break-glass activations in an hour.
+      # The app also emits a real-time SSE velocity alert to compliance officers
+      # at the same threshold.
+      - alert: BreakGlassVelocity
+        expr: increase(break_glass_activations_total[1h]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High break-glass activation rate for user {{ $labels.user_id }}"
+          description: "User {{ $labels.user_id }} in clinic {{ $labels.clinic_id }} has activated break-glass {{ $value }} times in the last hour (threshold: 3). Review audit logs for possible insider abuse."

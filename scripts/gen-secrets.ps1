@@ -8,7 +8,7 @@
 # jwt_private_key + jwt_public_key (matched Ed25519 pair), backup_ssh_key.
 #
 # ⚠ field_encryption_key + jwt_private_key are PHI-loss-critical — escrow them
-#   (see SECURITY.md / docs/BACKUP_KEY_MANAGEMENT.md) before any real-PHI boot.
+#   (see docs/SECURITY.md / docs/BACKUP_KEY_MANAGEMENT.md) before any real-PHI boot.
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

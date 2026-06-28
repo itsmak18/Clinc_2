@@ -7,7 +7,7 @@ The MediCore platform is designed to handle Protected Health Information (PHI) a
 ### Key Security Invariants
 
 1.  **Centralized RBAC:** All API routes enforce Role-Based Access Control (RBAC). The `super_admin` role bypasses role arrays but NOT state machine invariants or data-scoping rules.
-2.  **Strict Data Scoping:** Doctors can only access medical records and prescriptions for patients they have seen (or if explicitly marked as global).
+2.  **Strict Data Scoping:** Doctors can only access patient data — medical records, prescriptions, lab/x-ray/ultrasound results, vitals, and appointments — for patients they have a treating relationship with (an appointment assigned to them). The only exception is an active **break-glass** session (read-only, fully audited). There is no "global record" escape hatch — the `isGlobal`/`globalReason` flags were removed in migration 0011.
 3.  **PHI Audit Logging:** Every read, create, update, or void action involving PHI is logged centrally to the `audit_logs` table with context.
 4.  **Immutable Medical Records:** Prescriptions and medical records cannot be hard-deleted. They are soft-deleted with a reason for auditability.
 5.  **CSRF Protection:** All mutating actions (POST, PUT, PATCH, DELETE) require a valid CSRF token, checked via a double-submit cookie pattern.
@@ -21,7 +21,7 @@ Secrets that can decrypt PHI or forge sessions live in `./secrets/` as files (mo
 | `./secrets/postgres_password` | Bootstrap superuser PG password — migrate container only | `openssl rand -base64 48` |
 | `./secrets/app_db_password` | `medicore_app` role password — api + worker (F-01 fix, ADR-008) | `openssl rand -base64 48 \| tr -d '\n'` |
 | `./secrets/session_secret` | HMAC key for device-fingerprint HMAC (Phase 2 device trust) — see [lib/device-fingerprint.ts](artifacts/api-server/src/lib/device-fingerprint.ts) | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `./secrets/field_encryption_key` | AES-256-GCM for diagnosis/vitals/medications/allergies/emergencyContact — see [lib/field-encryption.ts](artifacts/api-server/src/lib/field-encryption.ts) | same Node generator |
+| `./secrets/field_encryption_key` | AES-256-GCM for diagnosis/vitals/medications/allergies/emergencyContact, the `vitals` table, and `imaging_attachments` study files — see [lib/field-encryption.ts](artifacts/api-server/src/lib/field-encryption.ts) | same Node generator |
 | `./secrets/metrics_token` | Bearer auth for `/metrics` | `openssl rand -hex 32` |
 | `./secrets/jwt_private_key` | Ed25519 private key — signs all JWTs — see [lib/jwt-secret.ts](artifacts/api-server/src/lib/jwt-secret.ts) | Atomic pair generator — see [secrets/README.md](secrets/README.md) |
 | `./secrets/jwt_public_key` | Ed25519 public key — advertised at `GET /.well-known/jwks.json` for verifiers | Same atomic pair generator (must match `jwt_private_key`) |
@@ -132,8 +132,12 @@ Step-by-step:
      `export FIELD_ENCRYPTION_KEY_NEXT="$$(cat /run/secrets/field_encryption_key_next)"`
 3. **Redeploy**: `docker compose -f docker-compose.prod.yml up -d api`. The api now decrypts both kid=1 (old) and kid=2 (new) envelopes. New writes still use kid=1.
 4. **Promote the new key for writes**: in the api service's `environment:` block, set `FIELD_ENCRYPTION_KEY_WRITE_KID: "2"`. Redeploy. New writes now produce `enc:v2:2:...`. Old rows continue to decrypt with kid=1.
-5. **(Optional, eventual) Migrate old rows**: any service-layer write to an encrypted column produces a new envelope under kid=2. To force-migrate dormant rows, write a one-off script that reads + rewrites each affected row. PHI columns are: `patients.allergies`, `patients.emergencyContact`, `medical_records.diagnosis`, `medical_records.vitals`, `prescriptions.medications`.
-6. **Retire the old key**: once you've verified no v1 / kid=1 envelopes remain (`SELECT count(*) WHERE encrypted_col LIKE 'enc:v1:%' OR encrypted_col LIKE 'enc:v2:1:%'` over each affected table), remove `field_encryption_key` from compose, rename `field_encryption_key_next` to `field_encryption_key`, and reset `FIELD_ENCRYPTION_KEY_WRITE_KID` back to `"1"`. You're now on a single fresh key with the kid namespace reset.
+5. **(Optional, eventual) Migrate old rows**: any service-layer write to an encrypted column produces a new envelope under kid=2. To force-migrate dormant rows, write a one-off script that reads + rewrites each affected row. **Field-encrypted text/JSONB columns** are: `patients.allergies`, `patients.emergencyContact`, `medical_records.diagnosis`, `medical_records.vitals`, `prescriptions.medications`, and `vitals.vitals` (the rapid-entry vitals table). **Imaging study files** (`imaging_attachments`) are a separate case — the encrypted `.enc` files on the imaging volume use the *same* key registry, with the kid stored per-row in `imaging_attachments.enc_kid`. Re-encrypting them means reading each file via `decryptBuffer` and rewriting it with `encryptBuffer` under the new write kid, then updating `enc_kid`/`enc_iv`/`enc_tag` — not a SQL column rewrite. **Rule: any new field-encrypted column or file added later MUST be appended to this list and to step 6's verification** (mirrors the "new PHI table ⇒ extend `executeErasure`" discipline).
+6. **Retire the old key**: verify NO data remains under the old kid before removing it — check **every** encrypted store, not just the text columns:
+   - **Text / JSONB columns** — for each of `patients.allergies`, `patients.emergencyContact`, `medical_records.diagnosis`, `medical_records.vitals`, `prescriptions.medications`, `vitals.vitals`: `SELECT count(*) ... WHERE col LIKE 'enc:v1:%' OR col LIKE 'enc:v2:1:%'` must be 0.
+   - **Imaging files** — `SELECT count(*) FROM imaging_attachments WHERE enc_kid = '1' AND deleted_at IS NULL` must be 0 (and the matching on-disk `.enc` files re-encrypted under the new kid).
+
+   Only when **every** count is 0: remove `field_encryption_key` from compose, rename `field_encryption_key_next` to `field_encryption_key`, and reset `FIELD_ENCRYPTION_KEY_WRITE_KID` back to `"1"`. You're now on a single fresh key with the kid namespace reset. **Removing the old key while any count is > 0 permanently destroys that PHI** — `decrypt`/`decryptBuffer` throw on an unregistered kid.
 
 **Never delete or replace `field_encryption_key` without first migrating all rows** — any v1 or v2-kid-1 envelope becomes unreadable if its key is removed from the registry. The new module throws a clear error on read in that case, but the data is effectively lost.
 
@@ -195,6 +199,41 @@ labs during intake before the doctor documents a treatment plan). The PHI produc
 those orders is still protected by RLS tenant isolation, doctor-scope, field encryption,
 and full audit logging. Revisit this decision if a regulatory regime is selected that
 treats diagnostic ordering as a consented act.
+
+## CVE Response Policy
+
+Dependency vulnerabilities are surfaced by:
+- The `audit` job on every CI run — blocks PRs on HIGH/CRITICAL findings at install time.
+- The weekly `audit-weekly.yml` job — re-audits the locked tree and opens a `security`-labeled issue on new HIGH/CRITICAL findings disclosed since the last install.
+
+Resolution SLA:
+
+| Severity | Time to resolve | Notes |
+|---|---|---|
+| CRITICAL | 7 days | Patch, pin, or pre-merge-block; document in `.pnpmauditignore` only if no fix is available and impact is mitigated. |
+| HIGH | 7 days | Same as above. |
+| MEDIUM | 30 days | Patch or document; review at next planning interval. |
+| LOW | Tracked, not blocking | Address opportunistically. |
+
+If a vulnerability has no upstream fix, add an entry to `.pnpmauditignore` with the CVE/advisory ID, the dependency path, a one-line justification (why it's not exploitable in our usage), and a review date (+90 days).
+
+## Metrics Endpoint Protection
+
+`GET /metrics` (Prometheus scrape endpoint) is gated by a bearer token in production. Set `METRICS_TOKEN` in the server environment; the endpoint returns 401 if the `Authorization: Bearer <token>` header doesn't match. In development (`METRICS_TOKEN` unset) the endpoint is open. See `.env.example` for the generation command. Never expose Grafana via Caddy — SSH-tunnel only (`127.0.0.1:3000`).
+
+## Secrets Scanning
+
+`gitleaks` runs on every PR via `.github/workflows/ci.yml`. Findings block the build. If a secret was committed historically, rotate it — removing it from git history without rotation is not sufficient.
+
+**Local pre-commit gap:** CI scans on push but there is no local pre-commit hook yet. Add one to catch secrets before they leave the machine:
+```bash
+# requires gitleaks installed (https://github.com/gitleaks/gitleaks)
+cat > .git/hooks/pre-commit << 'EOF'
+#!/bin/sh
+gitleaks protect --staged --redact --no-banner
+EOF
+chmod +x .git/hooks/pre-commit
+```
 
 ## Vulnerability Disclosure Policy
 
