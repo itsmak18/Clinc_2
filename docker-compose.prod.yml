@@ -21,7 +21,7 @@
 #        ./secrets/jwt_public_key            — Ed25519 SPKI PEM (advertised via /.well-known/jwks.json)
 #                                              node -e "const c=require('crypto');const {publicKey}=c.generateKeyPairSync('ed25519',{publicKeyEncoding:{type:'spki',format:'pem'}});process.stdout.write(publicKey)" > ./secrets/jwt_public_key
 #                                              IMPORTANT: jwt_private_key and jwt_public_key must be a matched pair.
-#                                              Use the rotation script to generate both atomically: see SECURITY.md §JWT key rotation.
+#                                              Use the rotation script to generate both atomically: see docs/SECURITY.md §JWT key rotation.
 #   3. TLS termination in front of this stack (see Caddy block below or D1 plan item)
 #
 # Pre-flight validation:
@@ -134,7 +134,7 @@ services:
         # Pre-cutover smoke gate: verify medicore_app can connect and is a
         # non-superuser (NOSUPERUSER NOBYPASSRLS). If grants are wrong or the
         # role was somehow created as a superuser, this fails migrate → api/worker
-        # never start (cleaner than a crash-loop). See ADR-008-app-db-role.md.
+        # never start (cleaner than a crash-loop). See docs/adr/ADR-008-app-db-role.md.
         PGPASSWORD="$$APP_PW" psql \
           "postgresql://medicore_app@postgres:5432/${POSTGRES_DB}" \
           -v ON_ERROR_STOP=1 \
@@ -259,7 +259,7 @@ services:
   # device fingerprinting only (lib/device-fingerprint.ts).
   api:
     # Rollback support: pin a tagged image in .env (API_IMAGE=registry/medicore-api:<sha>)
-    # for production. Falls back to local build when API_IMAGE is unset. See RUNBOOK.md §1.2.
+    # for production. Falls back to local build when API_IMAGE is unset. See docs/RUNBOOK.md §1.2.
     image: ${API_IMAGE:-medicore-api:latest}
     build:
       context: .
@@ -279,9 +279,14 @@ services:
       # Persisted on the imaging_data volume — read_only rootfs does not apply to
       # mounted volumes. MUST be included in the backup set (see backup service).
       IMAGING_STORAGE_DIR: /data/imaging
-    # imaging_data is writable even though the rootfs is read-only (volume mount).
+      # Break-glass audit fallback sink — append-only JSONL when audit_logs insert fails.
+      # Reconciled back into audit_logs by the 60-second background loop (worker.ts).
+      # MUST be included in the backup set so no emergency-access audit is lost.
+      BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
+    # imaging_data and bg_audit_data are writable even with read-only rootfs (volume mounts).
     volumes:
       - imaging_data:/data/imaging
+      - bg_audit_data:/data/bg-audit
     entrypoint: ["sh", "-c"]
     # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
     # $$( ) escapes so command-substitution happens inside the container at run time.
@@ -371,8 +376,12 @@ services:
       # Same imaging volume as api — the erasure path purges image files, and
       # mounting it keeps the worker able to operate on them if moved here later.
       IMAGING_STORAGE_DIR: /data/imaging
+      # Break-glass audit fallback sink — same volume as api so the 60-second
+      # reconcile loop in the worker drains whichever process wrote to it.
+      BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
     volumes:
       - imaging_data:/data/imaging
+      - bg_audit_data:/data/bg-audit
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -782,6 +791,7 @@ services:
       - backup_data:/backups
       - backup_metrics:/metrics
       - imaging_data:/data/imaging:ro   # read-only — snapshot the encrypted study files
+      - bg_audit_data:/data/bg-audit:ro # read-only — snapshot break-glass audit fallback sink
       - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
       # GPG keyring is read-only — the backup container only needs the recipient
       # PUBLIC key to encrypt. The private key lives on the restore host only
@@ -829,6 +839,10 @@ volumes:
   imaging_data:       # Uploaded X-ray / ultrasound image files (AES-256-GCM at rest).
                       # Mounted rw into api+worker, ro into backup. Mount a host
                       # path or NFS in prod for durability beyond container lifetime.
+  bg_audit_data:      # Break-glass audit fallback JSONL sink.
+                      # Mounted rw into api+worker (both may append), ro into backup.
+                      # Reconciled into audit_logs by the 60-second worker loop.
+                      # Mount a host path or NFS for durability beyond container lifetime.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 # All files: mode 0600 owned by the deploy user. Never check into git.
@@ -841,7 +855,7 @@ volumes:
 #   # JWT key pair — generate both atomically:
 #   node -e "const c=require('crypto');const kp=c.generateKeyPairSync('ed25519',{privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});require('fs').writeFileSync('./secrets/jwt_private_key',kp.privateKey);require('fs').writeFileSync('./secrets/jwt_public_key',kp.publicKey)"
 # Then: chmod 600 ./secrets/*
-# Rotation: see SECURITY.md §"JWT key rotation" and §"Secret rotation".
+# Rotation: see docs/SECURITY.md §"JWT key rotation" and §"Secret rotation".
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
