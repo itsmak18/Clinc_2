@@ -9,6 +9,7 @@ import {
   listPrescriptions,
   createPrescription,
   getPrescription,
+  dispensePrescription,
   voidPrescription,
   sendPrescriptionToPharmacy,
 } from "../services/prescriptions.service";
@@ -47,6 +48,17 @@ router.get(
     const id = safeParseInt(req.params.prescriptionId);
     if (!id) throw new ValidationError("Invalid prescription ID");
     res.json(await getPrescription(req, id));
+  }),
+);
+
+// ── Dispense: pharmacist marks prescription as dispensed ─────────────────
+router.post(
+  "/prescriptions/:prescriptionId/dispense",
+  requireRole("super_admin", "admin", "pharmacist"),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const id = safeParseInt(req.params.prescriptionId);
+    if (!id) throw new ValidationError("Invalid prescription ID");
+    res.json(await dispensePrescription(req, id));
   }),
 );
 
