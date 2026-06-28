@@ -32,7 +32,7 @@
  *   " > ./secrets/jwt_private_key 2>./secrets/jwt_public_key
  *   chmod 600 ./secrets/jwt_private_key ./secrets/jwt_public_key
  *
- * Rotation procedure: see SECURITY.md "JWT key rotation" section.
+ * Rotation procedure: see docs/SECURITY.md "JWT key rotation" section.
  */
 
 import {
@@ -93,7 +93,7 @@ if (privateKeyPem && publicKeyPem) {
 } else if (process.env.NODE_ENV === "production") {
   throw new Error(
     "JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production. " +
-    "See SECURITY.md for key generation instructions.",
+    "See docs/SECURITY.md for key generation instructions.",
   );
 } else {
   logger.warn(

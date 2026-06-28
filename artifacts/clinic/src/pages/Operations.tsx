@@ -37,7 +37,8 @@ export default function Operations() {
   const [team, setTeam] = useState<TeamMember[]>([]);
 
   const params = { status: filterStatus as any || undefined };
-  const { data: operations, isLoading } = useListOperations(params, { query: { queryKey: getListOperationsQueryKey(params) } });
+  const { data: operationsResp, isLoading } = useListOperations(params, { query: { queryKey: getListOperationsQueryKey(params) } });
+  const operations = operationsResp?.data ?? [];
   // Read-only "view all information" detail — opened by clicking a row.
   const [viewOp, setViewOp] = useState<NonNullable<typeof operations>[number] | null>(null);
   // Reject flow — the operation pending decline + its optional reason.
