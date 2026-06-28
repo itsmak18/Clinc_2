@@ -1405,6 +1405,8 @@ export const GetAppointmentDischargeResponse = zod.object({
       ),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
+      dispensedAt: zod.coerce.date().nullish(),
+      dispensedById: zod.number().nullish(),
       createdAt: zod.coerce.date(),
     }),
   ),
@@ -2807,6 +2809,8 @@ export const ListPrescriptionsResponseItem = zod.object({
   ),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
+  dispensedAt: zod.coerce.date().nullish(),
+  dispensedById: zod.number().nullish(),
   createdAt: zod.coerce.date(),
 });
 export const ListPrescriptionsResponse = zod.array(
@@ -2901,6 +2905,81 @@ export const GetPrescriptionResponse = zod.object({
   ),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
+  dispensedAt: zod.coerce.date().nullish(),
+  dispensedById: zod.number().nullish(),
+  createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Pharmacist marks a prescription as dispensed
+ */
+export const DispensePrescriptionParams = zod.object({
+  prescriptionId: zod.coerce.number(),
+});
+
+export const DispensePrescriptionResponse = zod.object({
+  id: zod.number(),
+  patientId: zod.number(),
+  doctorId: zod.number(),
+  recordId: zod.number().nullish(),
+  patient: zod
+    .object({
+      id: zod.number(),
+      mrn: zod.string(),
+      idCardNumber: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      dateOfBirth: zod.coerce.date(),
+      gender: zod.enum(["male", "female"]),
+      phone: zod.string(),
+      address: zod.string().nullish(),
+      bloodType: zod.string().nullish(),
+      allergies: zod.string().nullish(),
+      emergencyContact: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  doctor: zod
+    .object({
+      id: zod.number(),
+      username: zod.string(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().optional(),
+      email: zod.string().optional(),
+      role: zod.enum([
+        "super_admin",
+        "admin",
+        "doctor",
+        "nurse",
+        "front_desk",
+        "xray_staff",
+        "lab_staff",
+      ]),
+      isActive: zod.boolean(),
+      isOnShift: zod.boolean(),
+      phone: zod.string().nullish(),
+      addressLine: zod.string().nullish(),
+      city: zod.string().nullish(),
+      region: zod.string().nullish(),
+      postalCode: zod.string().nullish(),
+      country: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    })
+    .optional(),
+  medications: zod.array(
+    zod.object({
+      name: zod.string(),
+      dosage: zod.string(),
+      frequency: zod.string(),
+      duration: zod.string(),
+      instructions: zod.string().nullish(),
+    }),
+  ),
+  notes: zod.string().nullish(),
+  notesAr: zod.string().nullish(),
+  dispensedAt: zod.coerce.date().nullish(),
+  dispensedById: zod.number().nullish(),
   createdAt: zod.coerce.date(),
 });
 
@@ -4105,23 +4184,36 @@ export const GetBillingReconciliationResponse = zod.object({
 /**
  * @summary List priced services (price book)
  */
+export const listServicesQueryLimitMax = 100;
+
 export const ListServicesQueryParams = zod.object({
   category: zod.coerce.string().optional(),
   includeInactive: zod.coerce.boolean().optional(),
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce.number().max(listServicesQueryLimitMax).optional(),
 });
 
-export const ListServicesResponseItem = zod.object({
-  id: zod.number(),
-  name: zod.string(),
-  nameAr: zod.string().nullish(),
-  description: zod.string().nullish(),
-  defaultPrice: zod.string(),
-  category: zod.string().nullish(),
-  code: zod.string().nullish(),
-  active: zod.boolean(),
-  createdAt: zod.coerce.date(),
+export const ListServicesResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      nameAr: zod.string().nullish(),
+      description: zod.string().nullish(),
+      defaultPrice: zod.string(),
+      category: zod.string().nullish(),
+      code: zod.string().nullish(),
+      active: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
 });
-export const ListServicesResponse = zod.array(ListServicesResponseItem);
 
 /**
  * @summary Add a priced service
@@ -4181,111 +4273,124 @@ export const DeleteServiceParams = zod.object({
 /**
  * @summary List operations/surgeries
  */
+export const listOperationsQueryLimitMax = 100;
+
 export const ListOperationsQueryParams = zod.object({
   status: zod
     .enum(["scheduled", "in_progress", "completed", "cancelled"])
     .optional(),
   dateFrom: zod.date().optional(),
   dateTo: zod.date().optional(),
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce.number().max(listOperationsQueryLimitMax).optional(),
 });
 
-export const ListOperationsResponseItem = zod.object({
-  id: zod.number(),
-  patientId: zod.number(),
-  surgeonId: zod.number(),
-  requestedById: zod.number().nullish(),
-  patient: zod
-    .object({
-      id: zod.number(),
-      mrn: zod.string(),
-      idCardNumber: zod.string(),
-      fullName: zod.string(),
-      fullNameAr: zod.string().optional(),
-      dateOfBirth: zod.coerce.date(),
-      gender: zod.enum(["male", "female"]),
-      phone: zod.string(),
-      address: zod.string().nullish(),
-      bloodType: zod.string().nullish(),
-      allergies: zod.string().nullish(),
-      emergencyContact: zod.string().nullish(),
-      isActive: zod.boolean(),
-      createdAt: zod.coerce.date(),
-    })
-    .optional(),
-  surgeon: zod
-    .object({
-      id: zod.number(),
-      username: zod.string(),
-      fullName: zod.string(),
-      fullNameAr: zod.string().optional(),
-      email: zod.string().optional(),
-      role: zod.enum([
-        "super_admin",
-        "admin",
-        "doctor",
-        "nurse",
-        "front_desk",
-        "xray_staff",
-        "lab_staff",
-      ]),
-      isActive: zod.boolean(),
-      isOnShift: zod.boolean(),
-      phone: zod.string().nullish(),
-      addressLine: zod.string().nullish(),
-      city: zod.string().nullish(),
-      region: zod.string().nullish(),
-      postalCode: zod.string().nullish(),
-      country: zod.string().nullish(),
-      createdAt: zod.coerce.date(),
-    })
-    .optional(),
-  requestedBy: zod
-    .object({
-      id: zod.number(),
-      username: zod.string(),
-      fullName: zod.string(),
-      fullNameAr: zod.string().optional(),
-      email: zod.string().optional(),
-      role: zod.enum([
-        "super_admin",
-        "admin",
-        "doctor",
-        "nurse",
-        "front_desk",
-        "xray_staff",
-        "lab_staff",
-      ]),
-      isActive: zod.boolean(),
-      isOnShift: zod.boolean(),
-      phone: zod.string().nullish(),
-      addressLine: zod.string().nullish(),
-      city: zod.string().nullish(),
-      region: zod.string().nullish(),
-      postalCode: zod.string().nullish(),
-      country: zod.string().nullish(),
-      createdAt: zod.coerce.date(),
-    })
-    .optional(),
-  procedureName: zod.string(),
-  scheduledAt: zod.coerce.date(),
-  operatingRoom: zod.string(),
-  status: zod.enum([
-    "requested",
-    "scheduled",
-    "in_progress",
-    "completed",
-    "cancelled",
-  ]),
-  staffAssigned: zod.array(
+export const ListOperationsResponse = zod.object({
+  data: zod.array(
     zod.object({
-      userId: zod.number(),
-      role: zod.string().optional(),
+      id: zod.number(),
+      patientId: zod.number(),
+      surgeonId: zod.number(),
+      requestedById: zod.number().nullish(),
+      patient: zod
+        .object({
+          id: zod.number(),
+          mrn: zod.string(),
+          idCardNumber: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          dateOfBirth: zod.coerce.date(),
+          gender: zod.enum(["male", "female"]),
+          phone: zod.string(),
+          address: zod.string().nullish(),
+          bloodType: zod.string().nullish(),
+          allergies: zod.string().nullish(),
+          emergencyContact: zod.string().nullish(),
+          isActive: zod.boolean(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      surgeon: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      requestedBy: zod
+        .object({
+          id: zod.number(),
+          username: zod.string(),
+          fullName: zod.string(),
+          fullNameAr: zod.string().optional(),
+          email: zod.string().optional(),
+          role: zod.enum([
+            "super_admin",
+            "admin",
+            "doctor",
+            "nurse",
+            "front_desk",
+            "xray_staff",
+            "lab_staff",
+          ]),
+          isActive: zod.boolean(),
+          isOnShift: zod.boolean(),
+          phone: zod.string().nullish(),
+          addressLine: zod.string().nullish(),
+          city: zod.string().nullish(),
+          region: zod.string().nullish(),
+          postalCode: zod.string().nullish(),
+          country: zod.string().nullish(),
+          createdAt: zod.coerce.date(),
+        })
+        .optional(),
+      procedureName: zod.string(),
+      scheduledAt: zod.coerce.date(),
+      operatingRoom: zod.string(),
+      status: zod.enum([
+        "requested",
+        "scheduled",
+        "in_progress",
+        "completed",
+        "cancelled",
+      ]),
+      staffAssigned: zod.array(
+        zod.object({
+          userId: zod.number(),
+          role: zod.string().optional(),
+        }),
+      ),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
     }),
   ),
-  notes: zod.string().nullish(),
-  createdAt: zod.coerce.date(),
+  nextCursor: zod.number().nullable(),
 });
-export const ListOperationsResponse = zod.array(ListOperationsResponseItem);
 
 /**
  * @summary Schedule an operation
@@ -4536,27 +4641,38 @@ export const UpdateOperationResponse = zod.object({
 /**
  * @summary List inventory items
  */
+export const listInventoryItemsQueryLimitMax = 100;
+
 export const ListInventoryItemsQueryParams = zod.object({
   search: zod.coerce.string().optional(),
   lowStock: zod.coerce.boolean().optional(),
   expired: zod.coerce.boolean().optional(),
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce.number().max(listInventoryItemsQueryLimitMax).optional(),
 });
 
-export const ListInventoryItemsResponseItem = zod.object({
-  id: zod.number(),
-  name: zod.string(),
-  category: zod.string(),
-  quantity: zod.number(),
-  unit: zod.string(),
-  minimumStock: zod.number(),
-  expiryDate: zod.coerce.date().nullish(),
-  notes: zod.string().nullish(),
-  isActive: zod.boolean(),
-  createdAt: zod.coerce.date(),
+export const ListInventoryItemsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      category: zod.string(),
+      quantity: zod.number(),
+      unit: zod.string(),
+      minimumStock: zod.number(),
+      expiryDate: zod.coerce.date().nullish(),
+      notes: zod.string().nullish(),
+      isActive: zod.boolean(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
 });
-export const ListInventoryItemsResponse = zod.array(
-  ListInventoryItemsResponseItem,
-);
 
 /**
  * @summary Add inventory item
@@ -4828,20 +4944,39 @@ export const ListPatientConsentsParams = zod.object({
   patientId: zod.coerce.number(),
 });
 
-export const ListPatientConsentsResponseItem = zod.object({
-  id: zod.number(),
-  patientId: zod.number(),
-  consentType: zod.enum(["treatment", "data_sharing", "research", "marketing"]),
-  grantedAt: zod.coerce.date(),
-  revokedAt: zod.coerce.date().nullish(),
-  grantedByUserId: zod.number(),
-  documentVersion: zod.string(),
-  notes: zod.string().nullish(),
-  createdAt: zod.coerce.date(),
+export const listPatientConsentsQueryLimitMax = 100;
+
+export const ListPatientConsentsQueryParams = zod.object({
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce.number().max(listPatientConsentsQueryLimitMax).optional(),
 });
-export const ListPatientConsentsResponse = zod.array(
-  ListPatientConsentsResponseItem,
-);
+
+export const ListPatientConsentsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      consentType: zod.enum([
+        "treatment",
+        "data_sharing",
+        "research",
+        "marketing",
+      ]),
+      grantedAt: zod.coerce.date(),
+      revokedAt: zod.coerce.date().nullish(),
+      grantedByUserId: zod.number(),
+      documentVersion: zod.string(),
+      notes: zod.string().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
+});
 
 /**
  * @summary Grant a consent for a patient
@@ -4899,27 +5034,41 @@ export const ActivateBreakGlassBody = zod.object({
 /**
  * @summary List break-glass sessions
  */
+export const listBreakGlassSessionsQueryLimitMax = 100;
+
 export const ListBreakGlassSessionsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
   active: zod.coerce.string().optional(),
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce
+    .number()
+    .max(listBreakGlassSessionsQueryLimitMax)
+    .optional(),
 });
 
-export const ListBreakGlassSessionsResponseItem = zod.object({
-  id: zod.number(),
-  userId: zod.number(),
-  patientId: zod.number(),
-  justification: zod.string(),
-  activatedAt: zod.coerce.date(),
-  expiresAt: zod.coerce.date(),
-  approvedAt: zod.coerce.date().nullish(),
-  approvedByUserId: zod.number().nullish(),
-  revokedAt: zod.coerce.date().nullish(),
-  revokedByUserId: zod.number().nullish(),
-  createdAt: zod.coerce.date(),
+export const ListBreakGlassSessionsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      userId: zod.number(),
+      patientId: zod.number(),
+      justification: zod.string(),
+      activatedAt: zod.coerce.date(),
+      expiresAt: zod.coerce.date(),
+      approvedAt: zod.coerce.date().nullish(),
+      approvedByUserId: zod.number().nullish(),
+      revokedAt: zod.coerce.date().nullish(),
+      revokedByUserId: zod.number().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
 });
-export const ListBreakGlassSessionsResponse = zod.array(
-  ListBreakGlassSessionsResponseItem,
-);
 
 /**
  * @summary Approve a break-glass session (extend to full TTL)
@@ -4966,23 +5115,37 @@ export const RevokeBreakGlassResponse = zod.object({
 /**
  * @summary List right-to-erasure requests
  */
-export const ListErasureRequestsResponseItem = zod.object({
-  id: zod.number(),
-  patientId: zod.number(),
-  requestedByUserId: zod.number(),
-  requestedAt: zod.coerce.date(),
-  reason: zod.string(),
-  status: zod.enum(["pending", "approved", "rejected", "executed"]),
-  reviewedByUserId: zod.number().nullish(),
-  reviewedAt: zod.coerce.date().nullish(),
-  reviewNotes: zod.string().nullish(),
-  executedByUserId: zod.number().nullish(),
-  executedAt: zod.coerce.date().nullish(),
-  createdAt: zod.coerce.date(),
+export const listErasureRequestsQueryLimitMax = 100;
+
+export const ListErasureRequestsQueryParams = zod.object({
+  cursor: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Opaque cursor (last id from previous page). Omit on the first request.",
+    ),
+  limit: zod.coerce.number().max(listErasureRequestsQueryLimitMax).optional(),
 });
-export const ListErasureRequestsResponse = zod.array(
-  ListErasureRequestsResponseItem,
-);
+
+export const ListErasureRequestsResponse = zod.object({
+  data: zod.array(
+    zod.object({
+      id: zod.number(),
+      patientId: zod.number(),
+      requestedByUserId: zod.number(),
+      requestedAt: zod.coerce.date(),
+      reason: zod.string(),
+      status: zod.enum(["pending", "approved", "rejected", "executed"]),
+      reviewedByUserId: zod.number().nullish(),
+      reviewedAt: zod.coerce.date().nullish(),
+      reviewNotes: zod.string().nullish(),
+      executedByUserId: zod.number().nullish(),
+      executedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+  nextCursor: zod.number().nullable(),
+});
 
 /**
  * @summary Create a right-to-erasure request
@@ -5985,3 +6148,45 @@ export const GetDoctorAnalyticsResponse = zod.object({
  * @summary Receive a CSP violation report from the browser
  */
 export const SubmitCspReportBody = zod.object({}).passthrough();
+
+/**
+ * @summary Global search across patients, appointments, and medical records
+ */
+export const globalSearchQueryQMin = 2;
+export const globalSearchQueryQMax = 100;
+
+export const GlobalSearchQueryParams = zod.object({
+  q: zod.coerce.string().min(globalSearchQueryQMin).max(globalSearchQueryQMax),
+});
+
+export const GlobalSearchResponse = zod.object({
+  patients: zod.array(
+    zod.object({
+      id: zod.number(),
+      fullName: zod.string(),
+      fullNameAr: zod.string().nullish(),
+      mrn: zod.string(),
+      phone: zod.string().nullish(),
+      dateOfBirth: zod.string().nullish(),
+    }),
+  ),
+  appointments: zod.array(
+    zod.object({
+      id: zod.number(),
+      reason: zod.string(),
+      status: zod.string(),
+      scheduledAt: zod.string(),
+      patientName: zod.string().nullish(),
+      patientMrn: zod.string().nullish(),
+    }),
+  ),
+  records: zod.array(
+    zod.object({
+      id: zod.number(),
+      chiefComplaint: zod.string(),
+      createdAt: zod.string(),
+      patientName: zod.string().nullish(),
+      patientId: zod.number(),
+    }),
+  ),
+});

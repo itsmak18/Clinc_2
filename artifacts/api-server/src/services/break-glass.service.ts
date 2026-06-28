@@ -1,17 +1,24 @@
-import { runInTenantContext } from "@workspace/db";
+﻿import { runInTenantContext, dbUnsafe as db } from "@workspace/db";
 import { breakGlassSessionsTable, patientsTable, usersTable } from "@workspace/db";
-import { eq, and, isNull, isNotNull, gt, or, desc } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, gt, lt, or, desc, count, gte } from "drizzle-orm";
 import { logAudit } from "../lib/audit";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { emitToUser } from "../lib/sse";
+import { breakGlassActivationsTotal } from "../lib/metrics";
+import { logger } from "../lib/logger";
+import { config } from "../lib/config";
 import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "./errors";
 import type { AuthRequest } from "../middlewares/auth";
+
+// Activations per user in 24h above this threshold trigger a compliance alert.
+const BG_VELOCITY_THRESHOLD = config.bgVelocityThreshold;
 
 const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes (full TTL post-approval)
 const GRACE_MS = 5 * 60 * 1000;        // 5 minutes (unapproved auto-expire)
 const MIN_JUSTIFICATION_LENGTH = 30;
 
 // Approved emergency-access categories. Free-form justification still required.
-// Any unknown category is rejected — forces the caller to pick a reviewable reason.
+// Any unknown category is rejected â€” forces the caller to pick a reviewable reason.
 const APPROVED_REASON_CATEGORIES = new Set([
   "life_threatening_emergency",
   "patient_unconscious",
@@ -94,7 +101,7 @@ export async function getActiveBreakGlassPatientIds(userId: number, clinicId: nu
   return [...new Set(rows.map((r) => r.patientId))];
 }
 
-// Activate a break-glass session. The session is unapproved at activation —
+// Activate a break-glass session. The session is unapproved at activation â€”
 // access is granted for a 5-minute grace window; a compliance_officer must
 // approve via POST /break-glass/sessions/:id/approve to extend to full 15 min.
 // Alerts all same-clinic compliance_officers via SSE.
@@ -202,18 +209,49 @@ export async function activateBreakGlass(
     emitToUser(officer.id, "break_glass_activated", alertPayload);
   }
 
-  await logAudit(req, "BREAK_GLASS_ACTIVATED", "break_glass_session", session.id, {
+  await auditBreakGlass(req, "BREAK_GLASS_ACTIVATED", "break_glass_session", session.id, {
     patientId, justification, reasonCategory, expiresAt: session.expiresAt.toISOString(),
     graceExpiresAt: graceExpiresAt.toISOString(),
     alertedOfficers: complianceOfficers.length,
   });
+
+  breakGlassActivationsTotal.labels(String(userId), String(clinicId)).inc();
+
+  // Velocity check: count this user's activations in the last 24 hours.
+  // High rate = possible insider abuse. Alert compliance officers without blocking access.
+  try {
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [{ activationCount }] = await db
+      .select({ activationCount: count() })
+      .from(breakGlassSessionsTable)
+      .where(and(
+        eq(breakGlassSessionsTable.clinicId, clinicId),
+        eq(breakGlassSessionsTable.userId, userId),
+        gte(breakGlassSessionsTable.activatedAt, since24h),
+      ));
+    if (Number(activationCount) > BG_VELOCITY_THRESHOLD) {
+      const velocityPayload = {
+        userId,
+        clinicId,
+        activationsLast24h: Number(activationCount),
+        threshold: BG_VELOCITY_THRESHOLD,
+        latestSessionId: session.id,
+      };
+      logger.warn(velocityPayload, "break_glass_velocity_alert");
+      for (const officer of complianceOfficers) {
+        emitToUser(officer.id, "break_glass_velocity_alert", velocityPayload);
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "break_glass_velocity_check_failed");
+  }
 
   return { ...session, graceExpiresAt };
 }
 
 // Phase 3.4: compliance_officer (or admin/super_admin) approves a pending session.
 // Extends validity from the 5-minute grace window to the full 15-minute TTL.
-// Self-approval is forbidden — the activator cannot approve their own session
+// Self-approval is forbidden â€” the activator cannot approve their own session
 // even if they happen to also hold the compliance_officer role.
 export async function approveBreakGlass(req: AuthRequest, sessionId: number) {
   const clinicId = req.user!.clinicId;
@@ -241,7 +279,7 @@ export async function approveBreakGlass(req: AuthRequest, sessionId: number) {
         throw new ForbiddenError("You cannot approve your own break-glass session");
       }
       if (session.activatedAt < graceFloor()) {
-        throw new ConflictError("Grace window expired — the activator must request a new session");
+        throw new ConflictError("Grace window expired â€” the activator must request a new session");
       }
 
       const [approvedSession] = await tx.update(breakGlassSessionsTable)
@@ -260,7 +298,7 @@ export async function approveBreakGlass(req: AuthRequest, sessionId: number) {
     },
   );
 
-  await logAudit(req, "BREAK_GLASS_APPROVED", "break_glass_session", sessionId, {
+  await auditBreakGlass(req, "BREAK_GLASS_APPROVED", "break_glass_session", sessionId, {
     patientId,
     activatedByUserId,
   });
@@ -268,13 +306,14 @@ export async function approveBreakGlass(req: AuthRequest, sessionId: number) {
 }
 
 // Log every PHI access that occurs under an active break-glass session.
+// Awaited by callers in scope.ts â€” must resolve (durably) before PHI returns.
 export async function logBreakGlassAccess(
   req: AuthRequest,
   sessionId: number,
   entityType: string,
   entityId: number,
 ) {
-  void logAudit(req, "BREAK_GLASS_ACCESS", entityType, entityId, { breakGlassSessionId: sessionId });
+  await auditBreakGlass(req, "BREAK_GLASS_ACCESS", entityType, entityId, { breakGlassSessionId: sessionId });
 }
 
 export async function revokeBreakGlass(req: AuthRequest, sessionId: number) {
@@ -327,15 +366,16 @@ export async function revokeBreakGlass(req: AuthRequest, sessionId: number) {
   const action = !wasApproved && isCompliance && !isOwner
     ? "BREAK_GLASS_DENIED"
     : "BREAK_GLASS_REVOKED";
-  await logAudit(req, action, "break_glass_session", sessionId, { patientId });
+  await auditBreakGlass(req, action, "break_glass_session", sessionId, { patientId });
   return revoked;
 }
 
 export async function listBreakGlassSessions(
   req: AuthRequest,
-  params: { patientId?: string; active?: string },
+  params: { patientId?: string; active?: string; cursor?: string; limit?: string },
 ) {
   const clinicId = req.user!.clinicId;
+  const lim = Math.min(parseInt(params.limit ?? "100") || 100, 100);
 
   const rows = await runInTenantContext(
     req.user!,
@@ -362,14 +402,20 @@ export async function listBreakGlassSessions(
         ));
       }
 
+      if (params.cursor) {
+        const cursorId = parseInt(params.cursor);
+        if (!isNaN(cursorId)) conditions.push(lt(breakGlassSessionsTable.id, cursorId));
+      }
+
       return tx
         .select()
         .from(breakGlassSessionsTable)
         .where(and(...conditions))
-        .orderBy(desc(breakGlassSessionsTable.activatedAt));
+        .orderBy(desc(breakGlassSessionsTable.id))
+        .limit(lim);
     },
   );
 
-  void logAudit(req, "READ_LIST", "break_glass_session", undefined, { count: rows.length });
-  return rows;
+  await logAudit(req, "READ_LIST", "break_glass_session", undefined, { count: rows.length });
+  return { data: rows, nextCursor: rows.length === lim ? rows[rows.length - 1].id : null };
 }

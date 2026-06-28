@@ -1,27 +1,28 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Search, Users, CalendarDays, FileText, X, Loader2 } from "lucide-react";
 import { formatDate } from "@/lib/api";
 import { useI18n } from "@/hooks/i18n";
-
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
-
-interface SearchResults {
-  patients: Array<{ id: number; fullName: string; mrn: string; phone?: string | null; dateOfBirth?: string | null }>;
-  appointments: Array<{ id: number; reason: string; status: string; scheduledAt: string; patientName?: string | null; patientMrn?: string | null }>;
-  records: Array<{ id: number; chiefComplaint: string; createdAt: string; patientName?: string | null; patientId: number }>;
-}
+import { useGlobalSearch, getGlobalSearchQueryKey } from "@workspace/api-client-react";
 
 export default function GlobalSearch() {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<SearchResults | null>(null);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: results, isFetching: loading } = useGlobalSearch(
+    { q: debouncedQuery },
+    {
+      query: {
+        queryKey: getGlobalSearchQueryKey({ q: debouncedQuery }),
+        enabled: debouncedQuery.length >= 2,
+      },
+    },
+  );
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -37,26 +38,14 @@ export default function GlobalSearch() {
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
-    else { setQuery(""); setResults(null); }
+    else { setQuery(""); setDebouncedQuery(""); }
   }, [open]);
-
-  const doSearch = useCallback((q: string) => {
-    if (q.length < 2) { setResults(null); setLoading(false); return; }
-    setLoading(true);
-    fetch(apiUrl(`search?q=${encodeURIComponent(q)}`), {
-      credentials: "include",
-    })
-      .then(r => r.json())
-      .then(setResults)
-      .catch(() => setResults(null))
-      .finally(() => setLoading(false));
-  }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setQuery(val);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => doSearch(val), 300);
+    timerRef.current = setTimeout(() => setDebouncedQuery(val), 300);
   };
 
   const go = (href: string) => {
@@ -98,7 +87,7 @@ export default function GlobalSearch() {
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               {query && (
-                <button onClick={() => { setQuery(""); setResults(null); inputRef.current?.focus(); }} className="text-muted-foreground hover:text-foreground">
+                <button onClick={() => { setQuery(""); setDebouncedQuery(""); inputRef.current?.focus(); }} className="text-muted-foreground hover:text-foreground">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}

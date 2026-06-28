@@ -5,6 +5,38 @@
  * Clinic Management System API
  * OpenAPI spec version: 0.1.0
  */
+export type GlobalSearchResultsPatientsItem = {
+  id: number;
+  fullName: string;
+  fullNameAr?: string | null;
+  mrn: string;
+  phone?: string | null;
+  dateOfBirth?: string | null;
+};
+
+export type GlobalSearchResultsAppointmentsItem = {
+  id: number;
+  reason: string;
+  status: string;
+  scheduledAt: string;
+  patientName?: string | null;
+  patientMrn?: string | null;
+};
+
+export type GlobalSearchResultsRecordsItem = {
+  id: number;
+  chiefComplaint: string;
+  createdAt: string;
+  patientName?: string | null;
+  patientId: number;
+};
+
+export interface GlobalSearchResults {
+  patients: GlobalSearchResultsPatientsItem[];
+  appointments: GlobalSearchResultsAppointmentsItem[];
+  records: GlobalSearchResultsRecordsItem[];
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -518,6 +550,8 @@ export interface Prescription {
   medications: Medication[];
   notes?: string | null;
   notesAr?: string | null;
+  dispensedAt?: string | null;
+  dispensedById?: number | null;
   createdAt: string;
 }
 
@@ -1749,6 +1783,36 @@ export interface DoctorTrendPoint {
   revenueGenerated: number;
 }
 
+export interface PaginatedInventory {
+  data: InventoryItem[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedOperations {
+  data: Operation[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedBreakGlassSessions {
+  data: BreakGlassSession[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedServices {
+  data: ServiceCatalogItem[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedConsents {
+  data: Consent[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedErasureRequests {
+  data: ErasureRequest[];
+  nextCursor: number | null;
+}
+
 export type ListUsersParams = {
   role?: ListUsersRole;
   isActive?: boolean;
@@ -1915,12 +1979,28 @@ export type GetBillingReconciliationParams = {
 export type ListServicesParams = {
   category?: string;
   includeInactive?: boolean;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListOperationsParams = {
   status?: ListOperationsStatus;
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListOperationsStatus =
@@ -1937,6 +2017,14 @@ export type ListInventoryItemsParams = {
   search?: string;
   lowStock?: boolean;
   expired?: boolean;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListNotificationsParams = {
@@ -1953,9 +2041,39 @@ export type ListAuditLogsParams = {
   offset?: number;
 };
 
+export type ListPatientConsentsParams = {
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
+};
+
 export type ListBreakGlassSessionsParams = {
   patientId?: number;
   active?: string;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
+};
+
+export type ListErasureRequestsParams = {
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ExecuteErasure200 = {
@@ -2073,3 +2191,11 @@ export type SubmitCspReportBodyOne = { [key: string]: unknown };
 export type SubmitCspReportBodyTwoItem = { [key: string]: unknown };
 
 export type SubmitCspReportBodyThree = { [key: string]: unknown };
+
+export type GlobalSearchParams = {
+  /**
+   * @minLength 2
+   * @maxLength 100
+   */
+  q: string;
+};

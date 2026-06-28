@@ -13,13 +13,14 @@
 import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
+import { config } from "./config";
 
 export type Modality = "xray" | "ultrasound";
 
 const DEFAULT_DIR = path.resolve(process.cwd(), "storage", "imaging");
 
 export function storageRoot(): string {
-  const fromEnv = process.env.IMAGING_STORAGE_DIR?.trim();
+  const fromEnv = config.imagingStorageDir?.trim();
   return fromEnv ? path.resolve(fromEnv) : DEFAULT_DIR;
 }
 

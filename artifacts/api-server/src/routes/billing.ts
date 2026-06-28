@@ -48,17 +48,13 @@ router.patch("/billing/invoices/:invoiceId",
   }),
 );
 
-// Cancel invoice: billing_manager or admin/super_admin; requires reason ≥30 chars
+// Cancel invoice: billing_manager or admin/super_admin; requires reason ≥30 chars (enforced in service)
 router.post("/billing/invoices/:invoiceId/cancel",
   requireRole("super_admin", "admin", "billing_manager"),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);
     if (!invoiceId) throw new ValidationError("Invalid invoice ID");
-    const { reason } = req.body;
-    if (!reason || String(reason).trim().length < 30) {
-      throw new ValidationError("Cancellation reason must be at least 30 characters");
-    }
-    res.json(await cancelInvoice(req, invoiceId, String(reason).trim()));
+    res.json(await cancelInvoice(req, invoiceId, req.body?.reason));
   }),
 );
 

@@ -2,6 +2,7 @@ import type { EventBus } from "./event-bus";
 import type { RateStore } from "./rate-store";
 import type { RevocationStore } from "./revocation-store";
 import type { CacheService } from "./cache-service";
+import { config } from "../config";
 
 export type { EventBus, RateStore, RevocationStore, CacheService };
 
@@ -22,13 +23,9 @@ export interface Runtime {
   dispose(): Promise<void>;
 }
 
-// SESSION_STORE defaults to "memory" unless we're in production.
-// In production, set SESSION_STORE=redis and provide REDIS_URL.
-const sessionStore =
-  process.env["SESSION_STORE"] ??
-  (process.env["NODE_ENV"] === "production" ? "redis" : "memory");
+const sessionStore = config.sessionStore;
 
-if (process.env["NODE_ENV"] === "production" && sessionStore === "memory") {
+if (config.isProd && sessionStore === "memory") {
   console.warn(
     "[runtime] WARNING: SESSION_STORE=memory in production. " +
     "Rate-limit counters and session revocations will reset on restart. " +
@@ -39,7 +36,7 @@ if (process.env["NODE_ENV"] === "production" && sessionStore === "memory") {
 async function buildRuntime(): Promise<Runtime> {
   if (sessionStore === "redis") {
     const { default: Redis } = await import("ioredis");
-    const REDIS_URL = process.env["REDIS_URL"] || "redis://localhost:6379";
+    const REDIS_URL = config.redisUrl;
     const opts = { maxRetriesPerRequest: null, enableReadyCheck: false };
 
     const publisher = new Redis(REDIS_URL, opts);

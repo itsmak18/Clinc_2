@@ -1,4 +1,4 @@
-// dbUnsafe: reads/writes run inside runInTenantContext (RLS-enforced); the few
+﻿// dbUnsafe: reads/writes run inside runInTenantContext (RLS-enforced); the few
 // raw db calls carry explicit eq(clinicId) filters (belt-and-braces). dbUnsafe
 // acknowledges the intentional bypass for those call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { logAudit, logRead } from "../lib/audit";
+import { auditBreakGlass } from "../lib/break-glass-audit";
 import { isDoctorScoped, getDoctorPatientScope } from "../lib/scope";
 import { getActiveBreakGlassPatientIds } from "./break-glass.service";
 import { NotFoundError, ForbiddenError, ValidationError } from "./errors";
@@ -17,9 +18,10 @@ import {
 } from "../lib/imaging-storage";
 import { logger } from "../lib/logger";
 import type { AuthRequest } from "../middlewares/auth";
+import { config } from "../lib/config";
 
-// ── allowed image types (sniffed from magic bytes — client MIME is not trusted) ──
-const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB — keep in sync with the multer route limit
+// â”€â”€ allowed image types (sniffed from magic bytes â€” client MIME is not trusted) â”€â”€
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB â€” keep in sync with the multer route limit
 
 type ImageRow = { url: string; fileName?: string; caption?: string };
 
@@ -65,7 +67,7 @@ function projection(att: typeof imagingAttachmentsTable.$inferSelect) {
   };
 }
 
-// ── upload ───────────────────────────────────────────────────────────────────
+// â”€â”€ upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function uploadAttachment(
   req: AuthRequest,
   modality: Modality,
@@ -77,7 +79,7 @@ export async function uploadAttachment(
   if (file.size > MAX_FILE_BYTES) throw new ValidationError("File exceeds the 25 MB limit");
 
   const mime = sniffImageMime(file.buffer);
-  if (!mime) throw new ValidationError("Unsupported file type — only PNG, JPEG and WEBP images are allowed");
+  if (!mime) throw new ValidationError("Unsupported file type â€” only PNG, JPEG and WEBP images are allowed");
 
   const recTable = tableFor(modality);
   const clinicId = req.user!.clinicId;
@@ -99,7 +101,7 @@ export async function uploadAttachment(
   // (e.g. 10 GB) to stop one tenant filling the imaging volume. Sum of LIVE
   // attachment sizes for the clinic; checked BEFORE touching disk so a rejected
   // upload writes nothing.
-  const quotaBytes = Number(process.env.IMAGING_CLINIC_QUOTA_BYTES) || 0;
+  const quotaBytes = config.imagingClinicQuotaBytes;
   if (quotaBytes > 0) {
     const usedBytes = await runInTenantContext(req.user!, async (tx) => {
       const [row] = await tx
@@ -159,7 +161,7 @@ export async function uploadAttachment(
   }
 }
 
-// ── load one attachment (clinic-scoped) + doctor-scope guard ──────────────────
+// â”€â”€ load one attachment (clinic-scoped) + doctor-scope guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadAttachmentScoped(req: AuthRequest, modality: Modality, recordId: number, attId: string) {
   const clinicId = req.user!.clinicId;
   const att = await runInTenantContext(req.user!, async (tx) => {
@@ -180,22 +182,22 @@ async function loadAttachmentScoped(req: AuthRequest, modality: Modality, record
     const viaBreakGlass = breakGlass.includes(att.patientId);
     if (!allowed.includes(att.patientId) && !viaBreakGlass) throw new ForbiddenError();
     if (viaBreakGlass) {
-      await logAudit(req, "BREAK_GLASS_ACCESS", `${modality}_image`, attId, { patientId: att.patientId, via: "download" });
+      await auditBreakGlass(req, "BREAK_GLASS_ACCESS", `${modality}_image`, attId, { patientId: att.patientId, via: "download" });
     }
   }
   return att;
 }
 
-// ── download / stream ─────────────────────────────────────────────────────────
+// â”€â”€ download / stream â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function streamAttachment(req: AuthRequest, modality: Modality, recordId: number, attId: string) {
   const att = await loadAttachmentScoped(req, modality, recordId, attId);
   const onDisk = await readImageFile(att.storageKey);
   const bytes = decryptBuffer(onDisk, { kid: att.encKid, iv: att.encIv, tag: att.encTag });
-  void logRead(req, `${modality}_image`, attId);
+  await logRead(req, `${modality}_image`, attId);
   return { bytes, mimeType: att.mimeType, fileName: att.fileName };
 }
 
-// ── delete ─────────────────────────────────────────────────────────────────────
+// â”€â”€ delete â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export async function deleteAttachment(req: AuthRequest, modality: Modality, recordId: number, attId: string) {
   const att = await loadAttachmentScoped(req, modality, recordId, attId);
   const recTable = tableFor(modality);
@@ -224,7 +226,7 @@ export async function deleteAttachment(req: AuthRequest, modality: Modality, rec
   await logAudit(req, "DELETE", `${modality}_image`, attId, { recordId });
 }
 
-// ── orphan reconciliation (F-M5) ───────────────────────────────────────────────
+// â”€â”€ orphan reconciliation (F-M5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const DEFAULT_ORPHAN_GRACE_HOURS = 24;
 
 /**
@@ -235,12 +237,12 @@ export const DEFAULT_ORPHAN_GRACE_HOURS = 24;
  *   (b) a soft-deleted row whose best-effort `deleteImageFile` failed.
  *
  * A grace window (default 24h, by file mtime) protects an in-flight upload whose
- * DB insert hasn't committed yet — a file written seconds ago is never touched.
+ * DB insert hasn't committed yet â€” a file written seconds ago is never touched.
  *
  * Safety: the live-key query runs via `dbUnsafe` OUTSIDE `runInTenantContext`,
  * where the dormant `tenant_isolation` RLS policy returns ALL clinics' rows (the
  * `app.rls_enforce <> 'on'` branch). If that policy were ever made non-dormant,
- * the query would return zero rows and this sweep would delete the whole store —
+ * the query would return zero rows and this sweep would delete the whole store â€”
  * so we refuse to delete when the live set is empty but files exist (a state
  * that signals a visibility fault far more often than a genuinely empty catalog).
  * `imaging-orphan-reconcile.integration-db.test.ts` pins that a live row with an

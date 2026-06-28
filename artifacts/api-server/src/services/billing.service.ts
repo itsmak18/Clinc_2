@@ -117,7 +117,7 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
   );
 
   const itemsMap = await fetchInvoiceItemsBatch(rows.map(r => r.id), req.user!.clinicId);
-  void logRead(req, "invoice", undefined);
+  await logRead(req, "invoice", undefined);
   return rows.map(r => ({ ...r, items: itemsMap.get(r.id) ?? [] }));
 }
 
@@ -195,7 +195,7 @@ export async function getInvoice(req: AuthRequest, invoiceId: number) {
   });
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
   const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
-  void logRead(req, "invoice", invoiceId);
+  await logRead(req, "invoice", invoiceId);
   return { ...invoice, items };
 }
 
@@ -215,6 +215,10 @@ export async function updateInvoice(req: AuthRequest, invoiceId: number, data: {
 }
 
 export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason: string) {
+  const trimmedReason = String(reason ?? "").trim();
+  if (trimmedReason.length < 30) {
+    throw new ValidationError("Cancellation reason must be at least 30 characters");
+  }
   const conditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId)];
   const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
   if (!invoice) throw new NotFoundError("invoice", invoiceId);
@@ -230,7 +234,7 @@ export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason:
     .returning();
 
   if (!updated) throw new ConflictError("Invoice status changed by a concurrent request.");
-  await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, { reason });
+  await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, { reason: trimmedReason });
   const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...updated, items };
 }
@@ -279,7 +283,7 @@ export async function getDailySummary(req: AuthRequest, dateStr?: string) {
 
   const invoices = await db.select().from(invoicesTable).where(and(...conditions));
 
-  void logRead(req, "invoice", undefined);
+  await logRead(req, "invoice", undefined);
   return {
     totalRevenue:    invoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0),
     totalInvoices:   invoices.length,
@@ -331,7 +335,7 @@ export async function getBillingReconciliation(req: AuthRequest, dateStr?: strin
   const pendingToday = created.filter(r => r.status === "pending");
   const cancelledToday = created.filter(r => r.status === "cancelled");
 
-  void logRead(req, "invoice", undefined);
+  await logRead(req, "invoice", undefined);
   await logAudit(req, "RECONCILIATION_VIEW", "invoice", undefined, { date });
 
   return {
