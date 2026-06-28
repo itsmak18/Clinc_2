@@ -38,7 +38,8 @@ export default function ServicePrices() {
   const [form, setForm] = useState(emptyForm);
 
   const params = { includeInactive: true };
-  const { data: services, isLoading } = useListServices(params, { query: { queryKey: getListServicesQueryKey(params) } });
+  const { data: servicesResp, isLoading } = useListServices(params, { query: { queryKey: getListServicesQueryKey(params) } });
+  const services = servicesResp?.data ?? [];
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
 
   const createMutation = useCreateService({

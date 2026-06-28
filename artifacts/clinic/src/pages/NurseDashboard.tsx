@@ -6,6 +6,7 @@ import { useI18n } from "@/hooks/i18n";
 import Metric from "@/components/Metric";
 import { SkeletonMetric } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/api";
+import { PRIORITY_TONE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import {
   Activity, AlertTriangle, UserCheck, Stethoscope,
@@ -18,11 +19,6 @@ const PRIORITY_STYLE: Record<string, string> = {
   normal:   "border-s-blue-400 bg-blue-50/20",
 };
 
-const PRIORITY_TONE: Record<string, string> = {
-  critical: "badge-rose",
-  urgent:   "badge-sand",
-  normal:   "badge-blue",
-};
 
 export default function NurseDashboard() {
   const { t } = useI18n();

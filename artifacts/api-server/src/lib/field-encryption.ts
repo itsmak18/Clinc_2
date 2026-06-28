@@ -27,7 +27,7 @@
  *                                     Default "1". Set to "2" to make new writes
  *                                     adopt the next key (post-rotation).
  *
- * Rotation playbook lives in SECURITY.md.
+ * Rotation playbook lives in docs/SECURITY.md.
  */
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 import { logger } from "./logger";

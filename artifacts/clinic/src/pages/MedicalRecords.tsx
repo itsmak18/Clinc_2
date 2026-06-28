@@ -79,10 +79,11 @@ export default function MedicalRecords() {
 
   const patientIdNum = parseInt(form.patientId) || 0;
   const consentsKey = getListPatientConsentsQueryKey(patientIdNum);
-  const { data: consents } = useListPatientConsents(patientIdNum, {
+  const { data: consentsResp } = useListPatientConsents(patientIdNum, undefined, {
     query: { enabled: patientIdNum > 0, queryKey: consentsKey },
   });
-  const hasTreatmentConsent = !!consents?.some(c => c.consentType === "treatment" && !c.revokedAt);
+  const consents = consentsResp?.data ?? [];
+  const hasTreatmentConsent = !!consents.some(c => c.consentType === "treatment" && !c.revokedAt);
   // Mirrors GRANT_ROLES in PatientConsentCard — only these roles may record consent.
   const canGrantConsent = ["super_admin", "admin", "nurse", "front_desk"].includes(user?.role ?? "");
   const grantConsentMutation = useGrantPatientConsent({

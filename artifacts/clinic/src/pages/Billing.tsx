@@ -38,7 +38,8 @@ export default function Billing() {
   const { data: invoices, isLoading } = useListInvoices(params, { query: { queryKey: getListInvoicesQueryKey(params) } });
   const { data: dailySummary } = useGetDailyBillingSummary({ date: today }, { query: { queryKey: getGetDailyBillingSummaryQueryKey({ date: today }) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
-  const { data: services } = useListServices({}, { query: { queryKey: getListServicesQueryKey({}) } });
+  const { data: servicesResp } = useListServices({}, { query: { queryKey: getListServicesQueryKey({}) } });
+  const services = servicesResp?.data ?? [];
 
   const subtotal = items.reduce((s, i) => s + i.total, 0);
   const total = subtotal - parseFloat(discount || "0");

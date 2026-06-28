@@ -33,9 +33,6 @@ Thumbs.db
 docs/
 attached_assets/
 
-# Mockup sandbox (dev-only artifact)
-artifacts/mockup-sandbox/
-
 # Scripts workspace (seed / backup — not needed at runtime)
 scripts/
 

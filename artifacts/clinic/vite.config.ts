@@ -1,42 +1,71 @@
 /// <reference types="vitest" />
-import { defineConfig, type Plugin } from "vite";
+import {
+  defineConfig,
+  type Plugin,
+  type ViteDevServer,
+  type PreviewServer,
+  type IndexHtmlTransformContext,
+} from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  cspDirectives,
+  buildCspString,
+  cspMetaString,
+} from "../api-server/src/lib/csp";
 
-// Strict CSP for production (mirrors csp.ts cspMetaString).
-// style-src 'unsafe-inline' removed 2026-05-29 — chart.tsx <style> injector replaced
-// with inline CSS vars on the container; React style={} uses DOM API (not blocked by CSP).
-const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'";
+// Single source of truth: cspDirectives lives in lib/csp.ts (shared with helmet).
+// frame-ancestors is excluded from STRICT_CSP — browsers ignore it in <meta> tags;
+// it is only effective as an HTTP response header (preview server / nginx in prod).
+const STRICT_CSP = cspMetaString;
 
-// Relaxed CSP for development (Vite needs unsafe-inline for HMR + ws: for websocket)
-const DEV_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self' ws:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
+// DEV_CSP extends production directives with Vite HMR requirements.
+function buildDevCsp(): string {
+  const dev = {
+    ...cspDirectives,
+    scriptSrc:  [...cspDirectives.scriptSrc,  "'unsafe-inline'"],
+    styleSrc:   [...cspDirectives.styleSrc,   "'unsafe-inline'"],
+    connectSrc: [...cspDirectives.connectSrc, "ws:"],
+  };
+  const toKebab = (k: string) =>
+    k.replace(/([A-Z])/g, (_, c: string) => `-${c.toLowerCase()}`);
+  return Object.entries(dev)
+    .map(([key, vals]) => `${toKebab(key)} ${vals.join(" ")}`)
+    .join("; ");
+}
+
+const DEV_CSP = buildDevCsp();
 
 function cspHeaderPlugin(): Plugin {
   return {
     name: "medicore-csp",
-    configureServer(server) {
-      server.middlewares.use((_req, res, next) => {
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use((_req: IncomingMessage, res: ServerResponse, next: () => void) => {
         res.setHeader("Content-Security-Policy", DEV_CSP);
         next();
       });
     },
-    configurePreviewServer(server) {
-      server.middlewares.use((_req, res, next) => {
-        res.setHeader("Content-Security-Policy", STRICT_CSP + "; frame-ancestors 'none'");
+    configurePreviewServer(server: PreviewServer) {
+      server.middlewares.use((_req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        // buildCspString() includes frame-ancestors 'none' and report-uri (if Phase 2 enabled)
+        res.setHeader("Content-Security-Policy", buildCspString());
         next();
       });
     },
-    transformIndexHtml(html, ctx) {
-      if (!ctx.server) {
-        // Inject strict CSP meta tag for production static hosting
-        return html.replace(
-          '<head>',
-          `<head>\n    <meta http-equiv="Content-Security-Policy" content="${STRICT_CSP}" />`
-        );
-      }
-      return html;
-    }
+    transformIndexHtml: {
+      order: "pre",
+      handler(html: string, ctx: IndexHtmlTransformContext) {
+        if (!ctx.server) {
+          return html.replace(
+            "<head>",
+            `<head>\n    <meta http-equiv="Content-Security-Policy" content="${STRICT_CSP}" />`
+          );
+        }
+        return html;
+      },
+    },
   };
 }
 

@@ -50,7 +50,8 @@ export default function Inventory() {
   const [adjust, setAdjust] = useState({ reason: "restock", amount: "", note: "" });
 
   const params = { search: search || undefined };
-  const { data: items, isLoading } = useListInventoryItems(params, { query: { queryKey: getListInventoryItemsQueryKey(params) } });
+  const { data: itemsResp, isLoading } = useListInventoryItems(params, { query: { queryKey: getListInventoryItemsQueryKey(params) } });
+  const items = itemsResp?.data ?? [];
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListInventoryItemsQueryKey() });
 
