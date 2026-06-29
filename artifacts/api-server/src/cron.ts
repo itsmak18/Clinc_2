@@ -12,8 +12,8 @@ import { drainAuditOutbox, logAudit } from "./lib/audit";
 import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
-import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./services/csp-report.service";
-import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./services/imaging-attachments.service";
+import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./modules/audit/csp-report.service";
+import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./modules/imaging/imaging-attachments.service";
 import { config } from "./lib/config";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before

@@ -73,7 +73,7 @@ beforeAll(async () => {
   const { usersTable, doctorPatientsTable } = db;
   const { hashPassword } = await import("../lib/password");
   ({ uploadAttachment, streamAttachment, deleteAttachment } = await import(
-    "../services/imaging-attachments.service"
+    "../modules/imaging/imaging-attachments.service"
   ));
   ({ ForbiddenError, NotFoundError, ValidationError } = await import("../services/errors"));
   await import("../app"); // ensure runtime (audit outbox, metrics) is wired

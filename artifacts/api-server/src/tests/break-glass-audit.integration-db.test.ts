@@ -49,8 +49,8 @@ beforeAll(async () => {
   doctorPatientsTable = db.doctorPatientsTable;
 
   const { hashPassword } = await import("../lib/password");
-  ({ activateBreakGlass } = await import("../services/break-glass.service"));
-  ({ getLabTest } = await import("../services/lab.service"));
+  ({ activateBreakGlass } = await import("../modules/compliance/break-glass.service"));
+  ({ getLabTest } = await import("../modules/clinical/lab.service"));
   await import("../app"); // wire runtime (SSE bus, metrics)
 
   const pw = await hashPassword("Bg@udit_T3st!");

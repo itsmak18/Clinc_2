@@ -42,7 +42,7 @@ vi.mock("../services/errors", () => {
   return { NotFoundError, ValidationError };
 });
 
-import { listClinicNotices, createClinicNotice, deleteClinicNotice } from "../services/clinic-notices.service";
+import { listClinicNotices, createClinicNotice, deleteClinicNotice } from "../modules/clinical/clinic-notices.service";
 import { db } from "@workspace/db";
 
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

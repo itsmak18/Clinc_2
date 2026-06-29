@@ -26,6 +26,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const SPEC = join(here, "../../../../lib/api-spec/openapi.yaml");
 const ROUTES_DIR = join(here, "../routes");
+// Feature modules declare their HTTP surface in `<module>.routes.ts` files.
+const MODULES_DIR = join(here, "../modules");
 
 const HTTP = "get|post|put|patch|delete";
 
@@ -58,14 +60,32 @@ function specOps(): Op[] {
   return ops;
 }
 
+/** Absolute paths of every file that can declare Express routes: the legacy
+ *  technical-layer `routes/*.ts` plus feature-module `modules/<m>/<m>.routes.ts`. */
+function routeFiles(): string[] {
+  const files: string[] = [];
+  for (const f of readdirSync(ROUTES_DIR).filter(f => f.endsWith(".ts"))) {
+    files.push(join(ROUTES_DIR, f));
+  }
+  const walk = (dir: string) => {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (ent.name.endsWith(".routes.ts")) files.push(full);
+    }
+  };
+  try { walk(MODULES_DIR); } catch { /* modules dir may not exist yet */ }
+  return files;
+}
+
 /** `router.<method>("<path>", ...)` calls across every route file. */
 function routeOps(): Op[] {
   const ops: Op[] = [];
   const re = new RegExp(`router\\.(${HTTP})\\s*\\(\\s*["'\`]([^"'\`]+)["'\`]`, "gs");
-  for (const f of readdirSync(ROUTES_DIR).filter(f => f.endsWith(".ts"))) {
-    const src = readFileSync(join(ROUTES_DIR, f), "utf8");
+  for (const file of routeFiles()) {
+    const src = readFileSync(file, "utf8");
     let m: RegExpExecArray | null;
-    while ((m = re.exec(src))) ops.push({ method: m[1], path: m[2], file: f });
+    while ((m = re.exec(src))) ops.push({ method: m[1], path: m[2], file });
   }
   return ops;
 }

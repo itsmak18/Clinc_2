@@ -197,7 +197,7 @@ describe("Auto-advance flow projection (Phase 2)", () => {
   let resolveActiveVisit: any;
   let autoAdvanceVisit: any;
   beforeAll(async () => {
-    ({ resolveActiveVisit, autoAdvanceVisit } = await import("../services/appointments.service"));
+    ({ resolveActiveVisit, autoAdvanceVisit } = await import("../modules/clinical/appointments.service"));
   });
 
   // The role STRING is what validateTransition gates on; super_admin bypasses the
@@ -312,7 +312,7 @@ describe("Reconsult reversal (Phase 3)", () => {
 describe("Vitals separated from medical records (createVitals)", () => {
   let createVitals: any;
   beforeAll(async () => {
-    ({ createVitals } = await import("../services/vitals.service"));
+    ({ createVitals } = await import("../modules/clinical/vitals.service"));
   });
 
   // Nurse role: validateTransition lets nurse drive triage/ready. recordedById is

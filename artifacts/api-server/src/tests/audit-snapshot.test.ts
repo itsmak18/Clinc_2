@@ -76,9 +76,9 @@ describe("encrypted-PHI redaction drift guard", () => {
   // newly-encrypted column without listing it here fails CI — otherwise its
   // ciphertext would be copied verbatim into audit_logs.beforeState/afterState.
   const SERVICE_FILES = [
-    "../services/medical-records.service.ts",
-    "../services/patients.service.ts",
-    "../services/prescriptions.service.ts",
+    "../modules/clinical/medical-records.service.ts",
+    "../modules/clinical/patients.service.ts",
+    "../modules/clinical/prescriptions.service.ts",
   ];
 
   // Matches `diagnosis: encrypt(`, `vitals: encryptJsonNullable(`,

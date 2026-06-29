@@ -51,7 +51,7 @@ beforeAll(async () => {
   const { seedCrossTenant } = await import("./_helpers/seedCrossTenant");
   seed = await seedCrossTenant(harness.db);
   ({ listServices, createService, updateService, deleteService, seedDefaultServices } = await import(
-    "../services/services-catalog.service"
+    "../modules/billing/services-catalog.service"
   ));
   ({ NotFoundError, ValidationError } = await import("../services/errors"));
   ({ default: app } = await import("../app"));

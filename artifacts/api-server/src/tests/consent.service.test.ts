@@ -19,7 +19,7 @@ vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { hasActiveConsent, grantConsent, revokeConsent } from "../services/consent.service";
+import { hasActiveConsent, grantConsent, revokeConsent } from "../modules/compliance/consent.service";
 import { db } from "@workspace/db";
 import type { AuthRequest } from "../middlewares/auth";
 

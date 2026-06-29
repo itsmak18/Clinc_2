@@ -130,7 +130,7 @@ describe("[H7] readiness reports 503 once beginShutdown() fires", () => {
 
   it("ok=false + checks.shutdown=draining when isShuttingDown() is true", async () => {
     mockPoolQuery.mockResolvedValueOnce({ rows: [{ "?column?": 1 }] });
-    const { checkReadiness } = await import("../services/health.service");
+    const { checkReadiness } = await import("../modules/health/health.service");
     const { beginShutdown } = await import("../lib/lifecycle");
     beginShutdown();
     const result = await checkReadiness();

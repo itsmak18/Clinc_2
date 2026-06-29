@@ -35,7 +35,7 @@ vi.mock("../lib/audit", () => ({
 
 // Break-glass service mock — default: no active session (getActiveSession → null).
 // Individual tests override this to simulate an active session.
-vi.mock("../services/break-glass.service", () => ({
+vi.mock("../modules/compliance/break-glass.service", () => ({
   getActiveSession: vi.fn().mockResolvedValue(null),
   logBreakGlassAccess: vi.fn().mockResolvedValue(undefined),
   getActiveBreakGlassPatientIds: vi.fn().mockResolvedValue([]),
@@ -45,7 +45,7 @@ import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope, assertMedi
 import { db } from "@workspace/db";
 import { logAudit, logDenied } from "../lib/audit";
 import { ForbiddenError } from "../services/errors";
-import { getActiveSession, logBreakGlassAccess } from "../services/break-glass.service";
+import { getActiveSession, logBreakGlassAccess } from "../modules/compliance/break-glass.service";
 import type { AuthRequest } from "../middlewares/auth";
 
 // ── Helper to build a mock request ───────────────────────────────────────────

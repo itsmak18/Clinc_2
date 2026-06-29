@@ -35,8 +35,11 @@ Clinic-Hub/
 │   │       │   ├── scope.ts          ← getDoctorPatientScope, assertPatientInScope (returns bool — caller must 403 on false), assertMedicalRecordInScope, isDoctorScoped
 │   │       │   ├── sse.ts            ← emitToUser, addSSEClient
 │   │       │   └── validators.ts     ← safeParseInt, validateParamInt
-│   │       ├── services/             ← business logic layer (DB queries, scope, audit, rules) ⛔ no HTTP here
-│   │       │   ├── errors.ts         ← NotFoundError, ForbiddenError, ConflictError, ValidationError, UnauthorizedError (each carries ErrorDef)
+│   │       ├── services/             ← ⚠️ MIGRATED (2026-06-29): feature services moved into src/modules/<feature>/. Only SHARED INFRA remains here (errors.ts, email.service.ts, sms.service.ts). The per-service entries listed below now live under their module — see the modules/ tree above for current paths.
+│   │       │   ├── errors.ts         ← NotFoundError, ForbiddenError, ConflictError, ValidationError, UnauthorizedError (each carries ErrorDef). STAYS (shared)
+│   │       │   ├── email.service.ts  ← STAYS (shared infra; consumed by identity module)
+│   │       │   ├── sms.service.ts    ← STAYS (shared infra)
+│   │       │   ├── auth.service.ts
 │   │       │   ├── auth.service.ts
 │   │       │   ├── appointments.service.ts
 │   │       │   ├── audit.service.ts
@@ -65,15 +68,64 @@ Clinic-Hub/
 │   │       │   └── rateLimiter.ts    ← DB-backed login limiter (5/15 min, 30 min lockout) + ipRateLimit factory
 │   │       ├── scripts/
 │   │       │   └── validate-errors.ts ← CI guard: asserts every error_code literal in source is registered in E
-│   │       ├── routes/
-│   │       │   ├── index.ts          ← register ALL new routes here
-│   │       │   ├── appointments.ts
+│   │       ├── modules/            ← feature modules (migration in progress; technical-layer routes/+services/ below are migrating into here one module per PR)
+│   │       │   ├── inventory/       ← pilot module. Co-locates HTTP + business logic; consumed via its barrel.
+│   │       │   │   ├── index.ts         ← public surface (barrel): exports inventoryRouter. Import the module ONLY through here.
+│   │       │   │   ├── inventory.routes.ts   ← HTTP only (was routes/inventory.ts)
+│   │       │   │   └── inventory.service.ts  ← business logic + DB (was services/inventory.service.ts)
+│   │       │   ├── identity/        ← auth, users, device-trust (+verification), password-reset, jwks
+│   │       │   │   ├── index.ts                       ← barrel: exports jwks/auth/devices/passwordReset/users routers (ordering preserved in routes/index.ts, NOT here)
+│   │       │   │   ├── {auth,users,devices,password-reset,jwks}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │   │   └── {auth,users,device-trust,device-verification,password-reset}.service.ts  ← logic+DB (were services/*.service.ts). NB: email.service stays in services/ (shared infra)
+│   │       │   ├── billing/         ← invoicing (atomic createInvoice + counter, SoD pay gate, reconciliation) + services price catalog
+│   │       │   │   ├── index.ts                       ← barrel: exports billingRouter, servicesCatalogRouter (both authed)
+│   │       │   │   ├── {billing,services-catalog}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │   │   └── {billing,services-catalog}.service.ts  ← logic+DB (were services/*.service.ts). billing.service → ../../services/appointments.service (autoAdvanceVisit) until clinical migrates
+│   │       │   ├── imaging/         ← X-ray + ultrasound records + encrypted file attachments
+│   │       │   │   ├── index.ts                       ← barrel: exports xrayRouter, ultrasoundRouter (both authed)
+│   │       │   │   ├── {xray,ultrasound}.routes.ts    ← HTTP (were routes/*.ts); attachment upload/stream/delete mounted here
+│   │       │   │   └── {xray,ultrasound,imaging-attachments}.service.ts  ← logic+DB (were services/*.service.ts). Cross-module → ../../services/{break-glass,appointments}.service; cron.ts calls imaging-attachments.reconcileOrphanImagingFiles
+│   │       │   ├── reporting/       ← dashboards (clinic + per-role, some cache-backed), reports summaries, per-doctor analytics
+│   │       │   │   ├── index.ts                       ← barrel: exports dashboardRouter, reportsRouter, analyticsRouter (all authed)
+│   │       │   │   ├── {dashboard,reports,analytics}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │   │   └── {dashboard,reports,analytics}.service.ts  ← logic+DB (were services/*.service.ts). Fully self-contained — no cross-module service deps
+│   │       │   ├── compliance/      ← consent, break-glass (emergency PHI access), right-to-erasure
+│   │       │   │   ├── index.ts                       ← barrel: exports consentRouter, breakGlassRouter, erasureRouter (all authed)
+│   │       │   │   ├── {consent,break-glass,erasure}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │   │   └── {consent,break-glass,erasure}.service.ts  ← logic+DB (were services/*.service.ts). LOWER layer: break-glass + consent consumed cross-module by lib/scope.ts, the imaging module, and the clinical services (lab/prescriptions/medical-records) still in services/
+│   │       │   ├── audit/           ← audit-log READ side (query/export/change-history) + CSP-report ingestion. (Audit WRITE path stays in lib/audit.ts.)
+│   │       │   │   ├── index.ts                       ← barrel: exports auditRouter (authed), cspReportRouter (anonymous)
+│   │       │   │   ├── {audit,csp-report}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │   │   └── {audit,csp-report}.service.ts  ← logic+DB (were services/*.service.ts). cron.ts calls csp-report.purgeOldCspReports
+│   │       │   ├── operations/      ← OR / procedure scheduling (state machine, OR-team assignment, approval gate)
+│   │       │   │   ├── index.ts                       ← barrel: exports operationsRouter (authed)
+│   │       │   │   ├── operations.routes.ts           ← HTTP (was routes/operations.ts)
+│   │       │   │   └── operations.service.ts          ← logic+DB (was services/operations.service.ts). Self-contained leaf
+│   │       │   ├── notifications/   ← in-app notification list + authenticated SSE stream (graceful-drain aware)
+│   │       │   │   ├── index.ts                       ← barrel: exports notificationsRouter (authed)
+│   │       │   │   ├── notifications.routes.ts        ← HTTP + GET /notifications/stream (was routes/notifications.ts)
+│   │       │   │   └── notifications.service.ts        ← logic+DB (was services/notifications.service.ts). Other modules push via lib/sse emitToUser, not this service
+│   │       │   ├── search/          ← global cross-entity search (doctor-scope aware)
+│   │       │   │   ├── index.ts                       ← barrel: exports searchRouter (authed)
+│   │       │   │   ├── search.routes.ts               ← HTTP (was routes/search.ts)
+│   │       │   │   └── search.service.ts              ← logic+DB (was services/search.service.ts). Self-contained leaf
+│   │       │   ├── health/          ← liveness/readiness (DB + Redis probes, shutdown-aware)
+│   │       │   │   ├── index.ts                       ← barrel: exports healthRouter (anonymous, registered early)
+│   │       │   │   ├── health.routes.ts               ← HTTP (was routes/health.ts)
+│   │       │   │   └── health.service.ts              ← checkReadiness (was services/health.service.ts). Self-contained leaf
+│   │       │   └── clinical/        ← EHR CORE (the visit hub). patients, appointments (state machine), medical-records, prescriptions, vitals, lab, schedule, clinic-notices
+│   │       │       ├── index.ts                       ← barrel: exports 8 routers (all authed)
+│   │       │       ├── {patients,appointments,medical-records,prescriptions,vitals,lab,schedule,clinic-notices}.routes.ts   ← HTTP (were routes/*.ts)
+│   │       │       ├── {…same…}.service.ts            ← logic+DB (were services/*.service.ts) + schedule.slots.ts (slot-gen helper)
+│   │       │       └── (appointments.service.autoAdvanceVisit consumed cross-module by billing + imaging via ../clinical/; clinical → ../compliance/ for consent + break-glass)
+│   │       ├── routes/             ← ⚠️ MIGRATED (2026-06-29): only index.ts remains. Every feature route moved to src/modules/<feature>/<feature>.routes.ts. Entries below are HISTORICAL — see the modules/ tree above for current paths.
+│   │       │   ├── index.ts          ← the ONLY file left: imports each module's router from its barrel (../modules/<feature>) and mounts them (anonymous-before-authed order preserved)
+│   │       │   ├── appointments.ts   ← (moved → modules/clinical/appointments.routes.ts)
 │   │       │   ├── audit.ts
 │   │       │   ├── auth.ts           ← login, logout, me, change-password (NO MFA routes)
 │   │       │   ├── billing.ts
 │   │       │   ├── dashboard.ts      ← summary (+yesterdayRevenue), department-load, recent-activity, compliance
 │   │       │   ├── health.ts
-│   │       │   ├── inventory.ts
 │   │       │   ├── lab.ts
 │   │       │   ├── medical_records.ts
 │   │       │   ├── notifications.ts
