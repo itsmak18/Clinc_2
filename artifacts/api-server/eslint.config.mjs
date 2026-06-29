@@ -67,8 +67,8 @@ export default tseslint.config(
   },
   // ── 3. Typed config guard ─────────────────────────────────────────────────────
   // All source files must read env through lib/config.ts, not process.env.
-  // Severity is "warn" until the migration of the ~32 legacy call-sites is
-  // complete — then flip to "error" to block regressions permanently.
+  // Migration complete as of 2026-06-29 — severity is "error" to block
+  // regressions permanently.
   // Exempt: config.ts (the definition), tests (set env before import), scripts.
   {
     files: ["src/**/*.ts"],
@@ -79,7 +79,7 @@ export default tseslint.config(
     ],
     rules: {
       "no-restricted-properties": [
-        "warn",
+        "error",
         {
           object: "process",
           property: "env",

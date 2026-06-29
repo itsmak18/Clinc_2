@@ -10,6 +10,7 @@ import { COOKIE_TTL_MS } from "../lib/auth-constants";
 import { loginUser, logoutUser, getMe, changePassword } from "../services/auth.service";
 import { logAudit } from "../lib/audit";
 import { ipRateLimit } from "../middlewares/rateLimiter";
+import { config } from "../lib/config";
 import {
   setDeviceCookie,
   readDeviceCookie,
@@ -76,7 +77,7 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
   }
 
   // Full session — set cookies
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProduction = config.isProd;
   const cookieMaxAge = COOKIE_TTL_MS[result.user.role] ?? 4 * 60 * 60 * 1000;
   res.cookie("clinic_token", result.token, {
     httpOnly: true,
@@ -107,7 +108,7 @@ router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, r
 
   res.clearCookie("clinic_token", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: config.isProd,
     sameSite: "strict",
     path: "/",
   });
