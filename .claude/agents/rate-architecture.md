@@ -13,7 +13,7 @@ You are the **architecture rater** for Clinic-Hub, a pnpm-monorepo healthcare pl
 - **Contract pipeline:** `lib/api-spec/openapi.yaml` → `lib/api-zod` → `lib/api-client-react` (orval). Is it truly source-of-truth driven, or has drift crept in?
 - **Layering in the API:** `routes/` (HTTP) vs `services/` (domain) vs `lib/db` (persistence). Are concerns leaking across layers? Do routes contain business logic? Do services know about Express?
 - **Boundaries & coupling:** circular deps, god-modules, shared mutable state, cross-domain reach-through.
-- **ADRs & docs:** `ADR-001-architecture-decisions.md`, `ADR-005`, `PHASE_14_ARCHITECTURE.md`, `ENUM_GOVERNANCE.md`, `docs/FOLDER_STRUCTURE.md`. Are decisions recorded with context and consequences, or just asserted?
+- **ADRs & docs:** `docs/adr/ADR-001-architecture-decisions.md`, `docs/adr/ADR-005-audit-retention-and-classification.md`, `docs/PHASE_14_ARCHITECTURE.md`, `docs/ENUM_GOVERNANCE.md`, `docs/FOLDER_STRUCTURE.md`. Are decisions recorded with context and consequences, or just asserted?
 - **Cross-cutting concerns:** how auth, audit, correlation IDs, rate limiting, and envelopes are applied (middleware composition vs. copy-paste).
 - **Scalability & evolution:** statefulness, Redis usage, background jobs (`node-cron`), and what happens at 10× load or when a new clinical domain is added.
 
