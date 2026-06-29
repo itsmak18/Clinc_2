@@ -40,7 +40,7 @@ beforeAll(async () => {
   const db = (await import("@workspace/db")) as any;
   ({ clinicsTable, usersTable, auditLogsTable } = db);
   const { hashPassword } = await import("../lib/password");
-  ({ loginUser } = await import("../services/auth.service"));
+  ({ loginUser } = await import("../modules/identity/auth.service"));
   await import("../app"); // ensure runtime (rate store, device trust) is wired
 
   const [clinic] = (await harness.db.insert(clinicsTable).values({

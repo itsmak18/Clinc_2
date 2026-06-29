@@ -1,0 +1,27 @@
+# CODEOWNERS — per-feature-module ownership
+# ----------------------------------------------------------------------------
+# Goal: as the backend migrates from technical-layer-first (routes/, services/)
+# to feature modules (src/modules/<domain>/), each module gets an owning team so
+# reviews route to the right people and parallel teams stop colliding on shared
+# files. One module per line; later globs win, so list the most specific last.
+#
+# ALL LINES ARE COMMENTED until real GitHub handles/teams are filled in. A
+# CODEOWNERS entry with an unknown owner makes GitHub warn on every PR, so do not
+# uncomment a line until its @team / @user exists in this org.
+#
+# Pilot (feature-module migration): the inventory module has been extracted to
+# artifacts/api-server/src/modules/inventory/. Uncomment + set the owner when a
+# team handle exists:
+#
+# /artifacts/api-server/src/modules/inventory/   @medicore/REPLACE-ME
+#
+# Planned modules (migrate one per PR; clinical last):
+# /artifacts/api-server/src/modules/identity/    @medicore/REPLACE-ME
+# /artifacts/api-server/src/modules/billing/     @medicore/REPLACE-ME
+# /artifacts/api-server/src/modules/imaging/     @medicore/REPLACE-ME
+# /artifacts/api-server/src/modules/reporting/   @medicore/REPLACE-ME
+# /artifacts/api-server/src/modules/clinical/    @medicore/REPLACE-ME
+#
+# Platform kernel (policy/audit/RLS/encryption/runtime) is cross-cutting — keep a
+# single owning team; do NOT split it across feature modules:
+# /artifacts/api-server/src/platform/            @medicore/REPLACE-ME

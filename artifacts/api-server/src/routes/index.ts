@@ -1,34 +1,39 @@
 import { Router, type IRouter } from "express";
-import healthRouter from "./health";
-import authRouter from "./auth";
-import usersRouter from "./users";
-import patientsRouter from "./patients";
-import appointmentsRouter from "./appointments";
-import medicalRecordsRouter from "./medical_records";
-import vitalsRouter from "./vitals";
-import clinicNoticesRouter from "./clinic_notices";
-import prescriptionsRouter from "./prescriptions";
-import xrayRouter from "./xray";
-import ultrasoundRouter from "./ultrasound";
-import labRouter from "./lab";
-import billingRouter from "./billing";
-import operationsRouter from "./operations";
-import inventoryRouter from "./inventory";
-import notificationsRouter from "./notifications";
-import auditRouter from "./audit";
-import dashboardRouter from "./dashboard";
-import reportsRouter from "./reports";
-import searchRouter from "./search";
-import scheduleRouter from "./schedule";
-import consentRouter from "./consent";
-import breakGlassRouter from "./break-glass";
-import erasureRouter from "./erasure";
-import devicesRouter from "./devices";
-import passwordResetRouter from "./password-reset";
-import cspReportRouter from "./csp-report";
-import jwksRouter from "./jwks";
-import analyticsRouter from "./analytics";
-import servicesCatalogRouter from "./services-catalog";
+import { healthRouter } from "../modules/health";
+// Feature module: identity (auth, users, devices, password-reset, jwks).
+// Consumed via its barrel; the router.use() positions below are unchanged so the
+// anonymous-before-authed ordering is preserved.
+import {
+  jwksRouter, authRouter, devicesRouter, passwordResetRouter, usersRouter,
+} from "../modules/identity";
+// Feature module: clinical (patients, appointments, medical-records, prescriptions,
+// vitals, lab, schedule, clinic-notices). Barrel-consumed; router.use() positions
+// below unchanged.
+import {
+  patientsRouter, appointmentsRouter, medicalRecordsRouter, vitalsRouter,
+  clinicNoticesRouter, prescriptionsRouter, labRouter, scheduleRouter,
+} from "../modules/clinical";
+// Feature module: imaging (xray, ultrasound, imaging-attachments). Barrel-consumed;
+// router.use() positions below unchanged.
+import { xrayRouter, ultrasoundRouter } from "../modules/imaging";
+// Feature module: billing (billing, services-catalog). Consumed via barrel;
+// router.use() positions below unchanged.
+import { billingRouter, servicesCatalogRouter } from "../modules/billing";
+import { operationsRouter } from "../modules/operations";
+// Feature-module pilot: inventory now lives in src/modules/inventory and is
+// consumed through its barrel. Registration position below is unchanged.
+import { inventoryRouter } from "../modules/inventory";
+import { notificationsRouter } from "../modules/notifications";
+// Feature module: audit (audit, csp-report). Barrel-consumed; router.use()
+// positions below unchanged (csp-report is anonymous, registered early).
+import { auditRouter, cspReportRouter } from "../modules/audit";
+// Feature module: reporting (dashboard, reports, analytics). Barrel-consumed;
+// router.use() positions below unchanged.
+import { dashboardRouter, reportsRouter, analyticsRouter } from "../modules/reporting";
+import { searchRouter } from "../modules/search";
+// Feature module: compliance (consent, break-glass, erasure). Barrel-consumed;
+// router.use() positions below unchanged.
+import { consentRouter, breakGlassRouter, erasureRouter } from "../modules/compliance";
 
 const router: IRouter = Router();
 

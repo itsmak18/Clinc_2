@@ -26,7 +26,7 @@ vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { createErasureRequest, reviewErasureRequest, executeErasure } from "../services/erasure.service";
+import { createErasureRequest, reviewErasureRequest, executeErasure } from "../modules/compliance/erasure.service";
 import { db } from "@workspace/db";
 import type { AuthRequest } from "../middlewares/auth";
 

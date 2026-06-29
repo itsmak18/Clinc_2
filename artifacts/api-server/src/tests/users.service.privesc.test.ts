@@ -61,7 +61,7 @@ vi.mock("../services/errors", () => {
   return { NotFoundError, ForbiddenError, ValidationError };
 });
 
-import { canManageTarget, resetPassword, updateUser, deleteUser } from "../services/users.service";
+import { canManageTarget, resetPassword, updateUser, deleteUser } from "../modules/identity/users.service";
 import { db } from "@workspace/db";
 import { ForbiddenError } from "../services/errors";
 

@@ -69,10 +69,10 @@ vi.mock("@workspace/db", () => {
 });
 
 import app from "../app";
-import * as deviceVerificationService from "../services/device-verification.service";
-import * as deviceTrustService from "../services/device-trust.service";
-import * as authService from "../services/auth.service";
-import * as pwResetService from "../services/password-reset.service";
+import * as deviceVerificationService from "../modules/identity/device-verification.service";
+import * as deviceTrustService from "../modules/identity/device-trust.service";
+import * as authService from "../modules/identity/auth.service";
+import * as pwResetService from "../modules/identity/password-reset.service";
 
 // â”€â”€ Shared mock token shapes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

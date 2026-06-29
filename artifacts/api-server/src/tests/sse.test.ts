@@ -69,7 +69,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import request from "supertest";
 // Lazy-import the notifications router AFTER mocks are in place.
-const { default: notificationsRouter } = await import("../routes/notifications");
+const { default: notificationsRouter } = await import("../modules/notifications/notifications.routes");
 
 // â”€â”€ Minimal mock Response for unit tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

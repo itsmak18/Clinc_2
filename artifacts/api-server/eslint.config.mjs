@@ -25,8 +25,10 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   tseslint.configs.base,
   // ── 1. Route boundary ──────────────────────────────────────────────────────
+  // Covers both the legacy `src/routes/**` layout and the feature-module layout
+  // (`src/modules/<m>/<m>.routes.ts`) so the guard follows files as they migrate.
   {
-    files: ["src/routes/**/*.ts"],
+    files: ["src/routes/**/*.ts", "src/modules/**/*.routes.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -43,8 +45,10 @@ export default tseslint.config(
     },
   },
   // ── 2. RLS backstop guard ──────────────────────────────────────────────────
+  // Covers legacy `src/services/**` and feature-module service files
+  // (`src/modules/<m>/<m>.service.ts`).
   {
-    files: ["src/services/**/*.ts"],
+    files: ["src/services/**/*.ts", "src/modules/**/*.service.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

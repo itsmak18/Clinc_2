@@ -37,7 +37,7 @@ vi.mock("../lib/sse", () => ({
   emitToUser: vi.fn(),
 }));
 
-import { activateBreakGlass, revokeBreakGlass, getActiveSession } from "../services/break-glass.service";
+import { activateBreakGlass, revokeBreakGlass, getActiveSession } from "../modules/compliance/break-glass.service";
 import { db } from "@workspace/db";
 import type { AuthRequest } from "../middlewares/auth";
 

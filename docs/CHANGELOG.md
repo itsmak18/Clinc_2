@@ -1,5 +1,167 @@
 # Changelog
 
+## Feature-module migration — clinical module + migration COMPLETE (2026-06-29)
+
+Twelfth and final module. **Clinical** = the EHR core: patients, appointments (visit state-machine hub), medical-records, prescriptions, vitals, lab, schedule (+ `schedule.slots` helper), clinic-notices. With this, the backend is fully migrated from technical-layer-first (`routes/` + `services/`) to feature modules under `src/modules/`.
+
+- **Moved** (17 files, `git mv`): 8 routes + 8 services + `schedule.slots.ts`.
+- **The hub, repointed.** `appointments.service.autoAdvanceVisit` is consumed cross-module — the already-migrated **billing** and **imaging** (xray/ultrasound) modules now import `../clinical/appointments.service` (was `../../services/`). Clinical → compliance edges (medical-records→consent; prescriptions→consent+break-glass; lab→break-glass) repointed `../modules/compliance/` → `../compliance/`. Internal siblings (vitals/lab→appointments, schedule→schedule.slots) stay `./`.
+- **Importers repointed:** 3 module files (billing + imaging×2) + 4 tests + a string-path drift-guard (`audit-snapshot.test.ts` reads patients/medical-records/prescriptions sources — repointed the `new URL(...)` literals). Swept `*.service"`, `routes/*"`, and `.service.ts"` string forms.
+- **Barrel + ordering.** [modules/clinical/index.ts](../artifacts/api-server/src/modules/clinical/index.ts) exports 8 authed routers; `routes/index.ts` consumes the barrel, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit · **57/57** clinical integration-db (appointment-lifecycle + vitals-scope + doctor-scope-rls + cross-tenant — exercise the hub, cross-module autoAdvance, doctor-scope, break-glass, tenant isolation end-to-end). Full integration-db suite re-run as capstone.
+
+### Migration end state
+`src/routes/` = `index.ts` only. `src/services/` = shared infra only (`errors.ts`, `email.service.ts`, `sms.service.ts`). 12 feature modules: `audit, billing, clinical, compliance, health, identity, imaging, inventory, notifications, operations, reporting, search`. DB schema stayed in `lib/db` (shared). Lint guards + the OpenAPI⇄route contract test follow `src/modules/**`. Cross-cutting kernel (policy/audit-write/RLS/encryption/runtime) intentionally stayed in `lib/`.
+
+---
+
+## Feature-module migration — health module (2026-06-29)
+
+Eleventh module — **last of the leaves**. **Health** = liveness/readiness (`checkReadiness` probes DB + Redis, shutdown-aware).
+
+- **Moved** (2 files, `git mv`): `routes/health.ts → modules/health/health.routes.ts`; `services/health.service.ts → modules/health/health.service.ts`.
+- **Boundary.** `health.service` ← its route + `health.test.ts` (repointed). `healthRouter` is **anonymous** (public health checks) — kept registered first/early.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Status:** all leaf modules done. Only **clinical** remains (patients, appointments, medical-records, prescriptions, vitals, lab, schedule, clinic-notices). After clinical, `routes/`/`services/` hold only shared infra (`errors.ts`, `email`, `sms`).
+
+---
+
+## Feature-module migration — search module (2026-06-29)
+
+Tenth module. **Search** = global cross-entity search (doctor-scope aware). Self-contained leaf.
+
+- **Moved** (2 files, `git mv`): `routes/search.ts → modules/search/search.routes.ts`; `services/search.service.ts → modules/search/search.service.ts`.
+- **Boundary.** `search.service` ← only its route (swept both `*.service"` and `routes/search"`). No cross-module/test/entrypoint/lib deps, no `process.env`.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** health (leaf), then **clinical last**.
+
+---
+
+## Feature-module migration — notifications module (2026-06-29)
+
+Ninth module. **Notifications** = in-app notification list + the authenticated SSE stream (`GET /notifications/stream`, graceful-drain aware). Self-contained leaf; other modules push events via `lib/sse` `emitToUser`, not this service.
+
+- **Moved** (2 files, `git mv`): `routes/notifications.ts → modules/notifications/notifications.routes.ts`; `services/notifications.service.ts → modules/notifications/notifications.service.ts`.
+- **New lesson — sweep route-file imports, not just `.service`.** Typecheck caught `sse.test.ts` importing the **router** (`../routes/notifications`) to test the SSE endpoint — my importer grep only matched `*.service"`. Repointed to `../modules/notifications/notifications.routes`. Added a proactive sweep for `../routes/<moved>` across all moved modules: no other stragglers. (Folded into the migration checklist for clinical.)
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — operations module (2026-06-29)
+
+Eighth module. **Operations** = OR / procedure scheduling (operation_status state machine, OR-team staff assignment, approval gate). Self-contained leaf.
+
+- **Moved** (2 files, `git mv`): `routes/operations.ts → modules/operations/operations.routes.ts`; `services/operations.service.ts → modules/operations/operations.service.ts`.
+- **Boundary.** `operations.service` ← only its route. No cross-module deps, no test/entrypoint/lib importers, no `process.env`.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — audit module (2026-06-29)
+
+Seventh module. **Audit** = the audit-log READ surface (query, per-entity change history, CSV export) + CSP-report ingestion/retention. The audit *write* path (`logAudit → audit_outbox → drain`) intentionally stays in `lib/audit.ts` as platform — this module is the query/ingest side only.
+
+- **Moved** (4 files, `git mv`): `routes/{audit,csp-report}.ts → modules/audit/*.routes.ts`; `services/{audit,csp-report}.service.ts → modules/audit/*.service.ts`.
+- **Importers repointed:** `csp-report.service` ← its route + **cron.ts** (`purgeOldCspReports` retention) + 1 test; `audit.service` ← its route only. Swept lib/+entrypoints up front this time (no surprises).
+- **Ordering preserved.** `cspReportRouter` is **anonymous** (public POST /api/csp-report sink) and stays registered in the anonymous block before the authed routers; `auditRouter` is authed. Barrel-consumed, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ (worker bundles the repointed cron import) · **538/538** unit · **2/2** csp-retention integration-db (cron-driven purge path). No behavior/API/migration change.
+- **Remaining:** operations, notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — compliance module (2026-06-29)
+
+Sixth module. Per the agreed plan, the remaining ~17 routes are being carved into **bounded contexts** (not one "clinical" blob), **leaf modules first so clinical lands last**. Compliance is the first of those leaves — and a deliberately-early one because it's a **lower layer** that clinical + imaging depend on.
+
+- **Moved** (6 files, `git mv`): `routes/{consent,break-glass,erasure}.ts → modules/compliance/*.routes.ts`; `services/{consent,break-glass,erasure}.service.ts → modules/compliance/*.service.ts`.
+- **Widely depended-on — every importer repointed.** `break-glass.service` is consumed by the clinical services still in `services/` (lab, prescriptions), the **already-migrated imaging module** (xray/ultrasound/imaging-attachments → now `../compliance/break-glass.service`), `lib/scope.ts`, and 3 tests; `consent.service` by medical-records + prescriptions + 1 test; `erasure.service` by 2 tests. All updated.
+- **Entrypoint/lib sweep lesson.** Typecheck caught `lib/scope.ts` importing `break-glass.service` — my importer scan had swept services/routes/modules/tests/cron/worker/app/index but **not `lib/`**. Fixed, and noted: future moves (esp. the big clinical one) must sweep `lib/` too. (cron's csp-report dep belongs to the upcoming audit module, untouched here.)
+- **Barrel + ordering.** [modules/compliance/index.ts](../artifacts/api-server/src/modules/compliance/index.ts) exports the 3 authed routers; `routes/index.ts` consumes the barrel, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **12/12** compliance integration-db (break-glass-audit + erasure + doctor-scope-rls — the last exercises the scope.ts→compliance and imaging→compliance repoints end-to-end). No behavior/API/migration change.
+- **Remaining:** audit, operations, notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — reporting module (2026-06-29)
+
+Fifth module (after inventory pilot + identity + billing + imaging). **Reporting** = clinic/per-role dashboards, reports summaries, per-doctor analytics. The cleanest cluster so far.
+
+- **Moved** (6 files, `git mv`): `routes/{dashboard,reports,analytics}.ts → modules/reporting/*.routes.ts`; `services/{dashboard,reports,analytics}.service.ts → modules/reporting/*.service.ts`.
+- **Boundary — fully self-contained.** Each service ← only its own route. **Zero** cross-module service deps, **zero** test importers, **zero** entrypoint importers (swept cron/worker/app/index). No `process.env` reads, no latent lint issues. (`dashboard.service` uses `runtime.cache` for the non-PHI dashboard counts — platform dep, unchanged.)
+- **Barrel + ordering.** [modules/reporting/index.ts](../artifacts/api-server/src/modules/reporting/index.ts) exports the 3 authed routers; `routes/index.ts` consumes the barrel with `router.use()` positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — imaging module (2026-06-29)
+
+Fourth module (after inventory pilot + identity + billing). **Imaging** = X-ray + ultrasound records and their encrypted file attachments.
+
+- **Moved** (5 files, `git mv`): `routes/{xray,ultrasound}.ts → modules/imaging/*.routes.ts`; `services/{xray,ultrasound,imaging-attachments}.service.ts → modules/imaging/*.service.ts`. `imaging-attachments` has no own route — its upload/stream/delete handlers mount on the xray + ultrasound routers.
+- **Boundary.** xray/ultrasound services ← only their own routes; `imaging-attachments.service` ← both routes (intra-cluster) + 3 tests + **cron.ts** (`reconcileOrphanImagingFiles`). Cross-module fan-out (transitional, via `../../services/`): all three reach `break-glass.service` (emergency PHI read); xray/ultrasound also reach `appointments.service` (autoAdvanceVisit).
+- **Entrypoint sweep.** cron.ts's import of `imaging-attachments.service` was repointed — a reminder to sweep cron/worker/app/index, not just routes/services/tests, when moving a module.
+- **3 tests repointed** (`imaging-attachments`, `imaging-orphan-reconcile`, `imaging-quota`).
+- **Latent lint issue fixed.** Linting the moved files exposed a **misplaced `eslint-disable-next-line`** in `imaging-attachments.service`: a comment-continuation line sat between the directive and the `process.env.IMAGING_CLINIC_QUOTA_BYTES` read, so the directive disabled the wrong line (the read stayed an error; the directive reported "unused"). This is an *intentional* direct env read (must re-read at call time — the imaging-quota test overrides the var after import, and `config` is frozen at load); the directive was repositioned to actually cover the read. Third never-linted issue surfaced by the migration.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **14/14** imaging integration-db (attachments + orphan-reconcile + quota, incl. the env-override quota path). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — billing module (2026-06-29)
+
+Third module of the restructure (after inventory pilot + identity). **Billing** = invoicing (incl. the atomic `createInvoice` transaction shipped earlier today) + the services price catalog.
+
+- **Moved** (4 files, `git mv`): `routes/{billing,services-catalog}.ts → modules/billing/*.routes.ts`; `services/{billing,services-catalog}.service.ts → modules/billing/*.service.ts`.
+- **Boundary.** `billing.service` ← only its route; `services-catalog.service` ← its route + 1 test. Fan-out: `billing.service` keeps a **cross-module** dep on `appointments.service` (`autoAdvanceVisit`) via `../../services/appointments.service` — appointments migrates with the clinical module later; this transitional cross-module import is expected.
+- **Barrel + ordering.** [modules/billing/index.ts](../artifacts/api-server/src/modules/billing/index.ts) exports both (authed) routers; `routes/index.ts` consumes the barrel with `router.use()` positions unchanged.
+- **1 test repointed** (`services-catalog.integration-db`). Billing itself is driven via the API in tests (cross-tenant, clinic-id-default-leak, billing-invoice-atomicity), so no service-import repointing needed there.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors — no latent process.env this time) · `build` ✓ · **538/538** unit · **10/10** billing integration-db (invoice-atomicity + services-catalog + clinic-id-default-leak). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — identity module (2026-06-29)
+
+Second module of the restructure (after the inventory pilot), and the first real one. **Identity** = auth, users, device-trust (+ verification), password-reset, jwks. Chosen next per the migration plan despite being the highest-complexity module (auth-adjacent, anonymous-route ordering, most intra-cluster deps) — proven self-contained first: **no service outside the cluster imports any of them**, so blast radius is bounded.
+
+- **Moved** (10 files, `git mv`, history preserved): `routes/{auth,users,devices,password-reset,jwks}.ts → modules/identity/*.routes.ts`; `services/{auth,users,device-trust,device-verification,password-reset}.service.ts → modules/identity/*.service.ts`. Intra-cluster imports became siblings (`./device-trust.service` etc.); platform imports went one level deeper.
+- **`email.service` deliberately NOT moved** — it's shared infra (only identity happens to use it today). Identity references it cross-module via `../../services/email.service`; it will land in the platform/notifications layer later.
+- **Barrel + ordering.** [modules/identity/index.ts](../artifacts/api-server/src/modules/identity/index.ts) exports the 5 routers; `routes/index.ts` imports them from the barrel but **keeps every `router.use()` in its original position**, so the critical anonymous-before-authed registration order (devices/password-reset/jwks/auth before the authed routers) is unchanged.
+- **3 test files repointed** to `../modules/identity/*` (`login-mint.integration-db`, `phase2.flagON.integration`, `users.service.privesc`).
+- **Latent bug surfaced + fixed.** Widening lint to `src/modules` (services were *never* linted before — old script was `eslint src/routes` only) caught two pre-existing `process.env.APP_PUBLIC_URL` reads in `device-verification.service` + `password-reset.service` that violate the "env only through lib/config" rule. Both now use the already-defined `config.appPublicUrl`. (This is the second guard found to have been unrun on services, after the RLS guard — the inventory PR widened the script; this PR is the first to actually exercise it on real violations.)
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **2/2** `login-mint` integration-db (real login flow through the moved auth.service). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated. CLAUDE.md "Adding a New Route" convention still deferred until the pattern is adopted across enough modules.
+
+---
+
+## Feature-module migration — inventory pilot (2026-06-29)
+
+First step of the technical-layer → feature-module restructure (org-scalability: stop every feature PR colliding on shared `routes/index.ts`, `services/`, etc.). **Inventory** is the pilot — a leaf module with zero cross-service deps — moved end to end to prove the pattern + tooling before touching higher-risk modules. One module per PR; clinical last.
+
+- **Move.** `git mv routes/inventory.ts → modules/inventory/inventory.routes.ts`, `services/inventory.service.ts → modules/inventory/inventory.service.ts` (history preserved). Relative imports rewritten (one level deeper; route→service is now a sibling `./inventory.service`).
+- **Barrel.** New [modules/inventory/index.ts](../artifacts/api-server/src/modules/inventory/index.ts) is the module's only public surface (`export inventoryRouter`). `routes/index.ts` imports it from `../modules/inventory`; **registration position unchanged** (anonymous-first ordering preserved). Deep cross-module imports are to be lint-blocked once ≥2 modules exist.
+- **Lint guards follow the files.** [eslint.config.mjs](../artifacts/api-server/eslint.config.mjs) route-boundary + RLS-backstop globs extended to `src/modules/**/*.routes.ts` / `src/modules/**/*.service.ts`; `lint` script widened to `eslint src/routes src/modules`. (Note: the script previously only scanned `src/routes`, so the services RLS guard was configured-but-unrun — modules are now actually linted.)
+- **Contract test future-proofed.** [contract-routes.test.ts](../artifacts/api-server/src/tests/contract-routes.test.ts) scanned only `routes/`; now walks `modules/**/*.routes.ts` recursively too, so the OpenAPI⇄route guard follows files for every later module move (this was the one test the move broke).
+- **CODEOWNERS seeded.** [.github/CODEOWNERS](../.github/CODEOWNERS) added (fully commented until real team handles exist) establishing per-module ownership + a single owner for the cross-cutting platform kernel (do not split it across modules).
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` (esbuild bundle) ✓ · **538/538** unit. No behavior change, no API/contract change, no migration.
+- **Deferred (pending go/no-go on the pattern):** CLAUDE.md "Adding a New Route/Page/Feature" + Feature Checklist still describe the `routes/`+`services/` layout — left unchanged until the module pattern is adopted across enough modules to make it the canonical path.
+
+---
+
+## Invoice create made atomic (2026-06-29)
+
+**Bug:** `billing.service.createInvoice()` wrote the invoice header and its line items as two separate `db.insert` statements with **no enclosing transaction**. A DB error on the line-items insert (or a crash between the two) left an **orphan invoice header with zero line items** — and a burned per-clinic invoice-sequence number — silently corrupting daily reconciliation.
+
+- **Fix.** The patient check + per-clinic counter increment + header insert + line-items insert now run inside a single `runInTenantContext(req.user!, async (tx) => …)` transaction (the pattern already used by `getInvoice`/`erasure.service`). The create now commits or rolls back as a unit, and gains the **RLS tenant backstop** on every write. `generateInvoiceNumber()` takes the caller's `tx` so the counter increment shares the transaction. Pure validation (item shape, discount bounds) runs *before* the tx so a bad request never opens one or burns a sequence number. `logAudit`/`autoAdvanceVisit` stay **after** the commit — audit remains on the outbox path (never block the write on audit-DB health), and a rolled-back create never emits a `CREATE` for an invoice that does not exist.
+- **Regression test.** New [billing-invoice-atomicity.integration-db.test.ts](../artifacts/api-server/src/tests/billing-invoice-atomicity.integration-db.test.ts) reproduces the exact "header ok, items fail" shape: an item with `quantity = 3_000_000_000` passes route (`zod.number()`) + service (`int().positive()`) validation but overflows the `invoice_items.quantity` int4 column *after* the header insert. Asserts the request fails (5xx, not 201), **no** new invoice/items rows persist, and a normal invoice still succeeds afterward (counter left usable).
+- **Scope note.** Surfaced by the 2026-06-29 architecture review. The review's other Phase-1 candidates were dropped against the repo's own ADRs: jti single-use is deliberately dormant scaffolding ([ADR-007](adr/ADR-007-jti-replay-defense-scope.md) — consuming the session jti would 401 the 2nd privileged action in a session), and RLS is already production-active ([ADR-008](adr/ADR-008-app-db-role.md)). Audit-write atomicity left out of scope (deliberate outbox decoupling).
+- **Verification:** typecheck + `eslint` clean; **538/538** backend unit; **28/28** integration-db (cross-tenant + clinic-id-default-leak, both of which drive `createInvoice`); **2/2** new atomicity regression. No migration, no API/contract change, no breaking change.
+
+---
+
 ## Architecture audit P1+P2 + WIP landing (2026-06-29)
 
 **Architecture audit (8.5→9.0/10):** principal-level audit identified 5 actionable findings, all fixed this sprint.
