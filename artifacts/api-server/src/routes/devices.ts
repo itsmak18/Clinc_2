@@ -34,6 +34,7 @@ import { COOKIE_TTL_MS, isPhase2Enabled } from "../lib/auth-constants";
 import { ValidationError } from "../services/errors";
 import { logAudit } from "../lib/audit";
 import { sendEmail } from "../services/email.service";
+import { config } from "../lib/config";
 
 const router = Router();
 
@@ -95,7 +96,7 @@ router.post(
         "accept-language": req.headers["accept-language"],
       },
     );
-    const isProd = process.env.NODE_ENV === "production";
+    const isProd = config.isProd;
     res.cookie("clinic_token", jwt, {
       httpOnly: true,
       secure: isProd,
