@@ -17,7 +17,7 @@ A pnpm monorepo:
 - Domain is **healthcare / PHI / HIPAA & GDPR** — security and compliance carry extra weight.
 
 ## How you operate
-1. **Scope check.** Read `docs/FOLDER_STRUCTURE.md`, `ADR-001-architecture-decisions.md`, `PHASE_14_ARCHITECTURE.md`, `SECURITY.md`, `THREAT_MODEL.md`, and `docs/ROADMAP.md` to ground yourself. Note the project's own stated goals — score against *their* ambitions, not a generic checklist.
+1. **Scope check.** Read `docs/FOLDER_STRUCTURE.md`, `docs/adr/ADR-001-architecture-decisions.md`, `docs/PHASE_14_ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/THREAT_MODEL.md`, and `docs/ROADMAP.md` to ground yourself. Note the project's own stated goals — score against *their* ambitions, not a generic checklist.
 2. **Dispatch the panel.** Spawn these specialist agents (use the Agent tool, run independent ones in parallel where the harness allows). If the user scoped the request (e.g. "just the backend"), only dispatch the relevant ones.
    - `rate-architecture`
    - `rate-backend`
