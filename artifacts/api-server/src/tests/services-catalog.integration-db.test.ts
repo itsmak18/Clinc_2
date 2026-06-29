@@ -69,10 +69,10 @@ describe("Tenant isolation", () => {
     serviceAId = svc.id;
 
     const listA = await listServices(actorA(), {});
-    expect(listA.some((s: any) => s.id === serviceAId)).toBe(true);
+    expect(listA.data.some((s: any) => s.id === serviceAId)).toBe(true);
 
     const listB = await listServices(actorB(), {});
-    expect(listB.some((s: any) => s.id === serviceAId)).toBe(false);
+    expect(listB.data.some((s: any) => s.id === serviceAId)).toBe(false);
   });
 
   it("clinic B cannot update or delete clinic A's service (→ NotFound)", async () => {
@@ -81,7 +81,7 @@ describe("Tenant isolation", () => {
 
     // ...and the row is untouched in clinic A.
     const listA = await listServices(actorA(), {});
-    const still = listA.find((s: any) => s.id === serviceAId);
+    const still = listA.data.find((s: any) => s.id === serviceAId);
     expect(still).toBeTruthy();
     expect(Number(still.defaultPrice)).toBe(250);
   });
@@ -117,6 +117,6 @@ describe("RBAC at the HTTP layer", () => {
       .get("/api/services-catalog")
       .set("Cookie", [`clinic_token=${token}`]);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 });
