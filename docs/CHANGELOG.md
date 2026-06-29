@@ -1,5 +1,36 @@
 # Changelog
 
+## Architecture audit P1+P2 + WIP landing (2026-06-29)
+
+**Architecture audit (8.5→9.0/10):** principal-level audit identified 5 actionable findings, all fixed this sprint.
+
+- **P2a — thin controller restored.** `routes/billing.ts` 30-char cancellation-reason rule moved into `cancelInvoice()` service. All 31 route files now have zero business logic.
+- **P2b — last 2 raw `fetch()` calls eliminated.** [DischargeSheet.tsx](../artifacts/clinic/src/components/DischargeSheet.tsx) migrated to `useGetAppointmentDischarge` (pre-existing hook). [GlobalSearch.tsx](../artifacts/clinic/src/components/GlobalSearch.tsx) migrated to `useGlobalSearch` — a new `GET /search` OpenAPI path was added + codegen run so the contract is fully typed end-to-end. No more raw `fetch()` in the frontend.
+- **P2c — `i18n.tsx` monolith split.** 2169-line EN+AR dictionary extracted into [hooks/locales/en.ts](../artifacts/clinic/src/hooks/locales/en.ts) and [hooks/locales/ar.ts](../artifacts/clinic/src/hooks/locales/ar.ts); `i18n.tsx` reduced to 47 lines. EN/AR parity still guarded by `i18n.test.ts`.
+- **P1 — typed config module.** New [lib/config.ts](../artifacts/api-server/src/lib/config.ts) centralizes all ~50 env-var reads with typed defaults. Migrated all 32 files. ESLint `no-restricted-properties` guard added — severity is now `"error"` (blocks CI). `process.env` reads outside `lib/config.ts` are a compile-time lint failure as of this commit.
+
+**Break-glass audit durability:** applied uniformly across 15+ clinical services:
+- `void logAudit` / `void logRead` → `await` everywhere — fire-and-forget calls were silently swallowing errors and producing out-of-order rows.
+- Break-glass events (`BREAK_GLASS_ACCESS`, `BREAK_GLASS_ACTIVATED`, etc.) upgraded from the best-effort 5-retry outbox to `auditBreakGlass()` — writes directly to `audit_logs` (synchronous, durable) with a JSONL fallback file if the DB is degraded. Access proceeds; event is never silently lost (HIPAA §164.312(a)(2)(ii)).
+- `bg_audit_data` Docker volume added to `docker-compose.prod.yml` — mounted rw into api+worker (both may write fallback), ro into backup.
+- New tests: `break-glass-audit.test.ts` (unit, fallback logic), `break-glass-audit.integration-db.test.ts` (real-PG durability proof).
+
+**Prescription dispensing (migration 0039):** adds `dispensed_at timestamp` + `dispensed_by_id int FK→users` to `prescriptions`. New `POST /prescriptions/:id/dispense` (roles: pharmacist, admin, super_admin) — pharmacist marks Rx dispensed. Existing rows unaffected (nullable).
+
+**CSP unification:** `vite.config.ts` DEV_CSP and STRICT_CSP now derived from the same `cspDirectives` object that helmet uses (`lib/csp.ts`). Eliminates the duplicate hardcoded CSP string that could diverge from the backend policy.
+
+**DENY role contracts:** new describe block in `route-access.contract.test.ts` asserts 403 for roles that must never reach audit-logs, medical-records, billing/invoices, or inventory. Catches SoD drift at CI time.
+
+**Auth type hardening:** `requireRole(...roles: UserRole[])` typed as a union literal instead of `string` — typos caught at compile time.
+
+**Dep security bumps + CVE overrides:** picomatch ≥2.3.2 (CVE-2026-33671/33672 ReDoS/injection), brace-expansion ≥2.0.3 (CVE-2026-33750 OOM), path-to-regexp ≥8.4.0 (GHSA-j3q9-mxjg-w52f ReDoS), undici ≥7.28.0, @opentelemetry/core ≥1.30.0.
+
+**Mockup-sandbox removed.** `artifacts/mockup-sandbox/` deleted — dev-only scratchpad, never deployed, excluded from Docker builds.
+
+**Test results:** 538/538 backend, 51/51 frontend, typecheck + lint (0 errors) + build all green.
+
+---
+
 ## Full Arabic coverage + choose-your-language printing + login language toggle (2026-06-23)
 
 Two staff-reported gaps: (1) switching the UI to Arabic still left whole screens in English, and (2) printed papers were English-only. Root cause for (1): the `translations` dictionary was complete (en/ar parity), but several screens had English **hardcoded in JSX** and never went through `useI18n()` — worst offender was [Triage.tsx](../artifacts/clinic/src/pages/Triage.tsx), the **nurse landing page** (`getLandingRoute("nurse") → /triage`), which was almost entirely un-internationalized.

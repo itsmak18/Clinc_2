@@ -416,7 +416,7 @@ Priority: **Correctness → Security → Performance → Maintainability → DX*
 ## Adding a New Page (Frontend)
 
 1. Create `artifacts/clinic/src/pages/NewPage.tsx`. Use Bayan CSS classes on the root (`<div className="page">`), `.card` / `.card-pad` for sections, plain `<button className="btn btn-primary btn-sm">` for buttons, `<span className="badge badge-teal text-xs">` for badges. Do NOT import `PageHeader`, `Button`, or `Badge` from `@/components/ui/*` in application code.
-2. All user-facing strings via `useI18n()` — add EN + AR keys to `hooks/i18n.tsx`.
+2. All user-facing strings via `useI18n()` — add EN + AR keys to **both** `hooks/locales/en.ts` and `hooks/locales/ar.ts` (split 2026-06-29). `hooks/i18n.tsx` imports from those files and re-exports `translations = { en, ar }`. The `i18n.test.ts` EN/AR parity guard fails CI if any key exists in one locale file but not the other.
 3. Import the page lazily in `App.tsx`: `const NewPage = lazy(() => import("@/pages/NewPage"));`
 4. Add `<Route path="/new-path"><Guard path="/new-path" role={role}><NewPage /></Guard></Route>` inside the existing `Switch`. The route block is already wrapped in `RouteErrorReset` so per-route error resets are automatic.
 5. Add the path + allowed roles to `lib/route-access.ts` (`navItems` array); pin to a role's quick-nav by editing `navPinnedByRole`.
@@ -548,6 +548,7 @@ Every time you add a feature:
 - Never write a DB migration manually — use `drizzle-kit generate` to produce migration SQL, then `drizzle-kit migrate` to apply it. `drizzle-kit push` is dev-only (no file generated, not safe for staging/prod).
 - Never edit generated files in `api-client-react/src/generated/` or `api-zod/src/generated/` — but `lib/api-client-react/src/custom-fetch.ts` IS editable
 - **Never import `@workspace/db` or `drizzle-orm` directly in route files** — DB access belongs in the service layer
+- **Never read `process.env` directly outside `artifacts/api-server/src/lib/config.ts`** — all env vars go through the typed config module. The ESLint `no-restricted-properties` rule enforces this as an error; adding a raw read is a blocking CI lint failure. Exception: `auth-constants.ts` Phase 2 helpers read `process.env.PHASE2_*` dynamically (not via config) so that vitest `beforeAll` env mutations affect them after module collection — this is intentional, see MIGRATION_NOTES.
 - Never call `requireAuth` + `requireRole` together on the same route — use a single `authGate(scope, allowedRoles?)` instead
 - Never introduce MFA code (`otplib`, TOTP, recovery codes, `mfa_sessions`) until MFA is explicitly re-scoped as a feature
 - Never check `process.env.PHASE2_*` directly in code — always go through the helpers in `lib/auth-constants.ts` (`isPhase2Enabled()`, `isEmailVerifyEnabled()`, etc.). The helpers compose the master switch correctly; raw env checks bypass that.
