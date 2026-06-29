@@ -18,7 +18,6 @@ import {
 } from "../lib/imaging-storage";
 import { logger } from "../lib/logger";
 import type { AuthRequest } from "../middlewares/auth";
-import { config } from "../lib/config";
 
 // â”€â”€ allowed image types (sniffed from magic bytes â€” client MIME is not trusted) â”€â”€
 const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB â€” keep in sync with the multer route limit
@@ -101,7 +100,9 @@ export async function uploadAttachment(
   // (e.g. 10 GB) to stop one tenant filling the imaging volume. Sum of LIVE
   // attachment sizes for the clinic; checked BEFORE touching disk so a rejected
   // upload writes nothing.
-  const quotaBytes = config.imagingClinicQuotaBytes;
+  // eslint-disable-next-line no-restricted-properties -- must re-read at call time;
+  // tests override this env var dynamically after module import (config is frozen).
+  const quotaBytes = Number(process.env.IMAGING_CLINIC_QUOTA_BYTES) || 0;
   if (quotaBytes > 0) {
     const usedBytes = await runInTenantContext(req.user!, async (tx) => {
       const [row] = await tx
