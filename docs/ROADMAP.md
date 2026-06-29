@@ -1,5 +1,17 @@
 # Roadmap
 
+> As of 2026-06-29: **Architecture audit P1+P2 complete + WIP landed.** 182-file uncommitted WIP committed in 7 logical slices (all green: 538/538 backend, 51/51 frontend, typecheck+lint). Architecture maturity 8.5→9.0/10. Closed:
+> - ✅ **P0 — WIP landing** — break-glass audit durability, prescription dispensing (migration 0039), CSP unification, DENY role contracts, dep CVE overrides, mockup-sandbox removal, docs prune.
+> - ✅ **P1 — Typed config module** — `lib/config.ts` centralizes all ~50 env reads; ESLint `no-restricted-properties` guard flipped to `"error"` (all 32 files migrated). `process.env` direct reads are a CI-blocking lint error.
+> - ✅ **P2a — Thin controller** — billing cancel reason moved to service; 0 business-logic leaks in routes.
+> - ✅ **P2b — Generated hooks** — last 2 raw `fetch()` calls replaced (`DischargeSheet` → `useGetAppointmentDischarge`, `GlobalSearch` → `useGlobalSearch`; `/search` added to OpenAPI contract).
+> - ✅ **P2c — i18n split** — `i18n.tsx` 2169-line monolith → `hooks/locales/en.ts` + `ar.ts`.
+>
+> **Still open / next:**
+> - ⏳ **integration-db suite** — run `pnpm --filter @workspace/api-server run test:integration-db` end-to-end on real Postgres (Docker or `INTEGRATION_PG_ADMIN_URL`). New `break-glass-audit.integration-db.test.ts` not yet CI-gated.
+> - ⏳ **P3 — Domain-event bus** (optional) — invert `autoAdvanceVisit` hub: 5 services import it; low blast-radius now, defer until coupling bites.
+> - ⏳ **Task Completion Rule** — update Obsidian vault note.
+
 > As of 2026-06-22: **Zero-trust audit hardening — codeable medium-and-above findings closed (working tree, uncommitted).** Source-first re-audit (overall ≈8.5→8.7). 29 new real-Postgres tests + targeted fixes; tsc 0, esbuild clean, no regressions. See CHANGELOG (2026-06-22) + HEALTH_STATUS note. **Closed:**
 > - ✅ **F-Z1 / F-014 — jti replay defense formally DISARMED (not armed).** Arming would regress: the live `privileged` routes (`PATCH`/`DELETE /users/:id`, admin reset) use the reused session cookie, so consuming its jti rejects the 2nd admin action in a session. Pinned by a kernel invariant test (`policy.unit.test.ts` "READS but never CONSUMES the jti") + **ADR-007 §4 correction** (the "zero routes use privileged scope" claim was stale — three now do). Supersedes the "author ADR-014 to arm" recommendation.
 > - ✅ **Imaging integration-db tests** — `imaging-attachments` (upload/scope/download/delete), `imaging-quota`, `imaging-orphan-reconcile` (+ `services-catalog`, `vitals-scope`, `login-mint`). Advances the ADR-012 test-breadth item (imaging done; break-glass-e2e still open).
