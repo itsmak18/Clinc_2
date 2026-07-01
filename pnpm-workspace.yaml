@@ -1,3 +1,33 @@
+
+packages:
+  - artifacts/*
+  - lib/*
+  - scripts
+
+autoInstallPeers: false
+
+catalog:
+  '@tailwindcss/vite': ^4.3.1
+  '@tanstack/react-query': ^5.101.2
+  '@types/node': ^25.3.3
+  '@types/react': ^19.2.17
+  '@types/react-dom': ^19.2.0
+  '@vitejs/plugin-react': ^5.0.4
+  class-variance-authority: ^0.7.1
+  clsx: ^2.1.1
+  drizzle-orm: ^0.45.2
+  framer-motion: ^12.23.24
+  lucide-react: ^0.545.0
+  # Must be this exact version because expo requires it
+  react: 19.1.0
+  # Must be this exact version because expo requires it
+  react-dom: 19.1.0
+  tailwind-merge: ^3.6.0
+  tailwindcss: ^4.3.1
+  tsx: ^4.22.4
+  vite: ^7.3.5
+  wouter: ^3.10.0
+  zod: ^3.25.76
 # ============================================================================
 # SECURITY: Minimum release age for npm packages (supply-chain attack defense)
 # ============================================================================
@@ -29,36 +59,6 @@ minimumReleaseAge: 1440
 
 minimumReleaseAgeExclude: []
 
-packages:
-  - artifacts/*
-  - lib/*
-  - scripts
-
-catalog:
-  '@tailwindcss/vite': ^4.3.1
-  '@tanstack/react-query': ^5.101.1
-  '@types/node': ^25.3.3
-  '@types/react': ^19.2.0
-  '@types/react-dom': ^19.2.0
-  '@vitejs/plugin-react': ^5.0.4
-  class-variance-authority: ^0.7.1
-  clsx: ^2.1.1
-  drizzle-orm: ^0.45.2
-  framer-motion: ^12.23.24
-  lucide-react: ^0.545.0
-  # Must be this exact version because expo requires it
-  react: 19.1.0
-  # Must be this exact version because expo requires it
-  react-dom: 19.1.0
-  tailwind-merge: ^3.6.0
-  tailwindcss: ^4.3.1
-  tsx: ^4.22.4
-  vite: ^7.3.5
-  wouter: ^3.10.0
-  zod: ^3.25.76
-
-autoInstallPeers: false
-
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
@@ -66,28 +66,30 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
+  "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   "@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-freebsd-ia32": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-freebsd-x64": "-"
-  "@expo/ngrok-bin>@expo/ngrok-bin-linux-arm64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-linux-arm": "-"
+  "@expo/ngrok-bin>@expo/ngrok-bin-linux-arm64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-linux-ia32": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-sunos-x64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-win32-ia32": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-win32-x64": "-"
-  # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
-  "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+  # GHSA-8988-4f7v-96qf OpenTelemetry Core unbounded memory — production OTEL dep (was >=1.30.0)
+  "@opentelemetry/core": ">=2.8.0"
   esbuild: "0.27.3"
-  # CVE-2026-33671 (ReDoS) + CVE-2026-33672 (method injection) — picomatch <2.3.2 / <4.0.4
-  # Blanket override: pnpm intersects with each consumer's range, so micromatch consumers
-  # get 2.3.2+ and tinyglobby (^4.x) consumers get 4.0.4+.
-  picomatch: ">=2.3.2"
   # CVE-2026-33750 (brace-expansion hang/OOM) — brace-expansion <2.0.3
   "minimatch>brace-expansion": ">=2.0.3"
   # GHSA-j3q9-mxjg-w52f (path-to-regexp ReDoS/DoS) — production: express>router uses this
   path-to-regexp: ">=8.4.0"
+  # CVE-2026-33671 (ReDoS) + CVE-2026-33672 (method injection) — picomatch <2.3.2 / <4.0.4
+  # Blanket override: pnpm intersects with each consumer's range, so micromatch consumers
+  # get 2.3.2+ and tinyglobby (^4.x) consumers get 4.0.4+.
+  picomatch: ">=2.3.2"
+  # GHSA-<qs-dos> qs DoS stringify — production runtime via Express 5/body-parser
+  qs: ">=6.15.2"
   # undici multiple HIGH/MOD — dev-only testcontainers dep
   undici: ">=7.28.0"
-  # GHSA-fhgq-3b4h-p55c OpenTelemetry Core baggage OOM — production OTEL dep
-  "@opentelemetry/core": ">=1.30.0"
