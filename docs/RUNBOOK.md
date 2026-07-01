@@ -304,6 +304,55 @@ re-deployable without rebuilding.
 Not implemented. Single-container deploy is the current footprint. Tracked alongside
 the warm-standby work in plan item D2.
 
+### 10.4 Migration failure mid-deploy (Emergency Schema Rollback detail)
+
+Drizzle is forward-only — there is no `db:rollback` (see §10.2 point 4). This section
+covers the specific failure mode of a migration that fails **partway through** a
+multi-statement file, which is distinct from "the migration succeeded but was a bad
+idea" (that's §10.2 point 4's roll-forward-or-restore decision).
+
+**Mitigating factor — read this first.** `docker-compose.prod.yml`'s `migrate` service
+is a single-use, ephemeral container that runs `drizzle-kit migrate` once and exits. It
+is not the running app. If any migration file fails partway (syntax error, constraint
+violation on existing data, etc.), the container exits non-zero and **api/worker never
+start** — `depends_on: migrate: condition: service_completed_successfully` blocks
+startup. A partially-applied migration cannot silently reach production traffic; the
+failure is loud (deploy hangs / containers stay down) rather than silent.
+
+**Pre-deploy classification (do this before merging any migration, not after a failure):**
+
+```bash
+# List statements in a pending migration — eyeball for DROP/ALTER TYPE/NARROW
+cat lib/db/migrations/00NN_*.sql | grep -iE 'drop |alter .* type|not null' 
+```
+
+- **Additive only** (new table/column/index, widened type, new nullable column):
+  safe to re-run after any environment fix; no data at risk.
+- **Destructive** (dropped column, narrowed type, non-nullable added without a
+  backfill, RLS policy change): treat as a scheduled-maintenance change, not a
+  hot deploy. Take a fresh backup (§11.5) immediately before applying in production.
+
+**If a migration fails mid-run in production:**
+
+1. Do **not** attempt to manually re-run `db:migrate` blind — inspect which statement
+   failed first (`docker compose logs migrate`).
+2. If the failure is environmental (lock timeout, connection drop) and the migration
+   file is additive-only: fix the environment issue, re-run `migrate`. Drizzle tracks
+   applied migrations in its journal table — already-applied statements in the same
+   file will not double-run as long as the file itself didn't partially commit (see
+   next point).
+3. If the failure left the schema in an inconsistent state (some DDL in the file
+   committed, some didn't — possible if the file isn't wrapped in a single transaction):
+   **restore from the most recent backup** (§2.2) rather than attempting manual DDL
+   surgery. Diagnose and fix the migration file itself before the next attempt.
+4. Never hand-edit a partially-applied schema to match what the migration intended —
+   that drifts from what `drizzle-kit generate` will produce next time and causes
+   silent divergence between the migration journal and actual schema.
+
+This procedure has not yet been drilled end-to-end. Add "inject a failing migration
+into a scratch DB and verify the ephemeral migrate container blocks api/worker
+startup" to the next quarterly restore drill (§12).
+
 ## 11. Monitoring & Alerting
 
 ### 11.1 Grafana access (SSH-tunnel only)

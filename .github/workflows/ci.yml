@@ -331,11 +331,62 @@ jobs:
             --entrypoint promtool prom/prometheus:v2.53.0 \
             check rules prometheus-alerts.yml
 
+  # ── Compose / Dockerfile validation ──────────────────────────────────────────
+  # Added after the 2026-07-01 audit found three deploy-blocking defects that
+  # nothing mechanically exercised: a healthcheck probing a route that doesn't
+  # exist (AUD-OPS-01), a backup script excluded from its own image
+  # (AUD-OPS-02), and a missing pg_dump/psql in the backup container
+  # (AUD-OPS-03). This job fails the build on the same class of drift.
+  compose-validate:
+    name: Compose & Dockerfile Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.prod.yml syntax + required env placeholders
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file .env.prod.example config -q
+
+      - name: Validate docker-compose.yml (dev) syntax
+        run: |
+          docker compose -f docker-compose.yml config -q
+
+      - name: Hadolint (Dockerfile + Dockerfile.clinic)
+        run: |
+          docker run --rm -i hadolint/hadolint:v2.12.0 < Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.12.0 < Dockerfile.clinic
+
+      - name: Healthcheck routes must exist in the app (catches AUD-OPS-01 class)
+        run: |
+          set -euo pipefail
+          # Extract every /api/... path referenced by an api-container healthcheck
+          # (localhost:5000 is the api/worker port; Grafana/Prometheus/etc. probe
+          # their own bundled endpoints on other ports, so they're excluded by
+          # matching the port), then confirm each path is a registered Express
+          # route — this is exactly the class of drift AUD-OPS-01 found.
+          paths=$(grep -hoE "localhost:5000/api/[a-zA-Z0-9/_-]+" docker-compose*.yml \
+            | sed -E 's#.*(/api/[a-zA-Z0-9/_-]+)#\1#' | sort -u)
+          if [ -z "$paths" ]; then
+            echo "No /api healthchecks found to validate — check the grep pattern."
+            exit 1
+          fi
+          fail=0
+          for p in $paths; do
+            route="${p#/api}"
+            if ! grep -rqE "router\.(get|use)\(\s*[\"']${route}([\"']|/)" artifacts/api-server/src/modules/; then
+              echo "FATAL: compose healthcheck targets '$p' but no route '$route' is registered under artifacts/api-server/src/modules/"
+              fail=1
+            else
+              echo "OK: $p is a registered route"
+            fi
+          done
+          exit $fail
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test, monitoring-config]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test, monitoring-config, compose-validate]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -349,7 +400,8 @@ jobs:
                 "${{ needs.migration-drift.result }}" != "success" ||
                 "${{ needs.integration-db.result }}" != "success" ||
                 "${{ needs.frontend-test.result }}" != "success" ||
-                "${{ needs.monitoring-config.result }}" != "success" ]]; then
+                "${{ needs.monitoring-config.result }}" != "success" ||
+                "${{ needs.compose-validate.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

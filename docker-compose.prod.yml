@@ -125,7 +125,9 @@ services:
 
         # Set medicore_app password from Docker secret (not committed to SQL).
         # apk is available in the build target image (same pattern as backup service).
-        apk add --no-cache postgresql-client > /dev/null 2>&1 || true
+        # Pinned to postgresql16-client (matches the postgres:16 server) — see backup
+        # service's identical pin for why (AUD-OPS-03).
+        apk add --no-cache postgresql16-client > /dev/null 2>&1 || true
         APP_PW="$$(cat /run/secrets/app_db_password)"
         psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 \
           -c "ALTER ROLE medicore_app LOGIN PASSWORD '$$APP_PW'"
@@ -334,7 +336,11 @@ services:
     # SIGKILL mid-drain. Set to 35s for a 5s margin.
     stop_grace_period: 35s
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
+      # Real route is /api/healthz (see health.routes.ts) — /api/health does not
+      # exist and was returning 404 forever, so the container never went healthy
+      # and clinic/prometheus/caddy (depends_on: service_healthy) never started.
+      # Node's global fetch (Node 24) avoids depending on the alpine wget binary.
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -518,6 +524,13 @@ services:
     restart: always
     environment:
       REDIS_ADDR: "redis://redis:6379"
+      # Redis enforces --requirepass (see redis service above); without this the
+      # exporter authenticates as nobody and either errors or (pre-Redis 6 ACL
+      # semantics) silently returns no data — RedisHighMemory alert goes dark.
+      # Native file-secret support, no shell needed (this image tag is scratch-based).
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
     read_only: true
     cap_drop:
       - ALL
@@ -743,8 +756,11 @@ services:
       - |
         set -eu
         export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
-        # Install gpg + openssh + rsync (image is alpine-based; quick & cached).
-        apk add --no-cache gnupg openssh-client rsync >/dev/null 2>&1 || true
+        # Install postgresql16-client (pg_dump/psql — pinned to the server's major
+        # version to avoid the PG17/18 client `transaction_timeout` incompatibility
+        # backup-verify.mjs already works around) + gpg + openssh + rsync.
+        apk add --no-cache postgresql16-client gnupg openssh-client rsync >/dev/null 2>&1
+        command -v pg_dump >/dev/null || { echo "[backup] FATAL: pg_dump missing after apk add — DR is non-functional"; exit 1; }
         # rsync-over-SSH offsite uploader. {FILE} substituted by backup-verify.mjs.
         # StrictHostKeyChecking=accept-new pins on first use; subsequent mismatches abort.
         if [ -n "$${BACKUP_RSYNC_TARGET:-}" ]; then
@@ -793,6 +809,10 @@ services:
       - imaging_data:/data/imaging:ro   # read-only — snapshot the encrypted study files
       - bg_audit_data:/data/bg-audit:ro # read-only — snapshot break-glass audit fallback sink
       - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
+      # scripts/ is excluded from the build context (.dockerignore) so the image
+      # never contains backup-verify.mjs — bind-mount it directly. The script
+      # only imports node builtins, so a single-file mount is sufficient.
+      - ./scripts/backup-verify.mjs:/app/scripts/backup-verify.mjs:ro
       # GPG keyring is read-only — the backup container only needs the recipient
       # PUBLIC key to encrypt. The private key lives on the restore host only
       # (see docs/BACKUP_KEY_MANAGEMENT.md). For dev or single-host setups where
