@@ -23,6 +23,18 @@ vi.mock("../lib/logger", () => ({
   logger: { error: loggerErrorMock, info: vi.fn(), warn: loggerWarnMock, debug: vi.fn() },
 }));
 
+const { appendAuditOutboxFallbackMock } = vi.hoisted(() => ({
+  appendAuditOutboxFallbackMock: vi.fn(),
+}));
+
+// AUD-SEAM-01: logAudit's failure path now also calls appendAuditOutboxFallback.
+// Mocked here (own behavior covered by audit-outbox-fallback.test.ts) so this
+// suite stays focused on logAudit's calling contract and never touches the
+// real filesystem.
+vi.mock("../lib/audit-outbox-fallback", () => ({
+  appendAuditOutboxFallback: appendAuditOutboxFallbackMock,
+}));
+
 import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID } from "../lib/audit";
 import { auditLogWriteFailuresTotal, auditSystemActorTotal } from "../lib/metrics";
 
@@ -47,6 +59,7 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     insertMock.mockReset();
     loggerErrorMock.mockReset();
     loggerWarnMock.mockReset();
+    appendAuditOutboxFallbackMock.mockReset();
   });
 
   it("does not throw when the audit insert rejects", async () => {
@@ -84,6 +97,28 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     await logAudit(fakeReq(), "CREATE", "patient", 1);
     expect(loggerErrorMock).not.toHaveBeenCalled();
     expect(await counterValue("CREATE", "patient")).toBe(before);
+  });
+
+  it("[AUD-SEAM-01] does NOT write to the fallback sink when the insert succeeds", async () => {
+    insertMock.mockResolvedValueOnce(undefined);
+    await logAudit(fakeReq(), "CREATE", "patient", 1);
+    expect(appendAuditOutboxFallbackMock).not.toHaveBeenCalled();
+  });
+
+  it("[AUD-SEAM-01] durably captures the event in the local fallback sink when the outbox INSERT fails", async () => {
+    insertMock.mockRejectedValueOnce(new Error("connection refused"));
+    await logAudit(fakeReq(), "UPDATE", "invoice", 12);
+
+    expect(appendAuditOutboxFallbackMock).toHaveBeenCalledTimes(1);
+    const [row, action, entityType] = appendAuditOutboxFallbackMock.mock.calls[0];
+    expect(action).toBe("UPDATE");
+    expect(entityType).toBe("invoice");
+    expect(row).toMatchObject({
+      action: "UPDATE",
+      entityType: "invoice",
+      entityId: "12",
+      userId: 42,
+    });
   });
 
   it("[Phase 3.2] writes a system-actor row when req.user is missing (no longer silent)", async () => {

@@ -1,4 +1,5 @@
 import client from "prom-client";
+import { timingSafeEqual } from "crypto";
 import { pool } from "@workspace/db";
 import type { Request, Response, NextFunction } from "express";
 
@@ -117,6 +118,30 @@ export const breakGlassAuditFallbackPendingGauge = new client.Gauge({
 });
 register.registerMetric(breakGlassAuditFallbackPendingGauge);
 
+// General audit-outbox write-failure durability (AUD-SEAM-01, 2026-07-02).
+// logAudit()'s hot path inserts into audit_outbox; these track what happens
+// when that very first INSERT fails (distinct from a drained-but-exhausted
+// row, which is audit_log_write_failures_total above).
+export const auditOutboxFallbackTotal = new client.Counter({
+  name: "audit_outbox_fallback_total",
+  help: "Audit events whose audit_outbox INSERT failed and were written to the local fallback sink",
+  labelNames: ["action", "entity_type"],
+});
+register.registerMetric(auditOutboxFallbackTotal);
+
+export const auditOutboxFallbackWriteFailuresTotal = new client.Counter({
+  name: "audit_outbox_fallback_write_failures_total",
+  help: "Audit events where BOTH the audit_outbox INSERT and the local fallback sink write failed — event unrecorded (HIPAA incident)",
+  labelNames: ["action", "entity_type"],
+});
+register.registerMetric(auditOutboxFallbackWriteFailuresTotal);
+
+export const auditOutboxFallbackPendingGauge = new client.Gauge({
+  name: "audit_outbox_fallback_pending",
+  help: "Number of audit events in the local outbox-write fallback sink awaiting reconcile into audit_outbox",
+});
+register.registerMetric(auditOutboxFallbackPendingGauge);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",
@@ -157,13 +182,60 @@ export const metricsMiddleware = (req: Request, res: Response, next: NextFunctio
   next();
 };
 
-// Endpoint to expose metrics to Prometheus
-export const getMetrics = async (req: Request, res: Response) => {
-  // Update DB metrics right before scraping
+/**
+ * Render the current metrics snapshot. Framework-agnostic (no Express types)
+ * so both the api's Express route and the worker's raw http.Server listener
+ * (AUD-OPS-04 — the worker has no Express app) share one code path.
+ */
+export async function renderMetrics(): Promise<{ contentType: string; body: string }> {
+  // Update DB pool gauges right before scraping. Each process (api, worker)
+  // has its own @workspace/db pool singleton, so this correctly reports
+  // whichever process's pool is calling it.
   dbPoolTotal.set(pool.totalCount);
   dbPoolIdle.set(pool.idleCount);
   dbPoolWaiting.set(pool.waitingCount);
 
-  res.set("Content-Type", register.contentType);
-  res.end(await register.metrics());
+  return { contentType: register.contentType, body: await register.metrics() };
+}
+
+// Endpoint to expose metrics to Prometheus (Express)
+export const getMetrics = async (req: Request, res: Response) => {
+  const { contentType, body } = await renderMetrics();
+  res.set("Content-Type", contentType);
+  res.end(body);
 };
+
+export interface MetricsAuthResult {
+  authorized: boolean;
+  /** 404 hides the endpoint's existence when unauthenticated in production
+   *  with no token configured; 401 signals "wrong/missing bearer token" when
+   *  one IS configured. */
+  unauthorizedStatus: 404 | 401;
+}
+
+/**
+ * Shared Bearer-token check for /metrics scrape auth — used by both the api's
+ * Express route (app.ts) and the worker's raw http listener (worker.ts,
+ * AUD-OPS-04) so the two auth paths cannot drift.
+ *
+ * Reads `process.env` directly rather than `config.metricsToken`/`config.isProd`
+ * on purpose: `config` is evaluated once at module load, but metrics.test.ts
+ * (and any future test) mutates `process.env.METRICS_TOKEN` per-test AFTER
+ * that — the same dynamic-read rationale CLAUDE.md documents for the Phase 2
+ * `auth-constants.ts` helpers. Fails CLOSED in production when no token is
+ * configured (a missing token in prod is a misconfiguration, not "auth
+ * disabled"); open in dev/test when no token is configured.
+ */
+export function checkMetricsAuth(authorizationHeader: string | undefined): MetricsAuthResult {
+  const token = process.env.METRICS_TOKEN;
+  if (!token) {
+    if (process.env.NODE_ENV === "production") {
+      return { authorized: false, unauthorizedStatus: 404 };
+    }
+    return { authorized: true, unauthorizedStatus: 401 };
+  }
+  const a = Buffer.from(authorizationHeader ?? "");
+  const b = Buffer.from(`Bearer ${token}`);
+  const authorized = a.length === b.length && timingSafeEqual(a, b);
+  return { authorized, unauthorizedStatus: 401 };
+}

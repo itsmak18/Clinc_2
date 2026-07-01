@@ -4,6 +4,7 @@ import { and, lt, or, isNull, lte, eq, inArray } from "drizzle-orm";
 import type { Request } from "express";
 import { logger } from "./logger";
 import { auditLogWriteFailuresTotal, auditOutboxDepthGauge, auditSystemActorTotal } from "./metrics";
+import { appendAuditOutboxFallback } from "./audit-outbox-fallback";
 
 // Sentinel userId for events emitted without an authenticated request context
 // (cron drains, system-initiated retries, internal jobs). Negative values
@@ -83,15 +84,31 @@ export async function logAudit(
       "audit_system_actor_used",
     );
   }
+  // `row` is declared here (not just inside the try) so the catch block can
+  // still reach it for the fallback write below — but building it happens
+  // INSIDE the try, matching the original behavior: if buildAuditRow itself
+  // throws (e.g. a malformed req object missing .headers), that must still be
+  // caught here exactly as before, not propagate as an uncaught rejection.
+  let row: ReturnType<typeof buildAuditRow> | undefined;
   try {
-    await db.insert(auditOutboxTable).values(buildAuditRow(req, action, entityType, entityId, details, beforeState, afterState));
+    row = buildAuditRow(req, action, entityType, entityId, details, beforeState, afterState);
+    await db.insert(auditOutboxTable).values(row);
   } catch (err) {
-    // Outbox insert failed — the audit event is lost. Count it and log.
+    // Outbox insert failed. Count it, log it, and durably capture the event
+    // in the local fallback sink (AUD-SEAM-01) so it is never silently lost —
+    // mirrors the break-glass fallback pattern, reconciled back into
+    // audit_outbox on a 60s interval (see audit-outbox-fallback.ts). If row
+    // construction itself is what threw, there is nothing to persist to the
+    // fallback sink (row is undefined) — same no-crash, counted-and-logged
+    // outcome as before this change.
     auditLogWriteFailuresTotal.labels(action, entityType).inc();
     logger.error(
       { err, action, entityType, entityId, userId: user?.userId ?? SYSTEM_USER_ID, requestId: req.id != null ? String(req.id) : null },
       "audit_outbox_write_failed",
     );
+    if (row) {
+      appendAuditOutboxFallback(row, action, entityType);
+    }
   }
 }
 
@@ -144,14 +161,19 @@ export async function drainAuditOutbox(): Promise<void> {
         afterState: row.afterState ?? null,
         requestId: row.requestId ?? null,
       }));
-
-      // Round-trip 1: Batch Insert
-      await db.insert(auditLogsTable).values(logsToInsert);
-
-      // Round-trip 2: Batch Delete
       const rowIds = rows.map(row => row.id);
-      await db.delete(auditOutboxTable).where(inArray(auditOutboxTable.id, rowIds));
-      
+
+      // AUD-SEAM-05: insert + delete wrapped in one transaction. Previously
+      // these were two independent statements — a crash between them (insert
+      // committed, delete never ran) left the same rows in audit_outbox, so
+      // the next drain tick re-inserted them into audit_logs as duplicates,
+      // corrupting the hash-chain's per-day row count. Now both commit or
+      // neither does; a re-drain after a crash is a no-op retry, not a dup.
+      await db.transaction(async (tx) => {
+        await tx.insert(auditLogsTable).values(logsToInsert);
+        await tx.delete(auditOutboxTable).where(inArray(auditOutboxTable.id, rowIds));
+      });
+
       logger.info({ count: rows.length }, "audit_outbox_drain_batch_success");
     } catch (batchErr) {
       // Fallback path: one of the rows failed. Process individually to isolate the issue.
@@ -159,20 +181,23 @@ export async function drainAuditOutbox(): Promise<void> {
 
       for (const row of rows) {
         try {
-          await db.insert(auditLogsTable).values({
-            clinicId: row.clinicId,
-            userId: row.userId ?? undefined,
-            action: row.action,
-            entityType: row.entityType,
-            entityId: row.entityId ?? null,
-            ipAddress: row.ipAddress,
-            userAgent: row.userAgent ?? null,
-            details: row.details ?? null,
-            beforeState: row.beforeState ?? null,
-            afterState: row.afterState ?? null,
-            requestId: row.requestId ?? null,
+          // Same atomicity reasoning as the batch path above.
+          await db.transaction(async (tx) => {
+            await tx.insert(auditLogsTable).values({
+              clinicId: row.clinicId,
+              userId: row.userId ?? undefined,
+              action: row.action,
+              entityType: row.entityType,
+              entityId: row.entityId ?? null,
+              ipAddress: row.ipAddress,
+              userAgent: row.userAgent ?? null,
+              details: row.details ?? null,
+              beforeState: row.beforeState ?? null,
+              afterState: row.afterState ?? null,
+              requestId: row.requestId ?? null,
+            });
+            await tx.delete(auditOutboxTable).where(eq(auditOutboxTable.id, row.id));
           });
-          await db.delete(auditOutboxTable).where(eq(auditOutboxTable.id, row.id));
         } catch (err) {
           const nextAttempts = row.attempts + 1;
           const backoffMs = BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)];

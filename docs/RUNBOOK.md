@@ -272,9 +272,11 @@ re-deployable without rebuilding.
    ```
 5. Verify health within 60 s:
    ```bash
-   curl -sf https://<CADDY_DOMAIN>/api/health | jq '.ok, .checks.db.status, .checks.redis.status'
+   curl -sf https://<CADDY_DOMAIN>/api/healthz/ready | jq '.status, .checks.db.status, .checks.redis.status'
    ```
-   All three must read `true`/`ok`. If any is `error`, proceed to §10.2.
+   Must read `"ready"`, `"ok"`, `"ok"`. If any is `"error"`/`"not_ready"`, proceed to §10.2.
+   (Note: `/api/healthz` alone — used by the container healthcheck — is a bare liveness
+   probe with no `.checks`; use `/api/healthz/ready` here for the DB/Redis detail.)
 
 ### 10.2 Rollback
 
@@ -353,6 +355,30 @@ This procedure has not yet been drilled end-to-end. Add "inject a failing migrat
 into a scratch DB and verify the ephemeral migrate container blocks api/worker
 startup" to the next quarterly restore drill (§12).
 
+### 10.5 Go-live preflight (AUD-OPS-05)
+
+Run once, by hand, before the **first** `docker compose -f docker-compose.prod.yml up`
+against a real production domain — not part of CI (CI only ever sees the repo's
+committed placeholder values, so a CI gate here would just fail permanently on
+legitimate example config, not catch a real operator mistake):
+
+```bash
+node scripts/preflight-prod.mjs
+```
+
+Currently checks: `monitoring/prometheus/prometheus.yml`'s blackbox-tls scrape target
+is not still the placeholder `https://clinic.yourdomain.local`. Prometheus does not
+env-expand this file (see the comment above the `blackbox-tls` job), so a forgotten
+edit leaves `EdgeProbeDown` and `SSLCertificateExpiringSoon` (§11) permanently inert —
+the alerts exist but have no real series to fire on. Exits non-zero with a specific
+reason if any check fails; safe to wire into a deploy script as a hard gate.
+
+**Also recommended:** an independent **external** TLS/cert-expiry monitor (e.g. a
+third-party uptime service, or a monitor hosted outside this stack) in addition to
+the internal blackbox probe above — the internal probe runs on the same host/network
+it is checking, so an outage that takes Prometheus down with it also silences the
+alert that would have told you about the outage.
+
 ## 11. Monitoring & Alerting
 
 ### 11.1 Grafana access (SSH-tunnel only)
@@ -406,7 +432,7 @@ docker compose -f docker-compose.prod.yml exec alertmanager amtool silence expir
 | Alert | First action | Escalate to backup if |
 |---|---|---|
 | `ServiceDown` | `docker compose ps` to see which of api/worker is down; `docker compose logs <job> --tail=200` for the crash cause (OOM, unhandled rejection, failed DB connect). `docker compose up -d <job>` to restart. | Crash-loops after restart → roll back to the last good `API_IMAGE` (§10.2); if DB-connection refused, check Postgres/PgBouncer health. |
-| `EdgeProbeDown` | Verify Caddy: `docker compose ps caddy` + `docker compose logs caddy --tail=100`; confirm the domain still resolves and TLS handshakes (`curl -vI https://<domain>/api/health`). | Edge stays unreachable but internal `api` is healthy → DNS/cert/proxy issue, not app; engage infra/network owner. |
+| `EdgeProbeDown` | Verify Caddy: `docker compose ps caddy` + `docker compose logs caddy --tail=100`; confirm the domain still resolves and TLS handshakes (`curl -vI https://<domain>/api/healthz`). | Edge stays unreachable but internal `api` is healthy → DNS/cert/proxy issue, not app; engage infra/network owner. |
 | `HighErrorRate` | Tail `docker compose logs api --tail=200`; check the last deploy SHA — if it matches the failing window, roll back (§10.2). | Errors persist after rollback → restore from backup (§2.2). |
 | `DBPoolExhaustion` | Inspect `pg_stat_activity`; kill long-running queries; raise `DB_POOL_MAX` only if every conn shows healthy short-lived work. | Pool stays saturated after `+10` slots → DB instance too small, escalate to capacity planning. |
 | `AuditLogPermanentLoss` | **HIPAA §164.312(b) breach assessment is mandatory.** Query `audit_outbox_row_exhausted` log entries for affected entity IDs; do NOT delete the outbox rows. | Always — this alert is a SEV-1 by definition. |
