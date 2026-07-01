@@ -10,6 +10,7 @@ import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import type { Request } from "express";
 import { drainAuditOutbox, logAudit } from "./lib/audit";
 import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
+import { reconcileAuditOutboxFallback } from "./lib/audit-outbox-fallback";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
 import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./modules/audit/csp-report.service";
@@ -23,6 +24,7 @@ const scheduledTasks: ScheduledTask[] = [];
 
 let drainInterval: ReturnType<typeof setInterval> | null = null;
 let bgReconcileInterval: ReturnType<typeof setInterval> | null = null;
+let auditOutboxReconcileInterval: ReturnType<typeof setInterval> | null = null;
 
 /** Start the 5-second audit-outbox drain loop. Idempotent. */
 export function startAuditDrain(): void {
@@ -68,6 +70,36 @@ export function stopBgAuditReconcile(): void {
   clearInterval(bgReconcileInterval);
   bgReconcileInterval = null;
   logger.info("Break-glass audit fallback reconcile stopped");
+}
+
+/**
+ * Start the 60-second audit-outbox write-failure fallback reconcile loop
+ * (AUD-SEAM-01). Drains any JSONL lines from the local fallback sink back
+ * into audit_outbox, where the normal 5s drain + hash-chain path picks them
+ * up like any other event. Idempotent.
+ */
+export function startAuditOutboxReconcile(): void {
+  if (auditOutboxReconcileInterval) return;
+  auditOutboxReconcileInterval = setInterval(async () => {
+    try {
+      const result = await reconcileAuditOutboxFallback();
+      if (result.inserted > 0) {
+        logger.info(result, "audit_outbox_fallback_reconcile_tick");
+      }
+    } catch (err) {
+      logger.warn({ err }, "audit_outbox_fallback_reconcile_tick_failed");
+    }
+  }, 60_000);
+  auditOutboxReconcileInterval.unref();
+  logger.info("Audit-outbox fallback reconcile started (60s interval)");
+}
+
+/** Stop the audit-outbox fallback reconcile loop. Idempotent. */
+export function stopAuditOutboxReconcile(): void {
+  if (!auditOutboxReconcileInterval) return;
+  clearInterval(auditOutboxReconcileInterval);
+  auditOutboxReconcileInterval = null;
+  logger.info("Audit-outbox fallback reconcile stopped");
 }
 
 // Start cron jobs

@@ -285,10 +285,16 @@ services:
       # Reconciled back into audit_logs by the 60-second background loop (worker.ts).
       # MUST be included in the backup set so no emergency-access audit is lost.
       BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
+      # General audit-outbox write-failure fallback sink (AUD-SEAM-01) — append-
+      # only JSONL when the audit_outbox INSERT itself fails (distinct from the
+      # break-glass sink above). Reconciled back into audit_outbox by the same
+      # 60-second background loop (worker.ts). MUST be included in the backup set.
+      AUDIT_OUTBOX_FALLBACK_DIR: /data/audit-outbox
     # imaging_data and bg_audit_data are writable even with read-only rootfs (volume mounts).
     volumes:
       - imaging_data:/data/imaging
       - bg_audit_data:/data/bg-audit
+      - audit_outbox_fallback:/data/audit-outbox
     entrypoint: ["sh", "-c"]
     # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
     # $$( ) escapes so command-substitution happens inside the container at run time.
@@ -379,15 +385,25 @@ services:
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
       DB_POOL_MAX:     ${DB_POOL_MAX:-40}
+      # AUD-OPS-04: worker's /healthz + /metrics listener port — must match
+      # monitoring/prometheus/prometheus.yml's "medicore-worker" scrape target
+      # (worker:5001) and the healthcheck probe below.
+      WORKER_METRICS_PORT: "5001"
       # Same imaging volume as api — the erasure path purges image files, and
       # mounting it keeps the worker able to operate on them if moved here later.
       IMAGING_STORAGE_DIR: /data/imaging
       # Break-glass audit fallback sink — same volume as api so the 60-second
       # reconcile loop in the worker drains whichever process wrote to it.
       BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
+      # General audit-outbox write-failure fallback sink (AUD-SEAM-01) — append-
+      # only JSONL when the audit_outbox INSERT itself fails (distinct from the
+      # break-glass sink above). Reconciled back into audit_outbox by the same
+      # 60-second background loop (worker.ts). MUST be included in the backup set.
+      AUDIT_OUTBOX_FALLBACK_DIR: /data/audit-outbox
     volumes:
       - imaging_data:/data/imaging
       - bg_audit_data:/data/bg-audit
+      - audit_outbox_fallback:/data/audit-outbox
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -425,6 +441,18 @@ services:
       pgbouncer:
         condition: service_healthy
     stop_grace_period: 35s
+    # AUD-OPS-04: the worker previously had no healthcheck (no listener existed
+    # to probe). Its raw http.Server (worker.ts) now answers an unauthenticated
+    # /healthz on WORKER_METRICS_PORT — liveness only, no telemetry, same
+    # Node-fetch probe shape as the api healthcheck (no reliance on the alpine
+    # wget binary). Also gives Prometheus's worker:5001/metrics scrape a real
+    # target instead of a permanent ServiceDown false-critical.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     mem_limit: 1g
     cpus: 1.0
     pids_limit: 200
@@ -785,6 +813,13 @@ services:
               tar czf "/backups/imaging-$$CURRENT_DAY.tar.gz" -C /data/imaging . 2>/dev/null \
                 && echo "[backup] imaging snapshot OK" || echo "[backup] imaging snapshot skipped (empty?)"
               find /backups -name 'imaging-*.tar.gz' -mtime +$${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
+              # Snapshot the audit-outbox write-failure fallback sink (AUD-SEAM-01)
+              # so an unreconciled JSONL line survives even if the DB is lost too —
+              # in steady state this is near-empty (reconciled + truncated every 60s),
+              # but during a sustained audit-DB outage it can hold real un-drained events.
+              tar czf "/backups/audit-outbox-fallback-$$CURRENT_DAY.tar.gz" -C /data/audit-outbox . 2>/dev/null \
+                && echo "[backup] audit-outbox fallback snapshot OK" || echo "[backup] audit-outbox fallback snapshot skipped (empty?)"
+              find /backups -name 'audit-outbox-fallback-*.tar.gz' -mtime +$${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
               sh /opt/monitoring/backup-metrics.sh || echo "[backup] textfile write failed"
               echo "[backup] Daily backup SUCCESS"
             else
@@ -808,6 +843,7 @@ services:
       - backup_metrics:/metrics
       - imaging_data:/data/imaging:ro   # read-only — snapshot the encrypted study files
       - bg_audit_data:/data/bg-audit:ro # read-only — snapshot break-glass audit fallback sink
+      - audit_outbox_fallback:/data/audit-outbox:ro # read-only — snapshot audit-outbox write-failure fallback sink
       - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
       # scripts/ is excluded from the build context (.dockerignore) so the image
       # never contains backup-verify.mjs — bind-mount it directly. The script
@@ -862,6 +898,10 @@ volumes:
   bg_audit_data:      # Break-glass audit fallback JSONL sink.
                       # Mounted rw into api+worker (both may append), ro into backup.
                       # Reconciled into audit_logs by the 60-second worker loop.
+                      # Mount a host path or NFS for durability beyond container lifetime.
+  audit_outbox_fallback: # General audit-outbox write-failure fallback JSONL sink (AUD-SEAM-01).
+                      # Mounted rw into api+worker (both may append), ro into backup.
+                      # Reconciled into audit_outbox by the 60-second worker loop.
                       # Mount a host path or NFS for durability beyond container lifetime.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────

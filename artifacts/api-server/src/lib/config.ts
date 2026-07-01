@@ -107,6 +107,12 @@ export const config = {
   breakGlassAuditFallbackDir: envStr("BREAK_GLASS_AUDIT_FALLBACK_DIR", "./storage/break-glass-audit"),
   bgVelocityThreshold:        envNum("BG_VELOCITY_THRESHOLD", 3),
 
+  // ── Audit outbox durability (AUD-SEAM-01) ─────────────────────────────────
+  auditOutboxFallbackDir: envStr("AUDIT_OUTBOX_FALLBACK_DIR", "./storage/audit-outbox"),
+
+  // ── Worker metrics endpoint (AUD-OPS-04) ──────────────────────────────────
+  workerMetricsPort: envNum("WORKER_METRICS_PORT", 5001),
+
   // ── Workflow ──────────────────────────────────────────────────────────────
   autoAdvanceFlow: process.env["AUTO_ADVANCE_FLOW"] !== "false",
 
