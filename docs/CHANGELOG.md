@@ -1,5 +1,18 @@
 # Changelog
 
+## E2E test layer — Playwright + MSW (AUD-FE-01) COMPLETE (2026-07-02)
+
+Closes the last audit High from the 2026-07-01 board review: the frontend had strong unit coverage (51 vitest) but no test exercised a real user flow through the rendered app. Stands up a browser-mocked Playwright harness — no backend/DB needed.
+
+- **Harness** (committed `e31dd39`): `@playwright/test` + `msw` (chromium only). MSW handlers in `artifacts/clinic/src/mocks/{handlers,browser}.ts` with response shapes copied from `lib/api-spec/openapi.yaml` (not guessed). Worker started from `main.tsx` behind an `import.meta.env.VITE_E2E` gate — dynamic-imported and awaited before render, statically dead-code-stripped from prod builds (verified: no MSW symbols in `dist/public/assets`). Runs against `vite dev` (PROD=false) so the app's own prod service worker stays dormant and doesn't collide with MSW's.
+- **Specs** (`e2e/specs/`): 3 critical flows — login→dashboard, create appointment, create billing invoice — driven through a shared `loginAs()` fixture. In-memory session + stores in the handlers make a created row visible to the next list GET (proves create→refetch→render).
+- **CI:** new advisory `e2e` job (chromium install → `test:e2e` → upload report). Deliberately **NOT** in `ci-gate.needs` — runs on every PR, failures visible, but non-blocking so E2E flake never gates a merge. (Supersedes the earlier Phase-5 "no CI" plan.)
+- **Refinement (2026-07-02):** added MSW handlers for the authed shell's background polling (`/api/notifications`, a never-closing `/api/notifications/stream` SSE, `/api/dashboard/front-desk`) — without them these fell through MSW to the dead vite proxy, spamming ECONNREFUSED + a 5s EventSource reconnect storm. Suite now runs clean (10.3s, zero proxy errors).
+
+Verification: **3/3 e2e** · **51/51 vitest** (e2e/ excluded from the vitest glob) · typecheck clean · prod bundle confirmed MSW-free.
+
+---
+
 ## Feature-module migration — clinical module + migration COMPLETE (2026-06-29)
 
 Twelfth and final module. **Clinical** = the EHR core: patients, appointments (visit state-machine hub), medical-records, prescriptions, vitals, lab, schedule (+ `schedule.slots` helper), clinic-notices. With this, the backend is fully migrated from technical-layer-first (`routes/` + `services/`) to feature modules under `src/modules/`.
