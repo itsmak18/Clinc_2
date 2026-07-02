@@ -29,7 +29,7 @@ import path from "path";
 import { db } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db";
 import type { Request } from "express";
-import { buildAuditRow } from "./audit";
+import { buildAuditRow, toAuditLogUserId } from "./audit";
 import { recordDailyIntegrity } from "./audit-integrity";
 import {
   breakGlassAuditFallbackTotal,
@@ -67,8 +67,14 @@ export async function auditBreakGlass(
   entityId?: string | number,
   details?: object | null,
 ): Promise<void> {
+  const baseRow = buildAuditRow(req, action, entityType, entityId, details);
   const row = {
-    ...buildAuditRow(req, action, entityType, entityId, details),
+    ...baseRow,
+    // AUD-SEAM-07: this row is inserted directly into audit_logs (FK to
+    // users.id) — SYSTEM_USER_ID(-1) has no matching row. In practice
+    // break-glass actions always have an authenticated req.user, but this
+    // guards the same bug class defensively (e.g. a future internal caller).
+    userId: toAuditLogUserId(baseRow.userId),
     createdAt: new Date(), // explicit timestamp for hash-chain reconcile
   };
 
@@ -139,6 +145,11 @@ export async function reconcileBreakGlassAuditFallback(): Promise<{
             affectedDates.add(d.toISOString().slice(0, 10));
           }
         }
+        // AUD-SEAM-07: defensive remap for any sink line written before this
+        // fix (auditBreakGlass now remaps at the source, but an older JSONL
+        // line could still carry the raw SYSTEM_USER_ID(-1) sentinel, which
+        // would fail the audit_logs.user_id FK on this direct insert).
+        row.userId = toAuditLogUserId(row.userId as number | null | undefined);
         rows.push(row);
       } catch {
         result.parseErrors++;

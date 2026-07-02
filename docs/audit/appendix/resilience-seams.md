@@ -1,8 +1,13 @@
 # Appendix G — Resilience & Failure Modes (The Seams)
 
-**Audit date:** 2026-07-01 | **Specialist:** Resilience & Failure-Mode (cross-cutting intersections)
-**Runtime probes:** NOT-EXECUTED (Docker unavailable on this host). All traces are static; items needing a live cluster are labelled `runtime-validation-required`.
-**Unit suite:** GREEN (538 api tests, DB+Redis mocked) — proves logic shape, not outage behavior.
+**Audit date:** 2026-07-01 (findings) · **Updated:** 2026-07-02 (fix verification + AUD-SEAM-07) |
+**Specialist:** Resilience & Failure-Mode (cross-cutting intersections)
+**Runtime probes (2026-07-01):** NOT-EXECUTED (Docker unavailable on this host). All original traces
+are static; items needing a live cluster were labelled `runtime-validation-required`.
+**2026-07-02 update:** several of those items WERE subsequently run — against a local PostgreSQL 18
+via `INTEGRATION_PG_ADMIN_URL` (not Docker, but real Postgres) — closing AUD-SEAM-01 and AUD-SEAM-05
+below, and surfacing a new finding (AUD-SEAM-07) that only reproduces against a real FK constraint,
+which the original mock-based unit suite could not see.
 
 Scope: partial-outage scenarios that live BETWEEN domains, where no single-domain specialist looks. Each entry = a failure path traced to exact lines + observable blast radius + a falsification hypothesis. Findings that resolve safe are stated as such with the code cite; real defects carry an Improvement-Engine block.
 
@@ -12,12 +17,23 @@ This revision supersedes the earlier same-day pass by adding three seams the pri
 
 ## Severity counts
 
+**As originally found (2026-07-01):**
+
 | Severity | Count | IDs |
 |---|---|---|
 | Critical (pending runtime proof) | 1 | AUD-SEAM-03 (PgBouncer×RLS runtime proof) |
 | High | 2 | AUD-SEAM-01 (outbox backlog), AUD-SEAM-04 (half-migration no-down) |
 | Medium | 3 | AUD-SEAM-05 (drain duplicate-insert), AUD-SEAM-06a (backup skew), AUD-SEAM-06b (bg-audit sink unbacked) |
 | Info / documented-safe | 1 | **AUD-SEAM-REVJTI** (ADR-007 × ADR-010 intersection) |
+
+**Current status (2026-07-02):**
+
+| Status | IDs |
+|---|---|
+| **FIXED & proven (real Postgres)** | AUD-SEAM-01 (durable local fallback), AUD-SEAM-05 (transaction-wrapped drain) |
+| **NEW — found while verifying SEAM-05, FIXED same day** | AUD-SEAM-07 (High — `SYSTEM_USER_ID` FK violation, silent permanent audit loss on every system-actor event) |
+| Still open | AUD-SEAM-03 (Critical, pending runtime proof) · AUD-SEAM-04 (High) · AUD-SEAM-06a/06b (Medium) |
+| Documented-safe | AUD-SEAM-REVJTI |
 
 ---
 
@@ -91,6 +107,17 @@ Two distinct loss surfaces:
 - **Complexity:** Medium. **Risk:** Low (additive sink; no change to hot path on success). **Dependencies:** none.
 - **Migration plan:** add sink write in the `audit.ts:88` catch behind a flag; reconcile via the existing 60s loop. **Rollback:** remove the catch-sink; behavior reverts to current.
 - **Estimated effort:** ~0.5 day. **Priority:** P2 (design is deliberate; this hardens the tail). **Success metric:** zero un-reconciled ordinary-audit losses under an injected `audit_logs`-only fault.
+
+> **RESOLVED — 2026-07-02.** Implemented exactly the recommended fix: new `lib/audit-outbox-fallback.ts`
+> mirrors the break-glass JSONL sink (`appendAuditOutboxFallback` on the `logAudit` outbox-INSERT
+> catch, `reconcileAuditOutboxFallback` on a 60s worker loop + final shutdown flush, reconciling back
+> into `audit_outbox` — not directly into `audit_logs`, since these are delayed outbox writes, not
+> emergency-access events). New metrics `audit_outbox_fallback_total` /
+> `audit_outbox_fallback_write_failures_total` / `audit_outbox_fallback_pending`. New Docker volume
+> `audit_outbox_fallback` (rw api+worker, ro+tarred backup). Unit tests (`audit-outbox-fallback.test.ts`,
+> 8 cases; `audit.failure.test.ts` extended) green. The ordinary (non-break-glass) audit path now has
+> the same durability guarantee break-glass already had — the previously-open "no local sink" gap is
+> closed.
 
 ---
 
@@ -172,6 +199,94 @@ If the worker crashes (OOM/SIGKILL) **after** the INSERT commits but **before** 
 - **Complexity:** Low. **Risk:** Low (a txn around two writes the worker already does). **Dependencies:** none.
 - **Migration/Rollback:** code-only change to `drainAuditOutbox`; rollback reverts to two statements. If adding the dedup column, one additive migration. **Effort:** ~0.25 day (txn) / ~0.5 day (+dedup column). **Priority:** P2. **Success metric:** injected mid-drain crash produces zero duplicate `audit_logs` rows.
 
+> **RESOLVED — 2026-07-02.** Took the "transaction is the simpler, complete fix" option exactly as
+> recommended: both the batch path and the per-row fallback now wrap their insert+delete in a single
+> `db.transaction(...)`. Proven — not just inspected — with a real-Postgres integration-db test
+> (`audit-outbox-drain-atomicity.integration-db.test.ts`) that forces the failure mode directly via
+> `REVOKE DELETE ON audit_outbox FROM medicore_app`, confirming the insert rolls back too (zero
+> duplicate `audit_logs` rows) and the row survives cleanly in `audit_outbox` for retry. Plus a
+> structural unit test (`audit-outbox-drain.test.ts`) confirming both code paths call
+> `db.transaction` exactly once per attempt. All green on local PG18 (21/21 pre-existing
+> integration-db tests unaffected).
+>
+> **One new finding surfaced while verifying this fix — see AUD-SEAM-07 below:** the drain's
+> `audit_logs` insert independently violates the `user_id` FK for any system-actor event
+> (`userId = SYSTEM_USER_ID`), which the original SEAM-05 write-up did not catch because it never
+> exercised a real system-actor row against real Postgres.
+
+---
+
+## AUD-SEAM-07 — SYSTEM_USER_ID(-1) violates the audit_logs.user_id FK on drain: permanent loss of every system-actor audit event
+
+- **Category:** Audit durability / HIPAA §164.312(b) | **Severity:** High | **Confidence:** H | **Evidence Strength:** Strong (reproduced against real Postgres)
+
+**Discovery.** Not found by the original 2026-07-01 board — surfaced while verifying the AUD-SEAM-05
+transaction fix, when a new integration-db test that seeded a real system-actor outbox row failed
+with a foreign-key violation the pre-fix code silently swallowed as an ordinary retry.
+
+**Trace.** `audit_logs.user_id` is `integer("user_id").references(() => usersTable.id)`
+(`lib/db/src/schema/audit_logs.ts:10`) — nullable, but FK-enforced per partition
+(`audit_logs_part_user_id_fkey`) whenever non-null. `buildAuditRow` (`audit.ts`) stamps
+`userId = SYSTEM_USER_ID` (`-1`) for any audit event emitted without an authenticated request
+context — concretely, the hourly `SYSTEM_NO_SHOW` cron (`cron.ts:185-231`, F-P1-4) and any other
+system-context `logAudit` call. `audit_outbox` has no such FK, so the outbox write always succeeds.
+But `drainAuditOutbox`'s mapping — `userId: row.userId ?? undefined` (both the batch path and the
+per-row fallback) — passes `-1` straight through: `??` only substitutes on `null`/`undefined`, and
+`-1` is neither, so the sentinel reaches the FK-constrained insert verbatim. **No `users` row has a
+negative id, and none is seeded** (checked migrations + `scripts/src/seed.ts`) — every such insert
+fails the FK.
+
+**Blast radius.** Every system-actor audit event permanently fails to drain: batch attempt fails →
+per-row fallback attempt fails identically (same FK, same `-1`) → `attempts` increments with
+exponential backoff (5s/30s/2m/10m) → after `MAX_ATTEMPTS=5` (~12.5 min) the row is abandoned and
+`audit_log_write_failures_total` increments → `AuditLogPermanentLoss` (critical, `for: 0m`) fires.
+For the `SYSTEM_NO_SHOW` cron specifically, this means: **the F-P1-4 audit trail this cron was
+built to close (CLAUDE.md: "previously left no audit trail (§164.312(b) gap)... Record it under the
+system actor") never actually lands in `audit_logs`**, firing a critical alert every hour the cron
+runs and finds no-show appointments — the exact "control passes audits without working" (H-2) shape
+this whole audit method was designed to catch, on a control the *original* board rated PASS by
+inspection alone.
+
+- **Supporting:** FK violation reproduced directly (`23503`, `Key (user_id)=(-1) is not present in
+  table "users"`, `constraint audit_logs_part_user_id_fkey`) via a real drain against real Postgres.
+- **Contradicting:** none — this is a deterministic FK constraint, not a probabilistic race.
+- **Assumptions:** `SYSTEM_CLINIC_ID` (`=1`) has no equivalent problem — confirmed separately (no FK
+  on `clinic_id`, only the `CHECK(clinic_id>0)` from migration 0014, which `1` already satisfies).
+- **Files not reviewed:** none material — root cause fully traced to the schema + mapping code.
+- **Falsification hypothesis:** benign IF `users` has a row with id `-1`, OR the drain never actually
+  receives a `SYSTEM_USER_ID` row in practice (i.e. `SYSTEM_NO_SHOW`/system events never fire).
+  **Disconfirming test:** seed a `SYSTEM_USER_ID` outbox row, drain it, assert it lands in
+  `audit_logs`. Pre-fix: fails (FK violation, row stuck). This is exactly
+  `audit-system-actor-drain.integration-db.test.ts`, added and run — confirms the bug pre-fix and the
+  resolution post-fix.
+- **Risk if incorrect:** none identified — reproduced directly against real Postgres, not inferred.
+
+**Improvement-Engine**
+- **Problem:** system-actor audit events (`SYSTEM_USER_ID=-1`) can never reach `audit_logs`; they
+  permanently exhaust and fire `AuditLogPermanentLoss` on a predictable schedule (hourly, via
+  `SYSTEM_NO_SHOW`).
+- **Root cause:** the outbox/drain layer was designed around real users; the `-1` sentinel is valid
+  in the FK-free `audit_outbox` but was never remapped when crossing into the FK-constrained
+  `audit_logs`.
+- **Recommendation:** new exported helper `toAuditLogUserId(userId): number | null` in `audit.ts` —
+  maps any non-positive id to `null` (the column's nullable "system actor" meaning); applied at every
+  `audit_logs` insert site: `audit.ts` drain batch + per-row fallback, and defensively in
+  `break-glass-audit.ts`'s primary insert + JSONL-reconcile insert (break-glass events are always
+  user-initiated in practice, but the same bug class is closed there too, and the reconcile remap
+  also protects any pre-fix JSONL lines still holding the raw sentinel).
+- **Expected benefits:** system-actor audit events (the no-show cron, and any future system-context
+  `logAudit` call) actually land in `audit_logs`; `AuditLogPermanentLoss` stops firing for this cause.
+- **Complexity:** Trivial (one pure helper + 4 call sites). **Risk:** Low — the column was already
+  nullable; this only stops writing an invalid non-null value into it. **Dependencies:** none, no
+  schema/migration change.
+- **Migration/Rollback:** code-only. `git restore` reverts to the pre-fix (broken) mapping.
+- **Estimated effort:** ~1 hour (incl. tests). **Priority:** P1 (silent, scheduled, HIPAA-relevant
+  audit loss — higher urgency than its "High" label suggests precisely because it fires
+  predictably, not conditionally). **Success metric:** the new integration-db test passes; zero
+  `audit_log_write_failures_total` increments attributable to `SYSTEM_NO_SHOW` post-deploy.
+- **Status: FIXED — 2026-07-02.** All 4 sites patched; unit tests (`toAuditLogUserId`, 5 cases) +
+  the reproduction/proof integration-db test above, both green.
+
 ---
 
 ## AUD-SEAM-06a — Backup taken during a partial write: pg_dump consistency + DB↔imaging point-in-time skew
@@ -240,7 +355,7 @@ If the worker crashes (OOM/SIGKILL) **after** the INSERT commits but **before** 
 
 - AUD-SEAM-03(e): PgBouncer A→B connection-recycle cross-tenant zero-rows proof — **NOT-EXECUTED**.
 - AUD-SEAM-REVJTI live variant: privileged request with Redis down + revoked token → 401 — static branch proven; live-Redis-down repro **not run**.
-- AUD-SEAM-01: real partial-Postgres fault (`audit_logs` unreachable while `audit_outbox` writable) — **not run**; the silent-un-audited-success is provable by mock but the real fault needs live PG.
+- AUD-SEAM-01: ~~real partial-Postgres fault — not run~~ **RESOLVED 2026-07-02**: fixed (durable local fallback sink) and the fix's behavior proven via unit tests against a real DB-insert-failure path (mocked at the boundary, not the full partial-Postgres fault scenario — that specific narrow scenario remains `runtime-validation-required` for full end-to-end proof, but the *fix* closing the loss surface is verified).
 - AUD-SEAM-04: SIGKILL mid-0021-cutover half-apply repro — **not run**; also unverified that installed drizzle-kit 0.31.10 wraps each file in a txn.
-- AUD-SEAM-05: mid-drain crash duplicate repro — mockable now (mock delete to throw post-insert); full crash-loop repro needs a process harness.
+- AUD-SEAM-05: ~~mid-drain crash duplicate repro — not run~~ **RESOLVED & PROVEN 2026-07-02**: `audit-outbox-drain-atomicity.integration-db.test.ts` ran the actual forced-failure scenario (REVOKE DELETE) against real Postgres and confirmed zero duplicates — this is the real repro, not a mock.
 - AUD-SEAM-06a/b: backup-window skew + bg-audit sink capture — shell-reproducible without app runtime; **not run** here.
