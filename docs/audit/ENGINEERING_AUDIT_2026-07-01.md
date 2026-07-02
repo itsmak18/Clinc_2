@@ -84,11 +84,11 @@ OPS-02 + OPS-03 must ship together (a fixed script still fails at the dump step 
 
 | ID | Finding | Note |
 |---|---|---|
-| **AUD-SEAM-01** | On an `audit_outbox` INSERT failure, an *ordinary* PHI read/write still completes **silently un-audited** (no durable local fallback, unlike break-glass which has one). HIPAA §164.312(b). | `audit.ts:88-95`. Add a local durable sink for outbox-write failures. |
+| **AUD-SEAM-01** | ~~On an `audit_outbox` INSERT failure, an *ordinary* PHI read/write still completes **silently un-audited**~~ **FIXED 2026-07-02 — see §18.** | Durable local JSONL fallback sink added, mirroring break-glass. |
 | **AUD-SEAM-04** | Roll-forward-only migrations; the 0021 partition cutover is non-idempotent on partial apply → manual cleanup/restore. | Mitigated: the ephemeral `migrate` container blocks api/worker start on failure (now documented — RUNBOOK §10.4, applied this run). |
-| **AUD-OPS-04** | Worker exposes no `/metrics` on `:5001`, but Prometheus scrapes it → `up{job="medicore-worker"}==0` **permanent false-critical** `ServiceDown`; audit-loss series drained *in the worker* may have no scrape target. | Alert fatigue can mask a real api outage. Add a Bearer-gated `/metrics` listener to `worker.ts`. |
-| **AUD-OPS-05** | Blackbox TLS probe target is a placeholder (`clinic.yourdomain.local`) → `EdgeProbeDown` + `SSLCertificateExpiringSoon` inert until an operator edits it. | Missed cert renewal = full outage as first symptom. Add a go-live guard + external cert monitor. |
-| **AUD-FE-01** | No E2E tests (no Playwright/Cypress). Unit coverage is strong but a UI-flow regression (broken render, wrong button) passes CI. | Add Playwright + MSW layer. |
+| **AUD-OPS-04** | ~~Worker exposes no `/metrics` on `:5001`~~ **FIXED 2026-07-02 — see §18.** | Real `/healthz`+`/metrics` listener added to the worker + compose healthcheck. |
+| **AUD-OPS-05** | ~~Blackbox TLS probe target is a placeholder~~ **FIXED 2026-07-02 — see §18.** | New `scripts/preflight-prod.mjs` go-live gate + RUNBOOK §10.5. |
+| **AUD-FE-01** | No E2E tests (no Playwright/Cypress). Unit coverage is strong but a UI-flow regression (broken render, wrong button) passes CI. | Add Playwright + MSW layer. **Still open** — deferred, greenfield frontend infra. |
 
 ---
 
@@ -109,7 +109,7 @@ OPS-02 + OPS-03 must ship together (a fixed script still fails at the dump step 
 | AUD-OPS-07 | Backup/migrate `apk add` at container start → alpine-mirror/air-gapped outage breaks DR at the worst time. |
 | AUD-OPS-08 | Healthchecks assume `wget` exists in the minimal runtime image (busybox, undocumented). Compounds OPS-01. |
 | AUD-OPS-09 | `backend` network `internal: false` → PHI-tier containers have open egress. Documented trade-off (Resend/HIBP). |
-| AUD-SEAM-05 | Outbox drain is insert-then-delete across two non-transactional statements with a serial PK and no dedup key → **duplicate audit rows** on mid-drain crash (corrupts hash-chain counts). Wrap in a transaction / add `source_outbox_id`. |
+| AUD-SEAM-05 | ~~Outbox drain is insert-then-delete across two non-transactional statements~~ **FIXED & proven 2026-07-02 — see §18.** |
 | AUD-SEAM-06a | Backup captures the DB dump and the imaging tar sequentially against a live volume → point-in-time skew / dangling references on restore. |
 
 ---
@@ -237,6 +237,61 @@ The hundreds of `500 / "reading 'count'" / doctorPatientsTable mock` lines in th
 | `docs/RUNBOOK.md` | §10.4 emergency schema-rollback / mid-deploy migration-failure procedure | doc gap behind `AUD-SEAM-04` |
 | `lib/db/package.json` | `drizzle-kit ^0.31.9 → ^0.31.10` | minor dev-dep bump |
 
-> **Honesty note:** these five edits landed **after** the baseline suite run, so baseline-green does not cover them; the **re-cert** row does. The three Critical `AUD-OPS-*` findings live in `docker-compose.prod.yml` — the same file one kept edit touched — but the P0 defects are elsewhere in it and remain **unfixed**; keeping the redis-exporter edit does not address OPS-01/02/03.
+> **Honesty note:** these five edits landed **after** the baseline suite run, so baseline-green does not cover them; the **re-cert** row does. The three Critical `AUD-OPS-*` findings live in `docker-compose.prod.yml` — the same file one kept edit touched — but the P0 defects were elsewhere in it and, **at the time this report was written, remained unfixed**; keeping the redis-exporter edit did not by itself address OPS-01/02/03. **They were subsequently fixed the same sprint — see §18.**
 
 *Recommendation:* commit these five deliberately (they are sound and re-certified), then proceed with the §12 Immediate roadmap.
+
+---
+
+## 18. Second & Third Remediation Sprints (2026-07-02) — Highs closed + one new finding
+
+Two follow-on sprints landed after this report's original publication, on the same
+`security/search-doctor-scope` branch. This section is appended, not backfilled into §1-16, so the
+report still accurately reflects what the board found and knew at publication time; §5-8 carry
+forward-references here.
+
+### Sprint 2 — the 3 P0 deploy-blockers (§4) + 4 of 5 Highs (§5)
+
+- **`AUD-OPS-01/02/03`** (Critical, §4) — healthcheck route fixed (`/api/health`→`/api/healthz`,
+  Node-fetch probe), backup script bind-mounted, `postgresql16-client` installed + fail-loud.
+  New `compose-validate` CI job (closes `AUD-OPS-11`) so this class of drift fails CI going forward.
+  `.env.prod.example` was also found missing `PGBOUNCER_IMAGE`/`BACKUP_RSYNC_TARGET` (both
+  `:?`-required) — fixed, since an operator following the template would hit the same wall.
+- **`AUD-DB-05`** (Critical, §4) — the one runtime-unproven claim — is now **PROVEN**, not just
+  inspected: a new integration-db test forces `DB_POOL_MAX=1`, empirically confirms the same
+  physical connection is reused (`pg_backend_pid()`), and proves no cross-tenant leak — including
+  the mid-transaction-rollback path. Ran green on local PostgreSQL 18 (not the CI's postgres:16 —
+  noted as a minor caveat, not a full substitute).
+- **`AUD-SEAM-01`** (High, §5) — durable local JSONL fallback for outbox-write failures, mirroring
+  the existing break-glass sink pattern. Full detail: `appendix/resilience-seams.md`.
+- **`AUD-SEAM-05`** (Medium, §6) — drain insert+delete wrapped in one `db.transaction`. Proven with
+  a real-Postgres forced-failure test (`REVOKE DELETE`), not just a mock.
+- **`AUD-OPS-04`** (High, §5) — worker now has a real `/healthz`+`/metrics` HTTP listener (shared
+  auth/render helpers with the api route so the two can't drift) + a compose healthcheck.
+- **`AUD-OPS-05`** (High, §5) — new `scripts/preflight-prod.mjs` go-live gate (fails if the blackbox
+  TLS target is still the placeholder) + RUNBOOK §10.5 + external-cert-monitor recommendation.
+- **Verification:** typecheck, lint, 558/558 unit (538+20 new), 51/51 clinic, build, and 125/125
+  integration-db on local PG18 all green, plus a live runtime check of the worker's new endpoints.
+- **Two real bugs found and fixed during this sprint's own verification** (not pre-existing): moving
+  `buildAuditRow` outside `logAudit`'s try/catch would have turned a swallowed exception into an
+  uncaught crash (caught before merge); the new atomicity test's own seed data used a fake
+  non-existent `userId`, which — investigating *why* it failed — led directly to discovering
+  AUD-SEAM-07 below.
+
+### Sprint 3 — AUD-SEAM-07 (new High, found + fixed same day)
+
+While chasing why the Sprint 2 atomicity test's seed userId failed, a **real, unrelated, latent
+audit-loss bug** surfaced: `audit_logs.user_id` FKs to `users.id`; `SYSTEM_USER_ID` (`-1`, used for
+any audit event with no authenticated request — concretely, the hourly `SYSTEM_NO_SHOW` cron) has
+no matching `users` row, and the drain passed it through unmapped. Every system-actor audit event
+was silently failing this FK, retrying 5×, exhausting, and firing `AuditLogPermanentLoss` — the
+F-P1-4 `SYSTEM_NO_SHOW` audit trail this exact cron was built to close never actually landed.
+**Full finding + fix: `appendix/resilience-seams.md` §AUD-SEAM-07.**
+
+Fix: new `toAuditLogUserId()` helper remaps any non-positive id to `NULL` (the column's intended
+"system actor" meaning) at all 4 `audit_logs` insert sites. No schema change. Proven with a
+dedicated integration-db test that fails pre-fix (the exact FK violation) and passes post-fix,
+plus 5 unit tests for the helper. Full regression re-run green.
+
+**Remaining open (unchanged from §5/§10):** `AUD-FE-01` (E2E, deferred — greenfield frontend
+infra), `AUD-DB-05`'s local-PG18-vs-CI-PG16 caveat, and everything in §10/§11 not listed above.

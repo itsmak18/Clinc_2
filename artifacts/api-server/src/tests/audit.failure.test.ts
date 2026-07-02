@@ -35,7 +35,7 @@ vi.mock("../lib/audit-outbox-fallback", () => ({
   appendAuditOutboxFallback: appendAuditOutboxFallbackMock,
 }));
 
-import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID } from "../lib/audit";
+import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID, toAuditLogUserId } from "../lib/audit";
 import { auditLogWriteFailuresTotal, auditSystemActorTotal } from "../lib/metrics";
 
 function fakeReq() {
@@ -157,5 +157,27 @@ describe("logAudit — fire-and-forget on DB failure", () => {
       .find(v => v.labels.action === "UPDATE" && v.labels.entity_type === "operation")?.value ?? 0;
 
     expect(after).toBe(before + 1);
+  });
+});
+
+describe("toAuditLogUserId — AUD-SEAM-07 (audit_logs.user_id FK remap)", () => {
+  it("maps SYSTEM_USER_ID (-1) to null", () => {
+    expect(toAuditLogUserId(SYSTEM_USER_ID)).toBeNull();
+  });
+
+  it("maps 0 to null (defense-in-depth against any other non-positive sentinel)", () => {
+    expect(toAuditLogUserId(0)).toBeNull();
+  });
+
+  it("maps null to null", () => {
+    expect(toAuditLogUserId(null)).toBeNull();
+  });
+
+  it("maps undefined to null", () => {
+    expect(toAuditLogUserId(undefined)).toBeNull();
+  });
+
+  it("passes a real positive user id through unchanged", () => {
+    expect(toAuditLogUserId(42)).toBe(42);
   });
 });

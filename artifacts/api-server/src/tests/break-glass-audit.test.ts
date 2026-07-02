@@ -50,6 +50,13 @@ vi.mock("../lib/audit", () => ({
     ipAddress: "127.0.0.1", userAgent: null, details: null,
     beforeState: null, afterState: null, requestId: "req-1",
   }),
+  // AUD-SEAM-07: break-glass-audit.ts now imports this real, pure helper —
+  // pass the actual logic through rather than stubbing it, since its
+  // behavior is exactly what this test's fixtures (userId: 3, a positive id)
+  // should pass through unchanged.
+  toAuditLogUserId: vi.fn((userId: number | null | undefined) =>
+    userId != null && userId > 0 ? userId : null,
+  ),
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────────────

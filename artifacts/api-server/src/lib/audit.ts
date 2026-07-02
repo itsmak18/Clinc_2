@@ -23,6 +23,21 @@ export const SYSTEM_USER_ID = -1;
 // not present here because there's no user to leak to).
 export const SYSTEM_CLINIC_ID = 1;
 
+/**
+ * audit_logs.user_id FKs to users.id (per-partition constraint
+ * audit_logs_part_user_id_fkey); audit_outbox has no such FK. SYSTEM_USER_ID
+ * (-1) is a valid outbox value (no user to leak to, per the comment above)
+ * but has no matching users row, so it must never be written verbatim into
+ * audit_logs — every drain attempt for a system event would otherwise fail
+ * the FK, retry 5x, exhaust, and permanently lose that audit entry (AUD-SEAM-07,
+ * 2026-07-02: this silently broke the hourly SYSTEM_NO_SHOW audit trail).
+ * The column is nullable specifically to represent "no user / system actor";
+ * map any non-positive id to NULL whenever crossing into audit_logs.
+ */
+export function toAuditLogUserId(userId: number | null | undefined): number | null {
+  return userId != null && userId > 0 ? userId : null;
+}
+
 export async function logRead(req: Request, entityType: string, entityId?: string | number) {
   return logAudit(req, "READ", entityType, entityId);
 }
@@ -150,7 +165,7 @@ export async function drainAuditOutbox(): Promise<void> {
     try {
       const logsToInsert = rows.map(row => ({
         clinicId: row.clinicId,
-        userId: row.userId ?? undefined,
+        userId: toAuditLogUserId(row.userId), // AUD-SEAM-07: SYSTEM_USER_ID(-1) has no users row → NULL
         action: row.action,
         entityType: row.entityType,
         entityId: row.entityId ?? null,
@@ -185,7 +200,7 @@ export async function drainAuditOutbox(): Promise<void> {
           await db.transaction(async (tx) => {
             await tx.insert(auditLogsTable).values({
               clinicId: row.clinicId,
-              userId: row.userId ?? undefined,
+              userId: toAuditLogUserId(row.userId), // AUD-SEAM-07: SYSTEM_USER_ID(-1) has no users row → NULL
               action: row.action,
               entityType: row.entityType,
               entityId: row.entityId ?? null,
