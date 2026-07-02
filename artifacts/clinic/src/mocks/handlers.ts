@@ -108,6 +108,31 @@ export const handlers = [
     }),
   ),
   http.get("/api/users/on-shift", () => HttpResponse.json(MOCK_DOCTORS)),
+  http.get("/api/dashboard/front-desk", () =>
+    HttpResponse.json({
+      totalToday: appointmentsStore.length,
+      statusCounts: { scheduled: appointmentsStore.length, checked_in: 0, completed: 0, cancelled: 0, no_show: 0, in_progress: 0 },
+      sourceCounts: { walk_in: appointmentsStore.length, phone: 0, online: 0 },
+    }),
+  ),
+
+  // ── Authed-shell background polling ─────────────────────────────────────────
+  // The Layout (rendered after login) polls notifications and opens an SSE
+  // stream. Without handlers these fall through MSW to the dead vite proxy →
+  // ECONNREFUSED spam + a 5s EventSource reconnect storm. Empty list + a
+  // never-closing event-stream keep the shell quiet during E2E.
+  http.get("/api/notifications", () => HttpResponse.json([])),
+  http.get("/api/notifications/stream", () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(": e2e-mock-stream\n\n"));
+        // Intentionally left open — EventSource stays connected, no reconnect.
+      },
+    });
+    return new HttpResponse(stream, {
+      headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+    });
+  }),
 
   http.get("/api/appointments/today", () =>
     HttpResponse.json({

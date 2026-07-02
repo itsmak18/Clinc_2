@@ -183,7 +183,7 @@ Closes the four operational gaps that left the platform blind in production: ale
 Closes frontend regression-blindness and standardizes backend route validation. **Not started.** Five work streams, executed in order WS3 → WS5 → WS1 → WS2 → WS4 so each stream lands on top of stable contracts.
 
 **Locked decisions:**
-- **E2E strategy → MSW-mocked, no CI.** No GitHub Actions exists; Docker-based E2E adds complexity with no automation payoff. Playwright runs locally against the Vite dev server with MSW intercepting fetches. Fixed fixtures (`e2e/mocks/fixtures.ts`), not per-test factories. Billing "anti-fraud same-user pay gate" moves to a backend integration test — it's a server invariant, not a UI behavior.
+- **E2E strategy → MSW-mocked. ✅ Shipped 2026-07-02 (AUD-FE-01) — now runs in CI as a non-blocking `e2e` job** (the original "no CI" call was reversed once `.github/workflows/ci.yml` existed: advisory job runs on every PR, failures visible, not in `ci-gate.needs`). Playwright runs against `vite dev` with MSW intercepting fetches. Shared `loginAs()` fixture in `e2e/fixtures.ts`. Billing "anti-fraud same-user pay gate" stays a backend integration test — it's a server invariant, not a UI behavior.
 - **i18n → ICU MessageFormat.** Arabic has 6 plural categories; plain JSON key-value can't express them cleanly. Use `@formatjs/intl`. Proactive `t()` callsite sweep at migration time (not lazy) so the placeholder→`{var}` conversion lands in one pass.
 - **Accessibility → critical/serious axe violations only.** Internal-staff app, ~10 known roles, no patient-facing surface. Full WCAG 2.1 AA is deferred until a patient portal becomes real. Filter by `v.impact === "critical" || "serious"`; do not constrain by `wcag2a/wcag2aa` tags.
 
@@ -191,7 +191,7 @@ Closes frontend regression-blindness and standardizes backend route validation. 
 - **WS3 — Zod route validation (first).** New `api-server/src/middlewares/validate.ts`; migrates 12 route files from raw `req.body` to `schema.safeParse`. **Breaking error-shape change** — `{ error: "Missing required fields" }` → `{ error: "Validation error", details: { field: [...] } }`. Frontend toast handler updated in the same pass to surface `details`.
 - **WS5 — i18n extraction + ICU.** Replaces 53KB eager-loaded inline translations in `clinic/src/hooks/i18n.tsx` with lazy-imported `locales/en.json` + `locales/ar.json`. Active locale only (~26KB) loaded per session. All `t()` callsites converted to ICU `{var}` syntax.
 - **WS1 — Vitest unit tests.** 7 spec files targeting highest-risk zero-coverage code: `route-access`, `auth` hook, `DataTable`, `useSessionTimeout`, `use-notifications-stream`, `StatusBadge`. Adds `vitest`, `@testing-library/react`, `jsdom`, `msw` to clinic devDeps.
-- **WS2 — Playwright + MSW E2E.** 4 spec files (login, patients, appointments, rbac). `playwright.config.ts` points at `http://localhost:5173` — no `webServer: docker compose`. No CI job.
+- **WS2 — Playwright + MSW E2E. ✅ Shipped 2026-07-02 (AUD-FE-01).** 3 spec files (login→dashboard, create appointment, create billing invoice) via a shared `loginAs()` fixture; `playwright.config.ts` uses `webServer: pnpm dev` with `VITE_E2E=1` at `http://localhost:5173` (chromium only). Advisory `e2e` CI job (non-blocking). rbac + more flows are cheap follow-ups on the harness.
 - **WS4 — Accessibility audit.** `e2e/accessibility.spec.ts` using `@axe-core/playwright` against the same MSW-mocked frontend. Critical/serious filter only.
 
 ## Phase 7 — Product (post-launch)
