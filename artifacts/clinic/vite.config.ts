@@ -6,6 +6,7 @@ import {
   type PreviewServer,
   type IndexHtmlTransformContext,
 } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -121,5 +122,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // e2e/**/*.spec.ts are Playwright specs (AUD-FE-01, run via `test:e2e`),
+    // not vitest tests — vitest's default include glob matches *.spec.ts
+    // too, so without this they'd be collected here and fail immediately
+    // (test.describe() requires Playwright's own runner context).
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });
