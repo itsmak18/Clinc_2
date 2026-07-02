@@ -32,6 +32,12 @@ node_modules
 /connect.lock
 /coverage
 /libpeerconnection.log
+
+# Playwright (AUD-FE-01) — no leading slash: artifacts/clinic/playwright-report/
+# is nested, not at repo root, so this must match at any depth to be effective.
+playwright-report/
+test-results/
+blob-report/
 npm-debug.log
 yarn-error.log
 testem.log
