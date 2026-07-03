@@ -7,11 +7,10 @@ import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { emitToUser } from "../../lib/sse";
 import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { isDoctorScoped, getDoctorListScope } from "../../lib/scope";
-import { getActiveBreakGlassPatientIds } from "../compliance/break-glass.service";
+import { getActiveBreakGlassPatientIds, hasActiveConsent } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { medicationsSchema } from "../../lib/jsonb-schemas";
 import { encryptJson, decryptJson, isEncrypted, decryptNullable } from "../../lib/field-encryption";
-import { hasActiveConsent } from "../compliance/consent.service";
 import { NotFoundError, ValidationError, ConsentRequiredError } from "../../services/errors";
 import type { AuthRequest } from "../../middlewares/auth";
 

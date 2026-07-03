@@ -7,10 +7,10 @@ import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../../lib/audit";
 import { emitToUser } from "../../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../../lib/scope";
-import { getActiveBreakGlassPatientIds } from "../compliance/break-glass.service";
+import { getActiveBreakGlassPatientIds } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError } from "../../services/errors";
-import { autoAdvanceVisit } from "../clinical/appointments.service";
+import { autoAdvanceVisit } from "../clinical";
 import type { AuthRequest } from "../../middlewares/auth";
 
 export async function listUltrasounds(

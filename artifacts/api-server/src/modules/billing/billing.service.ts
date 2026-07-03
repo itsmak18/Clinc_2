@@ -8,7 +8,7 @@ import { dayBoundary, clinicDateString, getClinicTimezone } from "../../lib/date
 import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { itemsSchema } from "../../lib/jsonb-schemas";
 import { NotFoundError, ValidationError, ConflictError } from "../../services/errors";
-import { autoAdvanceVisit } from "../clinical/appointments.service";
+import { autoAdvanceVisit } from "../clinical";
 import type { AuthRequest } from "../../middlewares/auth";
 
 // Transaction client handed to the runInTenantContext callback. Mirrors the

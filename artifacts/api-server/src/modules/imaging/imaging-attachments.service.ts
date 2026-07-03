@@ -9,7 +9,7 @@ import { eq, and, isNull, sql } from "drizzle-orm";
 import { logAudit, logRead } from "../../lib/audit";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { isDoctorScoped, getDoctorPatientScope } from "../../lib/scope";
-import { getActiveBreakGlassPatientIds } from "../compliance/break-glass.service";
+import { getActiveBreakGlassPatientIds } from "../compliance";
 import { NotFoundError, ForbiddenError, ValidationError } from "../../services/errors";
 import { encryptBuffer, decryptBuffer } from "../../lib/field-encryption";
 import {

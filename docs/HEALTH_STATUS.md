@@ -1,5 +1,25 @@
 # Production Health Scorecard
 
+> **2026-07-02 independent architecture audit (no dimension bump):** Third audit in four days,
+> independently re-derived against the live tree rather than restating the 06-29/07-01 reports — see
+> [ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md). Confirms the 06-29/07-01
+> verdicts (8.5/10 architecture, 82/100 production-readiness) with fresh evidence; corrects one thing
+> both prior audits missed — 10 cross-module service imports (`autoAdvanceVisit`,
+> `hasActiveConsent`, `getActiveBreakGlassPatientIds`) go through deep `modules/x/x.service` paths,
+> contradicting `CLAUDE.md`'s barrel-only rule (open, tracked as ROADMAP item). No dimension bump: the
+> two same-day fixes closed narrow *coverage* gaps in mechanisms that already existed rather than adding
+> new protection — (1) the `compose-validate` CI healthcheck-route gate (already blocking, added
+> 2026-07-01 for `AUD-OPS-01`) didn't cover the worker's raw-http-listener healthcheck on port 5001,
+> only the api container's Express routes; closed. (2) `lib/audit-outbox-fallback.ts` (`AUD-SEAM-01`,
+> landed earlier the same day) already counted general audit-write-fallback failures but had no
+> Prometheus alert on them — the break-glass fallback path had full 3-tier alerting, this one (which
+> covers every ordinary PHI read) had none; added `AuditOutboxFallbackUsed/Loss/Backlog`. A third
+> planned fix ("5 raw fetch() in pages") was **retracted** — re-verification found the original grep
+> matched `refetch(`, not `fetch(`; actual count in pages is zero. Still open, deliberately deferred:
+> flattening the nested `Clinic-Hub/Clinic-Hub` repo root (touches every CI path + Docker build
+> context + symlink — scoped as its own change) and the barrel-honesty fix above. The dominating
+> blockers (never deployed under Docker, no BAA) are unchanged.
+
 > **2026-06-29 architecture audit P1+P2 + WIP landing:** Architectural Quality 9.5→**9.7** (typed config module + ESLint error guard locking all env reads behind `lib/config.ts`, DENY role contracts in CI, all fire-and-forget audits now properly awaited). Maintainability 9.2→**9.5** (process.env fully centralized across 32 files, i18n.tsx 2169-line monolith split into locale files, thin-controller invariant fully restored). Security Posture 8.0→**8.1** (break-glass events upgraded to durable direct-write + JSONL fallback — HIPAA §164.312(a)(2)(ii) now loss-proof even on DB degradation; CVE overrides for 5 HIGH/MOD deps). The 182-file uncommitted WIP is now committed and CI-validated; the top P0 process risk is closed. Overall **8.1→8.4**. Test results: 538/538 backend, 51/51 frontend, typecheck+lint (0 errors)+build all green.
 
 > Last assessed: **2026-05-30 — re-baselined against the 16-agent board review and the open-risk register.** Previous scorecard (9.3 avg) was not defensible against its own remaining-risk list (never deployed, no BAA, no pentest/WAF, app-only multi-tenant isolation, RPO 24h, single-instance everything). The numbers below reflect what an external auditor would score, not what we wish we could ship.

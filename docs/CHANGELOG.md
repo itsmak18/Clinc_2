@@ -1,5 +1,49 @@
 # Changelog
 
+## Independent architecture audit + Phase 1 remediation (2026-07-02)
+
+Third audit in four days — an independent re-derivation against the live tree (not a copy of the 06-29
+or 07-01 reports), written to [docs/ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md).
+Verdict: strong, boring-in-the-good-way modular monolith (8.5/10 architecture, 9.0/10 security); the
+real risk is an unproven production deployment, not the code. Every finding carries a suggested fix
+(§13b); three genuinely-low-risk ones were actioned same day. One quick-win was retracted mid-execution
+after re-verification — see below, kept in the report for auditability rather than silently dropped.
+
+- **F1 — worker healthcheck gap closed.** The `compose-validate` CI gate (`docker compose config -q` +
+  route-existence check, already blocking in `ci-gate` since the 2026-07-01 `AUD-OPS-01` fix) validated
+  the api container's `/api/*` healthcheck but not the worker's — `worker.ts` runs a raw
+  `http.createServer` with a hardcoded `req.url === "/healthz"` check on port 5001, invisible to the
+  Express-route grep. Extended `.github/workflows/ci.yml`'s existing healthcheck step to also assert the
+  compose worker healthcheck path matches worker.ts's literal string. Dry-run verified locally against
+  the real compose files before landing.
+- **F5 — alerting added for the general audit-outbox fallback path.** `lib/audit-outbox-fallback.ts`
+  (`AUD-SEAM-01`, landed earlier the same day) already counts `audit_outbox_fallback_total` /
+  `_write_failures_total` / `_pending`, but no Prometheus alert consumed them — the break-glass fallback
+  path had full 3-tier alerting, this one (which covers every ordinary PHI read via `logRead`→
+  `logAudit`) had none. Added `AuditOutboxFallbackUsed` / `AuditOutboxFallbackLoss` /
+  `AuditOutboxFallbackBacklog` to `prometheus-alerts.yml`, mirroring the existing
+  `BreakGlassAuditFallback*` block's structure/severity/wording. `AuditOutboxFallbackLoss` (critical) is
+  the alert that makes the "PHI read returns 200 even if the durable sink AND its fallback both fail"
+  gap from the audit visible instead of silent — deliberately does not make reads block on audit-DB
+  health (that would trade availability for a marginal completeness gain).
+- **F9 — retracted, not fixed.** The audit's own draft originally claimed "5 raw `fetch()` calls in
+  `pages/**`" bypassing the generated API client. Re-verifying with a word-boundary grep before touching
+  any code found the match was `refetch(` — TanStack Query's own callback — not `fetch(`. Actual count in
+  `pages/**` is zero; the CI guard already covers both `fetch("/api/…")` and `fetch(apiUrl(…))`. The only
+  2 raw `fetch()` calls in the frontend are in `hooks/auth.tsx` (session-bootstrap on mount + logout,
+  the latter correctly attaching `X-CSRF-Token` by hand) — legitimate exceptions, not migrated.
+- **Deliberately not done:** flattening the nested `Clinic-Hub/Clinic-Hub` root (F11) — touches every CI
+  path, Docker build context, and the `backups`/`storage` symlinks; scoped as its own dedicated,
+  separately-verified change, not bundled with the safe quick wins. The 7-file doctor-schedule WIP
+  already in the working tree was left untouched throughout (not mine to stash/land).
+
+Verification: YAML-parsed both edited files (`ci.yml`: 13 jobs, `compose-validate` step count unchanged,
+still in `ci-gate.needs`; `prometheus-alerts.yml`: 25 rules total, 3 new alert names present, no
+duplicates) and dry-ran the new/existing healthcheck grep logic against the real compose files locally
+— no Docker daemon on this host to run the jobs themselves.
+
+---
+
 ## E2E test layer — Playwright + MSW (AUD-FE-01) COMPLETE (2026-07-02)
 
 Closes the last audit High from the 2026-07-01 board review: the frontend had strong unit coverage (51 vitest) but no test exercised a real user flow through the rendered app. Stands up a browser-mocked Playwright harness — no backend/DB needed.

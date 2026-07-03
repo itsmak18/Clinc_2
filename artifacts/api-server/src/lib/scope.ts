@@ -7,7 +7,7 @@ import { auditBreakGlass } from "./break-glass-audit";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
 import { ForbiddenError } from "../services/errors";
-import { getActiveSession, logBreakGlassAccess, getActiveBreakGlassPatientIds } from "../modules/compliance/break-glass.service";
+import { getActiveSession, logBreakGlassAccess, getActiveBreakGlassPatientIds } from "../modules/compliance";
 
 const SCOPED_ROLE = "doctor";
 const SCOPE_CACHE_TTL_SEC = 60;
