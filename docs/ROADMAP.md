@@ -1,5 +1,32 @@
 # Roadmap
 
+> As of 2026-07-02: **Independent architecture audit — Phase 1 quick wins done, Phases 2–4 tracked.**
+> Full report: [ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md) (§13b has one row
+> per finding with a suggested fix). Phase 1 (F1 worker-healthcheck CI gap, F5 audit-fallback alerting)
+> landed same day; F9 ("5 raw fetch in pages") was retracted as a grep false positive, not fixed.
+> **Next (Phase 2, structural, 1–2 weeks):**
+> - ⏳ **Barrel-honesty for cross-module service calls (F4)** — `autoAdvanceVisit`,
+>   `hasActiveConsent`, `getActiveBreakGlassPatientIds` are consumed via deep `../other-module/x.service`
+>   imports (10 call sites across billing/clinical/imaging), contradicting `CLAUDE.md`'s "barrel-only"
+>   rule. Re-export them from the owning module's `index.ts`; repoint consumers; add an ESLint rule
+>   banning deep `modules/*/*.service` imports so it can't regress.
+> - ⏳ **`lib/scope.ts` layer placement (F6)** — doctor-scope authz logic lives in the utility tier
+>   alongside `dateUtils`/`logger`. Move to a `modules/authz/` home or explicitly document it as kernel.
+> - ⏳ **Split the 5 large view pages (F10)** — Schedule/Reports/PatientDetail/Inventory/Dashboard;
+>   extract sub-sections into `components/` on next touch (Schedule already started).
+> - ⏳ **Land the doctor-schedule WIP** (7 uncommitted files as of 2026-07-02) as a reviewable PR.
+>
+> **Deliberately deferred (own dedicated change, not bundled):**
+> - 💡 **Flatten `Clinic-Hub/Clinic-Hub` → `Clinic-Hub` (F11)** — Med–High risk: rewrites every CI
+>   path, Docker build context/`COPY`, `pnpm-workspace` glob, and the `backups`/`storage` symlinks.
+>   Verify build+CI green before/after as its own PR, not mixed with lower-risk changes.
+>
+> **Also tracked, lower priority (see report §13b for full list):** F2 (roll-forward-only migrations,
+> no automated cutover recovery), F3 (no load/query-plan validation), F7 (31 `as any` in modules;
+> `strictFunctionTypes`/`noUnusedLocals` OFF), F8 (integration-db suite Docker-gated, doesn't always
+> run in CI), F13 (fph disable-lever unguarded), F14 (consent gate is service-layer only, no DB
+> backstop), F15 (jti replay defense dormant — deliberate per ADR-007, revisit only if re-scoping).
+
 > As of 2026-06-29: **Architecture audit P1+P2 complete + WIP landed.** 182-file uncommitted WIP committed in 7 logical slices (all green: 538/538 backend, 51/51 frontend, typecheck+lint). Architecture maturity 8.5→9.0/10. Closed:
 > - ✅ **P0 — WIP landing** — break-glass audit durability, prescription dispensing (migration 0039), CSP unification, DENY role contracts, dep CVE overrides, mockup-sandbox removal, docs prune.
 > - ✅ **P1 — Typed config module** — `lib/config.ts` centralizes all ~50 env reads; ESLint `no-restricted-properties` guard flipped to `"error"` (all 32 files migrated). `process.env` direct reads are a CI-blocking lint error.

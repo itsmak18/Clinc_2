@@ -8,7 +8,7 @@ import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { isDoctorScoped, getDoctorListScope, assertMedicalRecordInScope } from "../../lib/scope";
 import { vitalsSchema } from "../../lib/jsonb-schemas";
 import { encrypt, decrypt, encryptJsonNullable, decryptJsonNullable } from "../../lib/field-encryption";
-import { hasActiveConsent } from "../compliance/consent.service";
+import { hasActiveConsent } from "../compliance";
 import { NotFoundError, ForbiddenError, ValidationError, ConsentRequiredError } from "../../services/errors";
 import type { AuthRequest } from "../../middlewares/auth";
 

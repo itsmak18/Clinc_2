@@ -63,6 +63,27 @@ jobs:
       - name: Run ESLint on routes
         run: pnpm --filter @workspace/api-server run lint
 
+      # Cross-module barrel guard for src/lib + src/middlewares (2026-07-02
+      # architecture audit, F4/F6). The `lint` script above only points ESLint at
+      # `src/routes src/modules src/services` — src/lib and src/middlewares are
+      # NOT covered by that invocation (confirmed while landing this guard: those
+      # two dirs currently fail 35 pre-existing no-restricted-properties checks
+      # under the full config, which is unrelated legacy debt out of scope here —
+      # widening the `lint` script would make this job fail on that debt instead
+      # of the thing this step actually checks). A parallel eslint.config.mjs rule
+      # (4b) exists for when src/lib IS eventually linted; this grep is the real
+      # enforcement until then. Caught live: lib/scope.ts imported
+      # `../modules/compliance/break-glass.service` directly instead of the
+      # `../modules/compliance` barrel.
+      - name: Block deep cross-module .service imports in src/lib + src/middlewares
+        run: |
+          if grep -rnE 'from "\.\./modules/[a-zA-Z_-]+/[a-zA-Z_.-]+\.service"' \
+               artifacts/api-server/src/lib artifacts/api-server/src/middlewares ; then
+            echo "::error::Cross-module service imports from src/lib or src/middlewares must go through the target module's index.ts barrel (e.g. \"../modules/compliance\"), not a deep \"../modules/<module>/<file>.service\" path."
+            exit 1
+          fi
+          echo "OK — no deep cross-module .service imports in src/lib or src/middlewares."
+
       # Frontend CSRF guard: every mutation in pages must go through Orval's
       # customFetch (which attaches X-CSRF-Token). Hand-written fetch("/api/...")
       # silently drops the header — the same bug as the 2026-05-13 logout
@@ -418,6 +439,23 @@ jobs:
               fail=1
             else
               echo "OK: $p is a registered route"
+            fi
+          done
+
+          # Worker (localhost:5001) isn't an Express app — worker.ts runs a raw
+          # http.createServer with a hardcoded `req.url === "<path>"` check
+          # (AUD-OPS-04), so it can't be found via the router grep above. Confirm
+          # the compose healthcheck path and the worker's literal string still
+          # agree, so the two can't silently drift apart the way AUD-OPS-01 did
+          # for the api container.
+          worker_paths=$(grep -hoE "localhost:5001/[a-zA-Z0-9/_-]+" docker-compose*.yml \
+            | sed -E 's#.*(/[a-zA-Z0-9/_-]+)#\1#' | sort -u)
+          for p in $worker_paths; do
+            if ! grep -qE "req\.url === [\"']${p}[\"']" artifacts/api-server/src/worker.ts; then
+              echo "FATAL: compose worker healthcheck targets '$p' but worker.ts has no matching 'req.url === \"$p\"' check"
+              fail=1
+            else
+              echo "OK: $p matches worker.ts's raw http listener"
             fi
           done
           exit $fail
