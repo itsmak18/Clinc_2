@@ -1,5 +1,15 @@
 # Changelog
 
+## fph disable-lever hardening (AUD-SEC-07 / F13) (2026-07-02)
+
+The two fingerprint emergency levers were honored in production with no NODE_ENV guard, no TTL, and no metric/alert — an operator (or a stale/leaked env) setting `FINGERPRINT_BINDING=disabled` would silently disable stolen-token-replay protection indefinitely with nothing surfacing it.
+
+- **Centralized** both levers in new `artifacts/api-server/src/lib/fingerprint-lever.ts` (`fingerprintBypassActive()` + `fphGrandfatherActive()`). The kernel (`policy.ts`) and the legacy verifier (`auth.ts`) now call it instead of each re-reading `process.env` inline, so their behavior can't drift. Reads env live (test-mutability), same rationale as `checkMetricsAuth`.
+- **Prod TTL guard (fail-secure):** in production `FINGERPRINT_BINDING=disabled` is honored **only** while `now < FINGERPRINT_BINDING_EXPIRES_AT` (new env var). No TTL or an expired one ⇒ the bypass is refused and fph re-enforces — a forgotten flag re-enables protection on its own instead of staying off forever. Dev/test behavior unchanged (existing "disabled bypasses check" unit test stays green under `NODE_ENV=test`).
+- **Observability:** throttled loud `warn` on every engage / prod-refusal; new `fingerprint_binding_disabled` Prometheus gauge (set at scrape in `renderMetrics`, reflects the TTL-honored effective state) driving a new **`FingerprintBindingDisabled`** critical alert (`> 0 for 5m`) in the `medicore-security-alerts` group.
+- **Grandfather window** (`FPH_GRANDFATHER_UNTIL`) already self-expires by token `iat`; centralized for parity, logic unchanged.
+- Docs: RUNBOOK §5 rewritten to require the TTL, CLAUDE.md env + Security-Architecture row updated. Tests: `fingerprint-lever.test.ts` (8) — prod no-TTL/expired refused, valid-TTL honored, dev honored, grandfather cutoff. Code landed in `d5458e3`.
+
 ## Independent architecture audit + Phase 1 remediation (2026-07-02)
 
 Third audit in four days — an independent re-derivation against the live tree (not a copy of the 06-29
