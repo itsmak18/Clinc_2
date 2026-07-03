@@ -61,6 +61,11 @@ export const config = {
 
   // ── Auth / fingerprint ────────────────────────────────────────────────────
   fingerprintBinding:     envStr("FINGERPRINT_BINDING", ""),
+  // AUD-SEC-07: in production `FINGERPRINT_BINDING=disabled` is only honored while
+  // now < this unix-seconds expiry (fingerprint-lever.ts enforces it live). Kept
+  // here for documentation/typed-surface parity; the lever reads env directly for
+  // test mutability, same as checkMetricsAuth.
+  fingerprintBindingExpiresAt: envNum("FINGERPRINT_BINDING_EXPIRES_AT", 0),
   fphGrandfatherUntil:    envNum("FPH_GRANDFATHER_UNTIL", 0),
   revocationReadGraceMs:  envNum("REVOCATION_READ_GRACE_MS", 30_000),
 

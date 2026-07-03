@@ -201,12 +201,12 @@ If the system detects a spike in 429 Too Many Requests errors:
 **Recovery**: User logs in again. The session was **not compromised** — the fingerprint binding is working as designed.
 
 **If widespread (e.g., Chrome pushed a silent update across all workstations)**:
-1. Set `FINGERPRINT_BINDING=disabled` in the environment.
+1. Set `FINGERPRINT_BINDING=disabled` **and** `FINGERPRINT_BINDING_EXPIRES_AT=<now + N hours, unix secs>` in the environment. **In production the bypass is refused unless a future TTL is set** (AUD-SEC-07 fail-secure) — without it, fph keeps enforcing and the incident is not relieved. Size the window to the update wave (e.g. `date -d '+6 hours' +%s`).
 2. Restart the API server.
 3. Notify affected staff to log in again.
-4. Re-enable `FINGERPRINT_BINDING` (remove the env var) after the update wave completes and all users have re-authenticated.
+4. The bypass **self-expires** at `FINGERPRINT_BINDING_EXPIRES_AT` — fph re-enforces automatically. Still remove both env vars once the wave completes so the lever isn't left armed. While engaged, the `fingerprint_binding_disabled` gauge reads 1 and the **`FingerprintBindingDisabled`** critical alert fires (expected during the incident; investigate if it fires otherwise).
 
-**Note**: Fingerprint binding only applies to tokens that were originally issued with an `fph` claim. Tokens without `fph` (e.g., issued before fingerprint binding was enabled) are unaffected.
+**Note**: Fingerprint binding only applies to tokens that were originally issued with an `fph` claim. Tokens without `fph` (e.g., issued before fingerprint binding was enabled) are unaffected. Lever logic is centralized in `artifacts/api-server/src/lib/fingerprint-lever.ts`.
 
 ## 6. Service Level Targets
 

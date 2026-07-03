@@ -3,6 +3,7 @@ import { randomUUID, createHash } from "crypto";
 import { runtime } from "./runtime";
 import { signingKey, jwksVerify, CURRENT_KID } from "./jwt-secret";
 import { ROLE_TTL, MAX_ROLE_TTL_SEC } from "./auth-constants";
+import { fingerprintBypassActive, fphGrandfatherActive } from "./fingerprint-lever";
 
 // ─── Fingerprint model (plan item A1: reconciled 2026-05-26) ────────────────
 // Two distinct device-identity concepts coexist; they are complementary, not
@@ -124,12 +125,13 @@ export async function verifyToken(
     // Fingerprint binding (A1: fail-closed when fph absent, gated by grandfather window).
     // Mirrors policy.ts to keep the legacy verifier honest. The kernel (policy.ts) is
     // the canonical path; this branch covers any non-kernel call site.
-    const fingerprintEnabled = process.env.FINGERPRINT_BINDING !== "disabled";
+    // Levers centralized in fingerprint-lever.ts (AUD-SEC-07) so this legacy
+    // verifier and the kernel (policy.ts) share one prod-guarded implementation.
+    const fingerprintEnabled = !fingerprintBypassActive();
     if (fingerprintEnabled && requestHeaders) {
       if (!payload.fph) {
-        const grandfatherUntil = Number(process.env.FPH_GRANDFATHER_UNTIL ?? 0);
         const iat = (payload as { iat?: number }).iat ?? 0;
-        if (!(grandfatherUntil > 0 && iat <= grandfatherUntil)) {
+        if (!fphGrandfatherActive(iat)) {
           throw new Error("Token fingerprint required");
         }
       } else {
