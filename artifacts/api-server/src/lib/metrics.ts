@@ -2,6 +2,7 @@ import client from "prom-client";
 import { timingSafeEqual } from "crypto";
 import { pool } from "@workspace/db";
 import type { Request, Response, NextFunction } from "express";
+import { fingerprintBypassActive } from "./fingerprint-lever";
 
 // Create a Registry
 const register = new client.Registry();
@@ -142,6 +143,18 @@ export const auditOutboxFallbackPendingGauge = new client.Gauge({
 });
 register.registerMetric(auditOutboxFallbackPendingGauge);
 
+// Fingerprint-binding emergency lever (AUD-SEC-07 / F13). 1 while
+// `FINGERPRINT_BINDING=disabled` is ACTIVELY bypassing fph verification
+// (in production this already accounts for the FINGERPRINT_BINDING_EXPIRES_AT
+// TTL guard — an expired/absent-TTL lever reads 0 because it isn't honored).
+// Set at scrape time in renderMetrics(). Drives the FingerprintBindingDisabled
+// alert — any sustained 1 means token-theft protection is off and should page.
+export const fingerprintBindingDisabledGauge = new client.Gauge({
+  name: "fingerprint_binding_disabled",
+  help: "1 when the FINGERPRINT_BINDING=disabled lever is actively bypassing fph verification, else 0",
+});
+register.registerMetric(fingerprintBindingDisabledGauge);
+
 // Define custom DB metrics
 const dbPoolTotal = new client.Gauge({
   name: "db_pool_total_connections",
@@ -194,6 +207,9 @@ export async function renderMetrics(): Promise<{ contentType: string; body: stri
   dbPoolTotal.set(pool.totalCount);
   dbPoolIdle.set(pool.idleCount);
   dbPoolWaiting.set(pool.waitingCount);
+
+  // Reflect the fph bypass lever's *effective* state (TTL-honored) at scrape.
+  fingerprintBindingDisabledGauge.set(fingerprintBypassActive() ? 1 : 0);
 
   return { contentType: register.contentType, body: await register.metrics() };
 }
