@@ -8,6 +8,7 @@ import { setCsrfCookie, clearCsrfCookie } from "../../lib/csrf-cookie";
 import { signToken } from "../../lib/auth";
 import { COOKIE_TTL_MS } from "../../lib/auth-constants";
 import { loginUser, logoutUser, getMe, changePassword } from "./auth.service";
+import { logoutRevocationFailuresTotal } from "../../lib/metrics";
 import { logAudit } from "../../lib/audit";
 import { ipRateLimit } from "../../middlewares/rateLimiter";
 import { config } from "../../lib/config";
@@ -100,10 +101,20 @@ router.post("/auth/login", asyncHandler(async (req: AuthRequest, res) => {
 // ---------------------------------------------------------------------------
 
 router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, res) => {
+  // V-03: track whether server-side revocation actually succeeded. On a revocation
+  // store outage we still clear the cookie (best effort), but the token stays
+  // valid until its TTL — so we surface that to the client and to metrics rather
+  // than swallowing it as a warning.
+  let fullyLoggedOut = true;
   try {
     await logoutUser(req.user!.userId, req.ip || "unknown", req.user!.clinicId);
   } catch (err) {
-    req.log?.warn({ err, userId: req.user!.userId }, "logout revocation failed; clearing cookie anyway");
+    fullyLoggedOut = false;
+    logoutRevocationFailuresTotal.inc();
+    req.log?.error(
+      { err, userId: req.user!.userId },
+      "logout revocation FAILED — cookie cleared but token valid until TTL (revocation store outage?)",
+    );
   }
 
   res.clearCookie("clinic_token", {
@@ -114,7 +125,7 @@ router.post("/auth/logout", requireAuth, asyncHandler(async (req: AuthRequest, r
   });
   clearCsrfCookie(res);
 
-  res.json({ success: true });
+  res.json({ success: true, fullyLoggedOut });
 }));
 
 router.get("/auth/me", requireAuth, asyncHandler(async (req: AuthRequest, res) => {

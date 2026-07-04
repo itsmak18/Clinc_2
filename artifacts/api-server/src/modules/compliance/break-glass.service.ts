@@ -1,4 +1,8 @@
-﻿import { runInTenantContext, dbUnsafe as db } from "@workspace/db";
+﻿// dbUnsafe: break-glass is a cross-scope governance flow. The raw client is used
+// for clinic-scoped session lookups and the same-clinic compliance-officer fan-out,
+// each guarded by an explicit eq(usersTable.clinicId, ...) / session clinic filter;
+// PHI reads that must honor doctor_scope run through runInTenantContext above.
+import { runInTenantContext, dbUnsafe as db } from "@workspace/db";
 import { breakGlassSessionsTable, patientsTable, usersTable } from "@workspace/db";
 import { eq, and, isNull, isNotNull, gt, lt, or, desc, count, gte } from "drizzle-orm";
 import { logAudit } from "../../lib/audit";

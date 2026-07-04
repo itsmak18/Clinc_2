@@ -128,6 +128,31 @@ jobs:
           fi
           echo "OK — no unsanctioned document.write sinks in clinic src."
 
+      # Tenant-isolation guard (audit F-07): `dbUnsafe` is the raw, non-RLS client
+      # — queries through it are NOT protected by the runInTenantContext RLS
+      # backstop and rely entirely on a hand-written eq(clinicId) filter. A future
+      # dbUnsafe PHI query that forgets that filter is a silent cross-tenant leak.
+      # CLAUDE.md already mandates a one-line justification comment at every
+      # dbUnsafe import site; this makes that mandate enforceable. Every service
+      # file that pulls in dbUnsafe must carry a `// dbUnsafe: <why it's safe>`
+      # comment (explicit clinic filter, or a genuinely non-tenant table). This
+      # does not itself prove each query filters by clinic — that stays a review +
+      # RLS-backstop concern — but it blocks unexamined raw-client use. Escalate to
+      # a semantic ESLint rule if per-query proof becomes necessary.
+      - name: Require justification comment on every dbUnsafe import in services
+        run: |
+          fail=0
+          # Match the import binding (`dbUnsafe as db`), not prose mentions of the
+          # word — a comment like "no raw dbUnsafe call sites" must not trip this.
+          for f in $(grep -rlE 'dbUnsafe as ' artifacts/api-server/src/modules --include='*.service.ts'); do
+            if ! grep -qE '//[[:space:]]*dbUnsafe' "$f"; then
+              echo "::error file=$f::imports dbUnsafe (raw, non-RLS client) but has no '// dbUnsafe: <justification>' comment. State why the tenant-context/RLS bypass is safe (explicit eq(clinicId) filter, or a non-tenant table)."
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then exit 1; fi
+          echo "OK — every dbUnsafe service import carries a justification comment."
+
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests
