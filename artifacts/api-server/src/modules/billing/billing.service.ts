@@ -7,6 +7,7 @@ import { eq, isNull, desc, gte, lte, and, or, sql, inArray } from "drizzle-orm";
 import { dayBoundary, clinicDateString, getClinicTimezone } from "../../lib/dateUtils";
 import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { itemsSchema } from "../../lib/jsonb-schemas";
+import { parseMoneyToCents, sumCents, formatCents, centsToNumber } from "../../lib/money";
 import { NotFoundError, ValidationError, ConflictError } from "../../services/errors";
 import { autoAdvanceVisit } from "../clinical";
 import type { AuthRequest } from "../../middlewares/auth";
@@ -58,7 +59,7 @@ async function fetchInvoiceItems(invoiceId: number, clinicId: number) {
   }).from(invoiceItemsTable).where(
     and(eq(invoiceItemsTable.invoiceId, invoiceId), eq(invoiceItemsTable.clinicId, clinicId)),
   );
-  return rows.map(r => ({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) }));
+  return rows.map(r => ({ description: r.description, quantity: r.quantity, unitPrice: centsToNumber(parseMoneyToCents(String(r.unitPrice))) }));
 }
 
 async function fetchInvoiceItemsBatch(invoiceIds: number[], clinicId: number) {
@@ -74,7 +75,7 @@ async function fetchInvoiceItemsBatch(invoiceIds: number[], clinicId: number) {
   );
   for (const r of rows) {
     const arr = map.get(r.invoiceId) ?? [];
-    arr.push({ description: r.description, quantity: r.quantity, unitPrice: parseFloat(String(r.unitPrice)) });
+    arr.push({ description: r.description, quantity: r.quantity, unitPrice: centsToNumber(parseMoneyToCents(String(r.unitPrice))) });
     map.set(r.invoiceId, arr);
   }
   return map;
@@ -142,7 +143,10 @@ export async function createInvoice(
   if (!parsedItems.success) {
     throw new ValidationError("Invalid items format");
   }
-  const subtotal = parsedItems.data.reduce((s, i) => s + i.quantity * i.unitPrice, 0);
+  // All money math in integer cents (lib/money.ts). The previous float reduce
+  // (`s + i.quantity * i.unitPrice`) accumulated binary-float error; quantity (int)
+  // × unit price (cents) is exact per line, and sumCents never drifts.
+  const subtotalCents = sumCents(parsedItems.data.map(i => i.quantity * parseMoneyToCents(i.unitPrice)));
   const discount = data.discount ?? 0;
   // F-5: bound the discount. The OpenAPI schema types it as a bare number, so without
   // this a negative discount inflates the total (overcharge) and a discount > subtotal
@@ -150,10 +154,11 @@ export async function createInvoice(
   if (!Number.isFinite(discount) || discount < 0) {
     throw new ValidationError("Discount must be a non-negative number");
   }
-  if (discount > subtotal) {
+  const discountCents = parseMoneyToCents(discount);
+  if (discountCents > subtotalCents) {
     throw new ValidationError("Discount cannot exceed the invoice subtotal");
   }
-  const total = subtotal - discount;
+  const totalCents = subtotalCents - discountCents;
 
   // Point-of-sale: when markPaid, the invoice is created already paid (front desk
   // collects at the counter). This deliberately bypasses the separate pay step +
@@ -175,8 +180,8 @@ export async function createInvoice(
     const [created] = await tx.insert(invoicesTable).values({
       clinicId,
       invoiceNumber, patientId: data.patientId, createdById,
-      subtotal: String(subtotal), discount: String(discount),
-      total: String(total), notes: data.notes,
+      subtotal: formatCents(subtotalCents), discount: formatCents(discountCents),
+      total: formatCents(totalCents), notes: data.notes,
       status: paidNow ? "paid" : "pending",
       // Use DB now() (not a JS Date) so paid_at lands in the same time frame as
       // the DB-managed created_at/updated_at columns. Mixing app `new Date()` and
@@ -277,7 +282,7 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
     throw new ConflictError("Invoice was created too recently by the same user. Have a second staff member process payment.");
   }
 
-  if (amountReceived !== undefined && amountReceived < parseFloat(String(invoice.total))) {
+  if (amountReceived !== undefined && parseMoneyToCents(amountReceived) < parseMoneyToCents(String(invoice.total))) {
     throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
   }
 
@@ -306,7 +311,7 @@ export async function getDailySummary(req: AuthRequest, dateStr?: string) {
 
   await logRead(req, "invoice", undefined);
   return {
-    totalRevenue:    invoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0),
+    totalRevenue:    centsToNumber(sumCents(invoices.filter(i => i.status === "paid").map(i => parseMoneyToCents(String(i.total))))),
     totalInvoices:   invoices.length,
     paidInvoices:    invoices.filter(i => i.status === "paid").length,
     pendingInvoices: invoices.filter(i => i.status === "pending").length,
@@ -346,9 +351,11 @@ export async function getBillingReconciliation(req: AuthRequest, dateStr?: strin
     ))
     .orderBy(desc(invoicesTable.paidAt));
 
-  const num = (v: unknown) => parseFloat(String(v)) || 0;
+  // Exact money: single values via parseMoneyToCents (no parseFloat), aggregates
+  // summed in integer cents so the Z-report never drifts off the true figure.
+  const num = (v: unknown) => (v == null ? 0 : centsToNumber(parseMoneyToCents(String(v))));
   const inWin = (d: Date | null | undefined) => !!d && new Date(d) >= start && new Date(d) <= end;
-  const sum = (arr: typeof rows) => arr.reduce((s, r) => s + num(r.total), 0);
+  const sum = (arr: typeof rows) => centsToNumber(sumCents(arr.map(r => parseMoneyToCents(String(r.total)))));
 
   const created = rows.filter(r => inWin(r.createdAt));
   const paidToday = rows.filter(r => r.status === "paid" && inWin(r.paidAt));

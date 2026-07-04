@@ -11,6 +11,7 @@ import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { isDoctorScoped, getDoctorPatientScope, assertPatientInScope } from "../../lib/scope";
 import { escapeLike } from "../../lib/validators";
 import { encrypt, decrypt, encryptNullable, decryptNullable } from "../../lib/field-encryption";
+import { parseMoneyToCents, sumCents, centsToNumber } from "../../lib/money";
 import { NotFoundError, ForbiddenError, ValidationError, ConflictError } from "../../services/errors";
 import type { AuthRequest } from "../../middlewares/auth";
 
@@ -336,9 +337,9 @@ export async function getPatientSummary(req: AuthRequest, patientId: number) {
   // access to (and run the patient itself through serializeForRole, which the
   // summary previously skipped — leaking allergies/bloodType to front_desk).
   const outstandingBalance = canSeeSummarySection(role, "balance")
-    ? result.pendingInvoices
+    ? centsToNumber(sumCents(result.pendingInvoices
         .filter(inv => inv.status === "pending")
-        .reduce((s, inv) => s + parseFloat(String(inv.total)), 0)
+        .map(inv => parseMoneyToCents(String(inv.total)))))
     : 0;
 
   return {
