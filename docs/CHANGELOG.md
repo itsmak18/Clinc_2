@@ -1,5 +1,15 @@
 # Changelog
 
+## Audit remediation Phase B — money arithmetic hardening (F-01) (2026-07-04)
+
+Invoice money is stored as exact `numeric(10,2)`, but the service layer parsed it with `parseFloat` and summed it with JS floating point — so aggregating many invoices accumulated binary-float error (the `0.1 + 0.2 = 0.30000000000000004` class) and a reconciliation total could drift off the true figure. Fixed by moving all money math into integer cents.
+
+- **New `lib/money.ts`** — `parseMoneyToCents` (exact, no `parseFloat`; string or number), `sumCents`, `formatCents`, `centsToNumber`. 11 unit tests including the `0.1 + 0.2` case and a 1000-item accumulation.
+- **All aggregation/compare converted to cents**: `billing.service.ts` (`createInvoice` subtotal/discount/total, `payInvoice` compare, `getDailySummary`, `getBillingReconciliation`), `dashboard.service.ts` (11 revenue sites — the `Math.round(x*100)/100` float band-aids are now unnecessary and removed), `patients.service.ts` (outstanding balance). `reports.service.ts` reduces are on integer counts, not money — untouched.
+- Storage still `numeric(10,2)` this phase (Phase C migrates to `*_cents`); values are written via `formatCents`, so stored amounts are byte-identical to before for valid inputs — no data change.
+
+Verified: typecheck + lint clean, unit suite 584/584 (+11 money), billing atomicity integration-db 2/2 on real Postgres (createInvoice cents storage end-to-end).
+
 ## Audit remediation Phase A — tenant-isolation & audit hotfixes (2026-07-04)
 
 Independent verification audit (2026-07-04) surfaced a cross-tenant leak in a background cron plus two smaller hardening gaps. Phase A of the remediation plan:

@@ -9,6 +9,7 @@ import {
 import { eq, isNull, gte, lte, and, desc, notInArray, sql, like } from "drizzle-orm";
 import type { AuthRequest } from "../../middlewares/auth";
 import { runtime } from "../../lib/runtime";
+import { parseMoneyToCents, sumCents, centsToNumber } from "../../lib/money";
 
 // TODO: move cache TTLs to env vars if patient portal is added (higher concurrency).
 const TTL_DASHBOARD = 30;
@@ -48,8 +49,8 @@ async function computeDashboardSummary(req: AuthRequest) {
     ]);
   });
 
-  const todayRevenue     = todayInvoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0);
-  const yesterdayRevenue = yesterdayInvoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(String(i.total)), 0);
+  const todayRevenue     = centsToNumber(sumCents(todayInvoices.filter(i => i.status === "paid").map(i => parseMoneyToCents(String(i.total)))));
+  const yesterdayRevenue = centsToNumber(sumCents(yesterdayInvoices.filter(i => i.status === "paid").map(i => parseMoneyToCents(String(i.total)))));
   const lowStockItems    = inventory.filter(i => i.quantity <= i.minimumStock).length;
 
   return {
@@ -241,7 +242,7 @@ export async function getFrontDeskDashboard(req: AuthRequest) {
     online:  todayAppts.filter(a => a.bookingSource === "online").length,
   };
 
-  const pendingInvoiceSum = pendingInvoices.reduce((s, i) => s + parseFloat(String(i.total)), 0);
+  const pendingInvoiceSum = centsToNumber(sumCents(pendingInvoices.map(i => parseMoneyToCents(String(i.total)))));
 
   return {
     totalToday:        todayAppts.length,
@@ -437,35 +438,37 @@ export async function getBillingDashboard(req: AuthRequest) {
     ]);
   });
 
-  const todayRevenue  = paidInvoices
+  // Aggregate in integer cents — exact, so the Math.round(x*100)/100 float
+  // clean-up the old reduce() needed is gone.
+  const todayRevenue  = centsToNumber(sumCents(paidInvoices
     .filter(i => i.paidAt && i.paidAt >= todayStart && i.paidAt <= todayEnd)
-    .reduce((s, i) => s + parseFloat(String(i.total)), 0);
-  const weekRevenue   = paidInvoices
+    .map(i => parseMoneyToCents(String(i.total)))));
+  const weekRevenue   = centsToNumber(sumCents(paidInvoices
     .filter(i => i.paidAt && i.paidAt >= weekStart)
-    .reduce((s, i) => s + parseFloat(String(i.total)), 0);
-  const monthRevenue  = paidInvoices.reduce((s, i) => s + parseFloat(String(i.total)), 0);
+    .map(i => parseMoneyToCents(String(i.total)))));
+  const monthRevenue  = centsToNumber(sumCents(paidInvoices.map(i => parseMoneyToCents(String(i.total)))));
   const pendingCount  = pendingInvoices.length;
-  const pendingSum    = pendingInvoices.reduce((s, i) => s + parseFloat(String(i.total)), 0);
+  const pendingSum    = centsToNumber(sumCents(pendingInvoices.map(i => parseMoneyToCents(String(i.total)))));
 
   return {
-    todayRevenue:        Math.round(todayRevenue  * 100) / 100,
-    weekRevenue:         Math.round(weekRevenue   * 100) / 100,
-    monthRevenue:        Math.round(monthRevenue  * 100) / 100,
+    todayRevenue,
+    weekRevenue,
+    monthRevenue,
     pendingCount,
-    pendingSum:          Math.round(pendingSum    * 100) / 100,
+    pendingSum,
     recentPayments:      recentPayments.map(p => ({
       id:            p.id,
       invoiceNumber: p.invoiceNumber,
-      total:         parseFloat(String(p.total)),
+      total:         centsToNumber(parseMoneyToCents(String(p.total))),
       paidAt:        p.paidAt,
     })),
     recentCancellations: recentCancellations.map(c => ({
       id:            c.id,
       invoiceNumber: c.invoiceNumber,
-      total:         parseFloat(String(c.total)),
+      total:         centsToNumber(parseMoneyToCents(String(c.total))),
       updatedAt:     c.updatedAt,
     })),
-    dailyRevenue: dailyRevenue.map(d => ({ day: d.day, amount: parseFloat(String(d.amount)) })),
+    dailyRevenue: dailyRevenue.map(d => ({ day: d.day, amount: centsToNumber(parseMoneyToCents(String(d.amount))) })),
   };
 }
 
