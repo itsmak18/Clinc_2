@@ -153,6 +153,19 @@ jobs:
           if [ "$fail" = "1" ]; then exit 1; fi
           echo "OK — every dbUnsafe service import carries a justification comment."
 
+      # Supply-chain guard (audit F-08): every registry base image in a Dockerfile
+      # must be pinned by @sha256: digest, not a mutable tag — otherwise the tag can
+      # be repointed upstream between builds (non-reproducible + a supply-chain
+      # window). Internal stage refs (FROM <stage> AS ...) have no tag and are skipped.
+      # Bump the digests via Renovate/Dependabot.
+      - name: Require digest-pinned base images in Dockerfiles
+        run: |
+          if grep -rEn '^FROM [^ ]+:[^ ]+ ' Dockerfile Dockerfile.clinic | grep -v '@sha256:'; then
+            echo "::error::A Dockerfile base image is pinned by tag, not digest. Use FROM image:tag@sha256:<digest> — see audit F-08."
+            exit 1
+          fi
+          echo "OK — all Dockerfile base images are digest-pinned."
+
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
     name: Unit Tests

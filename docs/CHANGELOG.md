@@ -1,5 +1,11 @@
 # Changelog
 
+## Audit remediation Phase D — supply-chain hardening (F-08); F-05/F-06 dispositions (2026-07-04)
+
+- **F-08 (Low) — digest-pinned base images.** `Dockerfile` (`node:24-alpine`) and `Dockerfile.clinic` (`node:24-alpine` + `nginx:1.27-alpine`) pinned their bases by mutable tag, so the tag could be repointed upstream between builds (non-reproducible + a supply-chain window). All four registry `FROM` lines now pin `@sha256:<digest>` (resolved 2026-07-04). New `ci.yml` lint guard fails any Dockerfile base image that isn't digest-pinned (internal stage refs skipped). Bump via Renovate/Dependabot.
+- **F-05 (Low) — E2E gate: withdrawn.** On inspection the `e2e` job is explicitly labelled *advisory* and runs on **every** push/PR (uploads a Playwright report), so it does not rot silently — it is non-blocking by deliberate design. Promoting it to a required gate would override that intentional choice without evidence the suite is stable; left as-is.
+- **F-06 (Low) — client date TZ: deferred.** `datetime.ts` (`getWeekStart`/`addDays` in browser-local TZ) is part of an **uncommitted** schedule-feature WIP in the working tree. Fixing it now would entangle with in-progress work; deferred until that lands, then compute against the clinic timezone (JWT `timezone` claim) with a TZ-pinned test.
+
 ## Audit remediation Phase C — append-only payments ledger (F-02) (2026-07-04)
 
 Previously an invoice had a single `status` (pending → paid) and no record of money actually received — refunds, partial payments, and per-transaction reconciliation were impossible to reconstruct. Added a payments ledger as the financial record of truth. **Scope decision (with Mike):** ledger only; the existing invoice `numeric(10,2)` columns are left as-is — Phase B already made all arithmetic exact, so migrating them to `*_cents` would be pure risk on live money data for zero correctness gain.
