@@ -869,6 +869,63 @@ export interface PayInvoiceBody {
   amountReceived: number;
 }
 
+export type RecordPaymentBodyMethod =
+  (typeof RecordPaymentBodyMethod)[keyof typeof RecordPaymentBodyMethod];
+
+export const RecordPaymentBodyMethod = {
+  cash: "cash",
+  card: "card",
+  transfer: "transfer",
+  adjustment: "adjustment",
+} as const;
+
+export interface RecordPaymentBody {
+  /** Amount in major units (e.g. 150.00). Negative only when method=adjustment (refund). */
+  amount: number;
+  method: RecordPaymentBodyMethod;
+  externalRef?: string | null;
+  notes?: string | null;
+}
+
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+
+export const PaymentMethod = {
+  cash: "cash",
+  card: "card",
+  transfer: "transfer",
+  adjustment: "adjustment",
+} as const;
+
+export interface Payment {
+  id?: string;
+  amount?: number;
+  method?: PaymentMethod;
+  receivedById?: number;
+  receivedAt?: string;
+  externalRef?: string | null;
+  notes?: string | null;
+}
+
+export interface InvoicePayments {
+  invoiceId?: number;
+  invoiceTotal?: number;
+  amountPaid?: number;
+  balance?: number;
+  status?: string;
+  payments?: Payment[];
+}
+
+export interface PaymentResult {
+  id?: string;
+  invoiceId?: number;
+  amount?: number;
+  method?: string;
+  receivedAt?: string;
+  invoiceStatus?: string;
+  amountPaid?: number;
+  balance?: number;
+}
+
 export interface DailyBillingSummary {
   date: string;
   totalRevenue: number;

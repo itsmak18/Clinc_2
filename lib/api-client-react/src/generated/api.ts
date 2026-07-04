@@ -86,6 +86,7 @@ import type {
   InventoryItem,
   InventoryTransaction,
   Invoice,
+  InvoicePayments,
   LabTest,
   ListAppointmentsParams,
   ListAuditLogsParams,
@@ -128,9 +129,11 @@ import type {
   PatientFlow,
   PatientSummary,
   PayInvoiceBody,
+  PaymentResult,
   PendingVerificationResponse,
   PharmacistDashboard,
   Prescription,
+  RecordPaymentBody,
   ReportWasntMe200,
   ResetPassword200,
   ResetPasswordBody,
@@ -6599,6 +6602,182 @@ export const usePayInvoice = <
   TContext
 > => {
   return useMutation(getPayInvoiceMutationOptions(options));
+};
+
+/**
+ * @summary List the payment ledger and derived balance for an invoice
+ */
+export const getListInvoicePaymentsUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/payments`;
+};
+
+export const listInvoicePayments = async (
+  invoiceId: number,
+  options?: RequestInit,
+): Promise<InvoicePayments> => {
+  return customFetch<InvoicePayments>(getListInvoicePaymentsUrl(invoiceId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListInvoicePaymentsQueryKey = (invoiceId: number) => {
+  return [`/api/billing/invoices/${invoiceId}/payments`] as const;
+};
+
+export const getListInvoicePaymentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInvoicePayments>>,
+  TError = ErrorType<unknown>,
+>(
+  invoiceId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInvoicePayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListInvoicePaymentsQueryKey(invoiceId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listInvoicePayments>>
+  > = ({ signal }) =>
+    listInvoicePayments(invoiceId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!invoiceId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInvoicePayments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListInvoicePaymentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInvoicePayments>>
+>;
+export type ListInvoicePaymentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the payment ledger and derived balance for an invoice
+ */
+
+export function useListInvoicePayments<
+  TData = Awaited<ReturnType<typeof listInvoicePayments>>,
+  TError = ErrorType<unknown>,
+>(
+  invoiceId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInvoicePayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListInvoicePaymentsQueryOptions(invoiceId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Record a payment (or negative adjustment/refund) against an invoice
+ */
+export const getRecordInvoicePaymentUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/payments`;
+};
+
+export const recordInvoicePayment = async (
+  invoiceId: number,
+  recordPaymentBody: RecordPaymentBody,
+  options?: RequestInit,
+): Promise<PaymentResult> => {
+  return customFetch<PaymentResult>(getRecordInvoicePaymentUrl(invoiceId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recordPaymentBody),
+  });
+};
+
+export const getRecordInvoicePaymentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    TError,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recordInvoicePayment>>,
+  TError,
+  { invoiceId: number; data: BodyType<RecordPaymentBody> },
+  TContext
+> => {
+  const mutationKey = ["recordInvoicePayment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> }
+  > = (props) => {
+    const { invoiceId, data } = props ?? {};
+
+    return recordInvoicePayment(invoiceId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecordInvoicePaymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recordInvoicePayment>>
+>;
+export type RecordInvoicePaymentMutationBody = BodyType<RecordPaymentBody>;
+export type RecordInvoicePaymentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Record a payment (or negative adjustment/refund) against an invoice
+ */
+export const useRecordInvoicePayment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    TError,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recordInvoicePayment>>,
+  TError,
+  { invoiceId: number; data: BodyType<RecordPaymentBody> },
+  TContext
+> => {
+  return useMutation(getRecordInvoicePaymentMutationOptions(options));
 };
 
 /**

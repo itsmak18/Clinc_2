@@ -18,7 +18,7 @@ import {
 import { xrayRouter, ultrasoundRouter } from "../modules/imaging";
 // Feature module: billing (billing, services-catalog). Consumed via barrel;
 // router.use() positions below unchanged.
-import { billingRouter, servicesCatalogRouter } from "../modules/billing";
+import { billingRouter, servicesCatalogRouter, paymentsRouter } from "../modules/billing";
 import { operationsRouter } from "../modules/operations";
 // Feature-module pilot: inventory now lives in src/modules/inventory and is
 // consumed through its barrel. Registration position below is unchanged.
@@ -57,6 +57,7 @@ router.use(xrayRouter);
 router.use(ultrasoundRouter);
 router.use(labRouter);
 router.use(billingRouter);
+router.use(paymentsRouter);
 router.use(operationsRouter);
 router.use(inventoryRouter);
 router.use(notificationsRouter);

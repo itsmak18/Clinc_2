@@ -4095,6 +4095,52 @@ export const PayInvoiceResponse = zod.object({
 });
 
 /**
+ * @summary List the payment ledger and derived balance for an invoice
+ */
+export const ListInvoicePaymentsParams = zod.object({
+  invoiceId: zod.coerce.number(),
+});
+
+export const ListInvoicePaymentsResponse = zod.object({
+  invoiceId: zod.number().optional(),
+  invoiceTotal: zod.number().optional(),
+  amountPaid: zod.number().optional(),
+  balance: zod.number().optional(),
+  status: zod.string().optional(),
+  payments: zod
+    .array(
+      zod.object({
+        id: zod.string().optional(),
+        amount: zod.number().optional(),
+        method: zod.enum(["cash", "card", "transfer", "adjustment"]).optional(),
+        receivedById: zod.number().optional(),
+        receivedAt: zod.coerce.date().optional(),
+        externalRef: zod.string().nullish(),
+        notes: zod.string().nullish(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * @summary Record a payment (or negative adjustment/refund) against an invoice
+ */
+export const RecordInvoicePaymentParams = zod.object({
+  invoiceId: zod.coerce.number(),
+});
+
+export const RecordInvoicePaymentBody = zod.object({
+  amount: zod
+    .number()
+    .describe(
+      "Amount in major units (e.g. 150.00). Negative only when method=adjustment (refund).",
+    ),
+  method: zod.enum(["cash", "card", "transfer", "adjustment"]),
+  externalRef: zod.string().nullish(),
+  notes: zod.string().nullish(),
+});
+
+/**
  * @summary Get daily billing summary and cash receipts
  */
 export const GetDailyBillingSummaryQueryParams = zod.object({

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListServices, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListServicesQueryKey } from "@workspace/api-client-react";
+import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListServices, useListInvoicePayments, useRecordInvoicePayment, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListServicesQueryKey, getListInvoicePaymentsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import SearchSelect from "@/components/SearchSelect";
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
-import { Plus, DollarSign, Trash2, Printer } from "lucide-react";
+import { Plus, DollarSign, Trash2, Printer, Receipt } from "lucide-react";
 import { openPrintWindow, invoiceHtml } from "@/lib/print";
 import { usePrintLang } from "@/hooks/printLang";
 
@@ -22,9 +23,17 @@ export default function Billing() {
   const { t, language } = useI18n();
   const choosePrintLang = usePrintLang();
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Recording payments is billing_manager/admin/super_admin (SoD) — front_desk can
+  // view the ledger but not record; the API enforces this regardless.
+  const canRecordPayment = !!user && ["super_admin", "admin", "billing_manager"].includes(user.role);
   const [showCreate, setShowCreate] = useState(false);
   const [showPay, setShowPay] = useState<number | null>(null);
+  const [showLedger, setShowLedger] = useState<number | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
+  const [payNote, setPayNote] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
@@ -97,6 +106,25 @@ export default function Billing() {
         setShowPay(null);
         toast({ title: t("paymentRecorded") });
       },
+    },
+  });
+
+  // Payment ledger for the invoice open in the ledger dialog.
+  const { data: ledger } = useListInvoicePayments(showLedger ?? 0, {
+    query: { enabled: showLedger !== null, queryKey: getListInvoicePaymentsQueryKey(showLedger ?? 0) },
+  });
+
+  const recordMutation = useRecordInvoicePayment({
+    mutation: {
+      onSuccess: () => {
+        if (showLedger !== null) queryClient.invalidateQueries({ queryKey: getListInvoicePaymentsQueryKey(showLedger) });
+        queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDailyBillingSummaryQueryKey() });
+        setPayAmount("");
+        setPayNote("");
+        toast({ title: t("paymentRecorded") });
+      },
+      onError: () => toast({ title: t("failed"), variant: "destructive" }),
     },
   });
 
@@ -175,6 +203,16 @@ export default function Billing() {
                       data-testid={`button-pay-${inv.id}`}
                     >
                       <DollarSign className="w-3 h-3" />{t("payNow")}
+                    </button>
+                  )}
+                  {inv.status !== "cancelled" && (
+                    <button
+                      className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--ink-muted)]"
+                      onClick={e => { e.stopPropagation(); setShowLedger(inv.id); }}
+                      title={t("payments")}
+                      data-testid={`button-ledger-${inv.id}`}
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
                     </button>
                   )}
                   <button
@@ -308,6 +346,96 @@ export default function Billing() {
               >
                 {payMutation.isPending ? t("loading") : t("confirm")}
               </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment ledger — view payments + record partial payment / refund */}
+      <Dialog open={showLedger !== null} onOpenChange={o => { if (!o) { setShowLedger(null); setPayAmount(""); setPayNote(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>{t("paymentLedger")}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("total")}</p>
+                <p className="text-sm font-semibold text-[var(--ink)]">${formatCurrency(ledger?.invoiceTotal ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("amountPaid")}</p>
+                <p className="text-sm font-semibold text-[var(--teal-700)]">${formatCurrency(ledger?.amountPaid ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("balanceDue")}</p>
+                <p className="text-sm font-semibold text-[var(--amber-700)]">${formatCurrency(ledger?.balance ?? 0)}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--line)] pt-2 space-y-1 max-h-48 overflow-y-auto">
+              {(ledger?.payments ?? []).length === 0 && (
+                <p className="text-xs text-[var(--ink-muted)] text-center py-2">{t("noPayments")}</p>
+              )}
+              {(ledger?.payments ?? []).map((p, idx) => {
+                const method = p.method ?? "cash";
+                const amt = p.amount ?? 0;
+                return (
+                  <div key={p.id ?? idx} className="flex items-center justify-between text-xs" data-testid={`payment-row-${p.id ?? idx}`}>
+                    <span className="text-[var(--ink-muted)]">
+                      {t(`payMethod${method.charAt(0).toUpperCase()}${method.slice(1)}` as any)}{p.receivedAt ? ` · ${formatDate(p.receivedAt)}` : ""}
+                    </span>
+                    <span className={`font-medium ${amt < 0 ? "text-[var(--rose-500)]" : "text-[var(--ink)]"}`}>
+                      ${formatCurrency(amt)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {canRecordPayment && ledger?.status !== "cancelled" && (
+              <div className="border-t border-[var(--line)] pt-3 space-y-2">
+                <Label className="text-xs font-semibold">{t("recordPayment")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="h-8 text-sm flex-1"
+                    type="number"
+                    placeholder={t("paymentAmount")}
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    data-testid="input-payment-amount"
+                  />
+                  <Select value={payMethod} onValueChange={setPayMethod}>
+                    <SelectTrigger className="h-8 text-sm w-32" data-testid="select-payment-method"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">{t("payMethodCash")}</SelectItem>
+                      <SelectItem value="card">{t("payMethodCard")}</SelectItem>
+                      <SelectItem value="transfer">{t("payMethodTransfer")}</SelectItem>
+                      <SelectItem value="adjustment">{t("payMethodAdjustment")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  className="h-8 text-sm"
+                  placeholder={t("paymentNote")}
+                  value={payNote}
+                  onChange={e => setPayNote(e.target.value)}
+                  data-testid="input-payment-note"
+                />
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("refundHint")}</p>
+                <div className="flex justify-end">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={recordMutation.isPending || !payAmount}
+                    onClick={() => showLedger !== null && recordMutation.mutate({ invoiceId: showLedger, data: { amount: parseFloat(payAmount), method: payMethod as any, notes: payNote || undefined } })}
+                    data-testid="button-record-payment"
+                  >
+                    {recordMutation.isPending ? t("loading") : t("recordPayment")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowLedger(null)}>{t("close")}</button>
             </div>
           </div>
         </DialogContent>

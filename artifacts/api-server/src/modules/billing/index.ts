@@ -11,3 +11,4 @@
  */
 export { default as billingRouter } from "./billing.routes";
 export { default as servicesCatalogRouter } from "./services-catalog.routes";
+export { default as paymentsRouter } from "./payments.routes";

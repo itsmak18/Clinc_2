@@ -1,5 +1,16 @@
 # Changelog
 
+## Audit remediation Phase C — append-only payments ledger (F-02) (2026-07-04)
+
+Previously an invoice had a single `status` (pending → paid) and no record of money actually received — refunds, partial payments, and per-transaction reconciliation were impossible to reconstruct. Added a payments ledger as the financial record of truth. **Scope decision (with Mike):** ledger only; the existing invoice `numeric(10,2)` columns are left as-is — Phase B already made all arithmetic exact, so migrating them to `*_cents` would be pure risk on live money data for zero correctness gain.
+
+- **New `payments` table** (migration `0040`): uuid PK, `amount_cents bigint` (positive = received, negative = refund/adjustment), `method` enum (cash/card/transfer/adjustment), `received_by_id`, `received_at`, `external_ref`, `notes`. **Append-only** — UPDATE/DELETE revoked from `medicore_app` (mirrors `audit_logs`/0026); dormant-0015 tenant `tenant_isolation` RLS policy + `CHECK(clinic_id>0)` + `CHECK(amount_cents<>0)`. Test harness (`_helpers/realDb.ts`) re-revokes after its blanket grant, exactly as it does for audit_logs.
+- **`payments.service.ts` + `payments.routes.ts`**: `POST/GET /billing/invoices/:id/payments`. `recordPayment` inserts a ledger row and derives invoice status from `SUM(amount_cents)` (fully covered → paid; a refund drops it back to pending) inside one `runInTenantContext` tx; guards overpayment and over-refund; refunds must use `adjustment`. Record = billing_manager/admin/super_admin (SoD); view adds front_desk.
+- **Complete ledger**: the fast-payment paths (`createInvoice` markPaid, `payInvoice`) now also write a ledger row atomically, so every paid invoice's ledger sums to its total.
+- **API + frontend**: `openapi.yaml` gains the two endpoints + `RecordPaymentBody`/`Payment`/`InvoicePayments`/`PaymentResult` (codegen re-run). `Billing.tsx` gains a payment-ledger dialog (summary + ledger list + record-payment/refund form, role-gated), 14 new bilingual i18n keys.
+
+Verified on real Postgres: `payments-ledger.integration-db.test.ts` 7/7 (partial→paid, overpay reject, refund→pending, both fast-paths write rows, tenant isolation 404, append-only UPDATE/DELETE denied). Unit 584/584, billing atomicity + clinic-leak integration 4/4, frontend 51/51 (i18n parity), typecheck + lint + migration-drift clean.
+
 ## Audit remediation Phase B — money arithmetic hardening (F-01) (2026-07-04)
 
 Invoice money is stored as exact `numeric(10,2)`, but the service layer parsed it with `parseFloat` and summed it with JS floating point — so aggregating many invoices accumulated binary-float error (the `0.1 + 0.2 = 0.30000000000000004` class) and a reconciliation total could drift off the true figure. Fixed by moving all money math into integer cents.

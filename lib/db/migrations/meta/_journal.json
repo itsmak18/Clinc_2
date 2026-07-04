@@ -281,6 +281,13 @@
       "when": 1782609818555,
       "tag": "0039_small_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783166922649,
+      "tag": "0040_premium_lethal_legion",
+      "breakpoints": true
     }
   ]
 }
