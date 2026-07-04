@@ -33,6 +33,16 @@ export const auditLogWriteFailuresTotal = new client.Counter({
 });
 register.registerMetric(auditLogWriteFailuresTotal);
 
+// V-03: a logout whose session-revocation write failed (revocation store outage).
+// The local cookie is cleared, but the token stays valid server-side until its TTL
+// — a stolen-token window. This is a security-control failure, not a warning: it
+// must be visible so an operator can react (drain the store, force-rotate).
+export const logoutRevocationFailuresTotal = new client.Counter({
+  name: "logout_revocation_failures_total",
+  help: "Logout attempts whose token revocation write failed — token remains valid until TTL",
+});
+register.registerMetric(logoutRevocationFailuresTotal);
+
 export const auditOutboxDepthGauge = new client.Gauge({
   name: "audit_outbox_depth",
   help: "Number of audit events pending drain from the outbox (sampled at each drain tick)",

@@ -1,5 +1,16 @@
 # Changelog
 
+## Audit remediation Phase A — tenant-isolation & audit hotfixes (2026-07-04)
+
+Independent verification audit (2026-07-04) surfaced a cross-tenant leak in a background cron plus two smaller hardening gaps. Phase A of the remediation plan:
+
+- **V-01 (Medium, cross-tenant leak) — Data Retention Report cron.** `cron.ts` computed three GLOBAL `COUNT(*)` figures (overdue audit logs, pending erasure requests) and pushed the system-wide totals to **every** clinic's compliance officers — bypassing the tenant isolation the rest of the system enforces (dormant on single-clinic, a live leak the instant a 2nd clinic onboards). Rewritten to aggregate **per clinic** (`GROUP BY clinic_id`) and fan each clinic's numbers out only to that clinic's officers (same-clinic query mirrors `break-glass.service.ts`). Extracted the computation into an exported, side-effect-free `computeRetentionByClinic()` for testability. New real-Postgres test `retention-report-tenant-isolation.integration-db.test.ts` seeds two clinics with asymmetric counts and proves no clinic sees another's rows.
+- **V-02 (Low) — mislabeled metric.** The same cron's `pendingErasure` figure was actually "soft-deleted patients > 30 days" (the query never joined erasure_requests). Renamed to `softDeletedPatientsOverThirtyDays`; log-only, now per-clinic.
+- **V-03 (Low) — logout revocation fail-open.** On a revocation-store outage, logout cleared the cookie but the token stayed valid to TTL, logged only as `warn`. Now raises to `error`, increments the new `logout_revocation_failures_total` metric, and returns `{ fullyLoggedOut: false }` so the client can react. Tests added to `auth-flow.integration.test.ts`.
+- **F-07 (Medium, prevention) — CI guard for `dbUnsafe`.** New `ci.yml` lint step: every service file importing the raw non-RLS `dbUnsafe` client must carry a `// dbUnsafe:` justification comment (enforces a previously docs-only rule; a forgotten clinic filter on a raw query is the highest-probability future cross-tenant leak). Added the missing justification to `break-glass.service.ts`.
+
+Verified: typecheck + lint clean, F-07 guard green (26 justified importers), V-01 integration-db 3/3 on real Postgres, full unit suite 573/573.
+
 ## fph disable-lever hardening (AUD-SEC-07 / F13) (2026-07-02)
 
 The two fingerprint emergency levers were honored in production with no NODE_ENV guard, no TTL, and no metric/alert — an operator (or a stale/leaked env) setting `FINGERPRINT_BINDING=disabled` would silently disable stolen-token-replay protection indefinitely with nothing surfacing it.

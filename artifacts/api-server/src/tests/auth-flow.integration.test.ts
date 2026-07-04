@@ -57,6 +57,8 @@ vi.mock("@workspace/db", () => {
 // Import app AFTER mock is registered (vitest hoists vi.mock above this)
 import app from "../app";
 import { signToken } from "../lib/auth";
+import { runtime } from "../lib/runtime";
+import { logoutRevocationFailuresTotal } from "../lib/metrics";
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -146,5 +148,42 @@ describe("Logout authority â€” cookie clearance and JWT revocation", () => 
       .set("X-CSRF-Token", csrfValue);
     // No clinic_token cookie â†’ requireAuth â†’ 401 before revocation is attempted
     expect(res.status).toBe(401);
+  });
+
+  it("successful logout reports fullyLoggedOut:true", async () => {
+    const jwt = await signToken({ userId: 9004, username: "u4", role: "nurse", clinicId: 1 });
+    const res = await request(app)
+      .post("/api/auth/logout")
+      .set("Cookie", [`clinic_token=${jwt}`, `_csrf=${csrfValue}`])
+      .set("X-CSRF-Token", csrfValue);
+    expect(res.status).toBe(200);
+    expect(res.body.fullyLoggedOut).toBe(true);
+  });
+
+  it("V-03: when the revocation write fails, cookie is still cleared but fullyLoggedOut:false + metric increments", async () => {
+    const jwt = await signToken({ userId: 9005, username: "u5", role: "nurse", clinicId: 1 });
+    const before = (await logoutRevocationFailuresTotal.get()).values[0]?.value ?? 0;
+    // Simulate a revocation-store (Redis) outage during logout.
+    const spy = vi
+      .spyOn(runtime.revocationStore, "revoke")
+      .mockRejectedValueOnce(new Error("revocation store down"));
+
+    const res = await request(app)
+      .post("/api/auth/logout")
+      .set("Cookie", [`clinic_token=${jwt}`, `_csrf=${csrfValue}`])
+      .set("X-CSRF-Token", csrfValue);
+
+    // Best-effort logout: still 200, cookie still cleared…
+    expect(res.status).toBe(200);
+    const cookies: string[] = [res.headers["set-cookie"]].flat().filter(Boolean);
+    expect(
+      cookies.some(c => c.includes("clinic_token=;") || /clinic_token=[^;]*;\s*Max-Age=0/i.test(c)),
+    ).toBe(true);
+    // …but the client is told the token is NOT fully invalidated, and it is metered.
+    expect(res.body.fullyLoggedOut).toBe(false);
+    const after = (await logoutRevocationFailuresTotal.get()).values[0]?.value ?? 0;
+    expect(after).toBe(before + 1);
+
+    spy.mockRestore();
   });
 });

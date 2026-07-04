@@ -102,6 +102,67 @@ export function stopAuditOutboxReconcile(): void {
   logger.info("Audit-outbox fallback reconcile stopped");
 }
 
+export interface ClinicRetentionCounts {
+  overdueAuditLogs: number;
+  openErasureRequests: number;
+  softDeletedPatientsOverThirtyDays: number;
+}
+
+/**
+ * V-01: compute the data-retention figures PER CLINIC.
+ *
+ * Prior to the fix this ran as three GLOBAL COUNT(*) queries whose totals were
+ * pushed to every clinic's compliance officers — a cross-tenant leak the instant
+ * a second clinic onboards. Grouping by clinic_id keeps the tenant isolation the
+ * rest of the system enforces (audit_logs / erasure_requests / patients all carry
+ * clinic_id). Bare `db` (NOT runInTenantContext) is intentional: a system
+ * governance job must see every clinic so the caller can route each clinic's
+ * figures to that clinic's own officers.
+ *
+ * Kept as an exported, side-effect-free function (queries only — no SSE, no
+ * logging) so the isolation property (a clinic's entry reflects ONLY its own
+ * rows) is directly testable against a real Postgres.
+ */
+export async function computeRetentionByClinic(): Promise<Map<number, ClinicRetentionCounts>> {
+  const sevenYearsAgo = new Date();
+  sevenYearsAgo.setFullYear(sevenYearsAgo.getFullYear() - 7);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [overdueByClinic, openByClinic, softDeletedByClinic] = await Promise.all([
+    db
+      .select({ clinicId: auditLogsTable.clinicId, count: sql<number>`count(*)` })
+      .from(auditLogsTable)
+      .where(lt(auditLogsTable.createdAt, sevenYearsAgo))
+      .groupBy(auditLogsTable.clinicId),
+    db
+      .select({ clinicId: erasureRequestsTable.clinicId, count: sql<number>`count(*)` })
+      .from(erasureRequestsTable)
+      .where(eq(erasureRequestsTable.status, "pending"))
+      .groupBy(erasureRequestsTable.clinicId),
+    // V-02: soft-deleted patients older than 30 days — NOT "pending erasure" (the
+    // old name implied an erasure-request join the query never performed).
+    db
+      .select({ clinicId: patientsTable.clinicId, count: sql<number>`count(*)` })
+      .from(patientsTable)
+      .where(lte(patientsTable.deletedAt, thirtyDaysAgo))
+      .groupBy(patientsTable.clinicId),
+  ]);
+
+  const perClinic = new Map<number, ClinicRetentionCounts>();
+  const forClinic = (clinicId: number): ClinicRetentionCounts => {
+    let row = perClinic.get(clinicId);
+    if (!row) {
+      row = { overdueAuditLogs: 0, openErasureRequests: 0, softDeletedPatientsOverThirtyDays: 0 };
+      perClinic.set(clinicId, row);
+    }
+    return row;
+  };
+  for (const r of overdueByClinic)     forClinic(r.clinicId).overdueAuditLogs = Number(r.count ?? 0);
+  for (const r of openByClinic)        forClinic(r.clinicId).openErasureRequests = Number(r.count ?? 0);
+  for (const r of softDeletedByClinic) forClinic(r.clinicId).softDeletedPatientsOverThirtyDays = Number(r.count ?? 0);
+  return perClinic;
+}
+
 // Start cron jobs
 export function startCronJobs() {
   logger.info("Starting background cron jobs...");
@@ -112,47 +173,26 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("0 3 1 * *", async () => {
     logger.info("[Cron] Running Data Retention Report");
     try {
-      const sevenYearsAgo = new Date();
-      sevenYearsAgo.setFullYear(sevenYearsAgo.getFullYear() - 7);
+      const perClinic = await computeRetentionByClinic();
 
-      const [auditOverdue] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(auditLogsTable)
-        .where(lt(auditLogsTable.createdAt, sevenYearsAgo));
+      logger.info(
+        { clinics: perClinic.size, report: Object.fromEntries(perClinic) },
+        "[Cron] Data Retention Report (per-clinic)",
+      );
 
-      const [pendingErasure] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(patientsTable)
-        .where(and(
-          lte(patientsTable.deletedAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
-          // Deleted more than 30 days ago and no executed erasure request
-        ));
-
-      const [openErasureRequests] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(erasureRequestsTable)
-        .where(eq(erasureRequestsTable.status, "pending"));
-
-      const overdueAuditCount = Number(auditOverdue?.count ?? 0);
-      const pendingErasureCount = Number(pendingErasure?.count ?? 0);
-      const openRequestCount = Number(openErasureRequests?.count ?? 0);
-
-      logger.info({
-        overdueAuditLogs: overdueAuditCount,
-        softDeletedPatientsOverThirtyDays: pendingErasureCount,
-        openErasureRequests: openRequestCount,
-      }, "[Cron] Data Retention Report");
-
-      if (overdueAuditCount > 0 || openRequestCount > 0) {
+      // Fan out each clinic's own numbers to that clinic's compliance officers
+      // only. Same-clinic officer query mirrors break-glass.service.ts.
+      for (const [clinicId, counts] of perClinic) {
+        if (counts.overdueAuditLogs === 0 && counts.openErasureRequests === 0) continue;
         const officers = await db
           .select({ id: usersTable.id })
           .from(usersTable)
-          .where(eq(usersTable.role, "compliance_officer"));
+          .where(and(eq(usersTable.clinicId, clinicId), eq(usersTable.role, "compliance_officer")));
 
         for (const officer of officers) {
           emitToUser(officer.id, "retention_report", {
-            overdueAuditLogs: overdueAuditCount,
-            openErasureRequests: openRequestCount,
+            overdueAuditLogs: counts.overdueAuditLogs,
+            openErasureRequests: counts.openErasureRequests,
           });
         }
       }
