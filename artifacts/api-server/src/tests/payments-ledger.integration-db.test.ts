@@ -39,11 +39,11 @@ beforeAll(async () => {
 
   // A second clinic-A staffer so payInvoice can be exercised without tripping the
   // same-user-within-30s anti-fraud gate (creator = super_admin, payer = admin).
-  const [a] = await harness.db
+  const inserted = (await harness.db
     .insert(usersTable)
     .values({ username: "admin_a_pay", fullName: "Admin A", passwordHash: "x", role: "admin", clinicId: seed.clinicA.id })
-    .returning();
-  adminA = { id: a.id, username: a.username };
+    .returning()) as Array<{ id: number; username: string }>;
+  adminA = { id: inserted[0].id, username: inserted[0].username };
 }, 180_000);
 
 afterAll(async () => {
