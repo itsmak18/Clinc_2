@@ -1559,6 +1559,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/Invoice"
 
+  /billing/invoices/{invoiceId}/payments:
+    get:
+      operationId: listInvoicePayments
+      tags: [billing]
+      summary: List the payment ledger and derived balance for an invoice
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invoice payment ledger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoicePayments"
+    post:
+      operationId: recordInvoicePayment
+      tags: [billing]
+      summary: Record a payment (or negative adjustment/refund) against an invoice
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordPaymentBody"
+      responses:
+        "201":
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResult"
+
   /billing/daily-summary:
     get:
       operationId: getDailyBillingSummary
@@ -4383,6 +4425,84 @@ components:
         amountReceived:
           type: number
       required: [amountReceived]
+
+    RecordPaymentBody:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in major units (e.g. 150.00). Negative only when method=adjustment (refund).
+        method:
+          type: string
+          enum: [cash, card, transfer, adjustment]
+        externalRef:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [amount, method]
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+        method:
+          type: string
+          enum: [cash, card, transfer, adjustment]
+        receivedById:
+          type: integer
+        receivedAt:
+          type: string
+          format: date-time
+        externalRef:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    InvoicePayments:
+      type: object
+      properties:
+        invoiceId:
+          type: integer
+        invoiceTotal:
+          type: number
+        amountPaid:
+          type: number
+        balance:
+          type: number
+        status:
+          type: string
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+
+    PaymentResult:
+      type: object
+      properties:
+        id:
+          type: string
+        invoiceId:
+          type: integer
+        amount:
+          type: number
+        method:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+        invoiceStatus:
+          type: string
+        amountPaid:
+          type: number
+        balance:
+          type: number
 
     DailyBillingSummary:
       type: object

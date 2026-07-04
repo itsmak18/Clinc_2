@@ -2,7 +2,7 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable, usersTable } from "@workspace/db";
+import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable, usersTable, paymentsTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, or, sql, inArray } from "drizzle-orm";
 import { dayBoundary, clinicDateString, getClinicTimezone } from "../../lib/dateUtils";
 import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
@@ -199,6 +199,17 @@ export async function createInvoice(
         unitPrice: String(item.unitPrice),
       })),
     );
+    // Complete ledger (F-02): a POS "mark paid" create records the full payment so
+    // the payments ledger stays the source of truth for every paid invoice.
+    if (paidNow) {
+      await tx.insert(paymentsTable).values({
+        clinicId,
+        invoiceId: created.id,
+        amountCents: totalCents,
+        method: "cash",
+        receivedById: createdById,
+      });
+    }
     return created;
   });
 
@@ -286,14 +297,24 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
     throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
   }
 
-  const payConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
-
-  const [updated] = await db.update(invoicesTable)
-    .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
-    .where(and(...payConditions))
-    .returning();
-
-  if (!updated) throw new ConflictError("Invoice was already paid by a concurrent request.");
+  // Flip to paid AND record the full payment in the ledger atomically, so the
+  // payments ledger (F-02) stays the source of truth. The conditional UPDATE
+  // (status='pending') still guards against a concurrent double-pay.
+  const updated = await runInTenantContext(req.user!, async (tx) => {
+    const [u] = await tx.update(invoicesTable)
+      .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")))
+      .returning();
+    if (!u) throw new ConflictError("Invoice was already paid by a concurrent request.");
+    await tx.insert(paymentsTable).values({
+      clinicId: req.user!.clinicId,
+      invoiceId,
+      amountCents: parseMoneyToCents(String(u.total)),
+      method: "cash",
+      receivedById: req.user!.userId,
+    });
+    return u;
+  });
 
   await logAudit(req, "PAY", "invoice", invoiceId, { amountReceived });
   const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
