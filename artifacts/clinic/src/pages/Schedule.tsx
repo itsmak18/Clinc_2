@@ -1,240 +1,81 @@
-import { useState, useMemo } from "react";
-import {
-  useListScheduleDoctors,
-  useGetDoctorSchedule,
-  useGetScheduleWeek,
-  useUpsertWeeklyBlock,
-  useUpdateWeeklyBlockStatus,
-  useDeleteWeeklyBlock,
-  useUpsertScheduleOverride,
-  useDeleteScheduleOverride,
-  getListScheduleDoctorsQueryKey,
-  getGetDoctorScheduleQueryKey,
-  getGetScheduleWeekQueryKey,
-} from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/auth";
+import { useState } from "react";
 import { useI18n } from "@/hooks/i18n";
-import { useToast } from "@/hooks/use-toast";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useDoctorSchedule } from "@/hooks/useDoctorSchedule";
 import { cn } from "@/lib/utils";
-import {
-  Plus, Pencil, Trash2, ChevronLeft, ChevronRight,
-  CalendarOff, Clock, Users, CheckCircle2, XCircle,
-  CalendarDays, CalendarRange,
-} from "lucide-react";
-import ScheduleDayView from "@/components/ScheduleDayView";
+import { Plus, CalendarOff, CalendarDays, CalendarRange } from "lucide-react";
 import { DoctorAvatar } from "@/components/DoctorAvatar";
+import ScheduleDayView from "@/components/ScheduleDayView";
+import { DoctorSidebar } from "@/components/schedule/DoctorSidebar";
+import { WeeklyTemplateList } from "@/components/schedule/WeeklyTemplateList";
+import { WeekCalendar, shiftWeek } from "@/components/schedule/WeekCalendar";
+import { OverridesTable } from "@/components/schedule/OverridesTable";
+import { BlockDialog, DEFAULT_BLOCK, blockFormFromDay, type BlockFormState, type DayOfWeek } from "@/components/schedule/BlockDialog";
+import { OverrideDialog, DEFAULT_OVERRIDE, type OverrideFormState } from "@/components/schedule/OverrideDialog";
+import { getWeekStart } from "@/lib/datetime";
+import { type DoctorScheduleDay } from "@workspace/api-client-react";
 
-const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
-type DayOfWeek = typeof DAYS[number];
-
-const SLOT_OPTIONS = [10, 15, 20, 30, 45, 60];
-
-function getWeekStart(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() - day);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function workloadColor(booked: number, total: number): string {
-  if (total === 0) return "bg-[var(--line)]";
-  const pct = booked / total;
-  if (pct >= 0.9) return "bg-[var(--rose-500)]";
-  if (pct >= 0.6) return "bg-[var(--amber-500)]";
-  return "bg-[var(--teal-500)]";
-}
-
-function workloadWidth(booked: number, total: number): string {
-  if (total === 0) return "0%";
-  return `${Math.min(100, Math.round((booked / total) * 100))}%`;
-}
-
-interface BlockForm {
-  dayOfWeek: DayOfWeek | "";
-  startTime: string;
-  endTime: string;
-  slotMinutes: number;
-  maxPatients: number;
-  notes: string;
-}
-
-const defaultBlock: BlockForm = {
-  dayOfWeek: "",
-  startTime: "08:00",
-  endTime: "13:00",
-  slotMinutes: 30,
-  maxPatients: 16,
-  notes: "",
-};
-
-interface OverrideForm {
-  overrideDate: string;
-  isBlocked: boolean;
-  startTime: string;
-  endTime: string;
-  reason: string;
-}
-
-const defaultOverride: OverrideForm = {
-  overrideDate: "",
-  isBlocked: true,
-  startTime: "08:00",
-  endTime: "13:00",
-  reason: "",
-};
+// ─── WeeklyTemplate ──────────────────────────────────────────────────────────
 
 function WeeklyTemplate() {
   const { t } = useI18n();
-  const { toast } = useToast();
-  const { user } = useAuth();
-  const qc = useQueryClient();
-  const canEdit = user?.role === "super_admin" || user?.role === "admin";
-  const isDoctor = user?.role === "doctor";
-
-  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null);
-  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
+  const schedule = useDoctorSchedule();
 
   const [showBlock, setShowBlock] = useState(false);
   const [editingDay, setEditingDay] = useState<DayOfWeek | null>(null);
-  const [blockForm, setBlockForm] = useState<BlockForm>(defaultBlock);
+  const [blockForm, setBlockForm] = useState<BlockFormState>(DEFAULT_BLOCK);
   const [showOverride, setShowOverride] = useState(false);
-  const [overrideForm, setOverrideForm] = useState<OverrideForm>(defaultOverride);
+  const [overrideForm, setOverrideForm] = useState<OverrideFormState>(DEFAULT_OVERRIDE);
 
-  const { data: doctorsList = [], isLoading: loadingDoctors } = useListScheduleDoctors();
+  const {
+    doctors, loadingDoctors,
+    scheduleDetail, loadingDetail,
+    weekData,
+    activeDoctorId, selectedDoctorId, setSelectedDoctorId,
+    weekStart, setWeekStart,
+    canEdit, isDoctor,
+    upsertBlock, upsertBlockPending,
+    toggleBlockStatus, deleteBlock,
+    upsertOverride, upsertOverridePending, deleteOverride,
+  } = schedule;
 
-  const activeDoctorId = isDoctor ? user?.id ?? null : selectedDoctorId;
-
-  const { data: scheduleDetail, isLoading: loadingDetail } = useGetDoctorSchedule(
-    activeDoctorId!,
-    { query: { enabled: !!activeDoctorId, queryKey: getGetDoctorScheduleQueryKey(activeDoctorId!) } }
-  );
-
-  const { data: weekData } = useGetScheduleWeek(
-    { doctorId: activeDoctorId!, weekStart },
-    { query: { enabled: !!activeDoctorId, queryKey: getGetScheduleWeekQueryKey({ doctorId: activeDoctorId!, weekStart }) } }
-  );
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: getListScheduleDoctorsQueryKey() });
-    if (activeDoctorId) {
-      qc.invalidateQueries({ queryKey: getGetDoctorScheduleQueryKey(activeDoctorId) });
-      qc.invalidateQueries({ queryKey: getGetScheduleWeekQueryKey({ doctorId: activeDoctorId, weekStart }) });
-    }
-  };
-
-  const upsertBlock = useUpsertWeeklyBlock({
-    mutation: {
-      onSuccess: () => { invalidate(); setShowBlock(false); toast({ title: t("save") }); },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
-    },
-  });
-
-  const toggleStatus = useUpdateWeeklyBlockStatus({
-    mutation: {
-      onSuccess: () => { invalidate(); },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
-    },
-  });
-
-  const deleteBlock = useDeleteWeeklyBlock({
-    mutation: {
-      onSuccess: () => { invalidate(); toast({ title: t("delete") }); },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
-    },
-  });
-
-  const upsertOverride = useUpsertScheduleOverride({
-    mutation: {
-      onSuccess: () => { invalidate(); setShowOverride(false); toast({ title: t("save") }); },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
-    },
-  });
-
-  const deleteOverride = useDeleteScheduleOverride({
-    mutation: {
-      onSuccess: () => { invalidate(); },
-      onError: () => toast({ title: t("failed"), variant: "destructive" }),
-    },
-  });
+  const selectedDoctor = isDoctor
+    ? doctors[0]
+    : doctors.find((d) => d.id === selectedDoctorId);
 
   function openAddBlock() {
     setEditingDay(null);
-    setBlockForm(defaultBlock);
+    setBlockForm(DEFAULT_BLOCK);
     setShowBlock(true);
   }
 
-  function openEditBlock(day: any) {
-    setEditingDay(day.dayOfWeek);
-    setBlockForm({
-      dayOfWeek: day.dayOfWeek,
-      startTime: day.startTime,
-      endTime: day.endTime,
-      slotMinutes: day.slotMinutes,
-      maxPatients: day.maxPatients,
-      notes: day.notes ?? "",
-    });
+  function openEditBlock(block: DoctorScheduleDay) {
+    setEditingDay(block.dayOfWeek as DayOfWeek);
+    setBlockForm(blockFormFromDay(block));
     setShowBlock(true);
   }
 
-  function submitBlock() {
-    if (!activeDoctorId || !blockForm.dayOfWeek) return;
-    upsertBlock.mutate({
-      doctorId: activeDoctorId,
-      data: {
-        dayOfWeek: blockForm.dayOfWeek,
-        startTime: blockForm.startTime,
-        endTime: blockForm.endTime,
-        slotMinutes: blockForm.slotMinutes,
-        maxPatients: blockForm.maxPatients,
-        notes: blockForm.notes || undefined,
-      },
-    });
+  // Close only on success — a failed save keeps the dialog (and the user's
+  // input) open for correction; the hook's onError toast reports the failure.
+  async function handleBlockSubmit(doctorId: number, data: Parameters<typeof upsertBlock>[1]) {
+    try {
+      await upsertBlock(doctorId, data);
+      setShowBlock(false);
+    } catch {
+      /* dialog stays open */
+    }
   }
 
-  function submitOverride() {
-    if (!activeDoctorId || !overrideForm.overrideDate) return;
-    upsertOverride.mutate({
-      doctorId: activeDoctorId,
-      data: {
-        overrideDate: overrideForm.overrideDate,
-        isBlocked: overrideForm.isBlocked,
-        startTime: overrideForm.isBlocked ? undefined : overrideForm.startTime,
-        endTime: overrideForm.isBlocked ? undefined : overrideForm.endTime,
-        reason: overrideForm.reason || undefined,
-      },
-    });
+  async function handleOverrideSubmit(doctorId: number, data: Parameters<typeof upsertOverride>[1]) {
+    try {
+      await upsertOverride(doctorId, data);
+      setShowOverride(false);
+    } catch {
+      /* dialog stays open */
+    }
   }
-
-  const previewSlotCount = useMemo(() => {
-    if (!blockForm.startTime || !blockForm.endTime) return 0;
-    const [sh, sm] = blockForm.startTime.split(":").map(Number);
-    const [eh, em] = blockForm.endTime.split(":").map(Number);
-    const start = sh * 60 + sm;
-    const end = eh * 60 + em;
-    if (end <= start) return 0;
-    return Math.floor((end - start) / blockForm.slotMinutes);
-  }, [blockForm.startTime, blockForm.endTime, blockForm.slotMinutes]);
-
-  const selectedDoctor = isDoctor
-    ? (doctorsList as any[])[0]
-    : (doctorsList as any[]).find((d: any) => d.id === selectedDoctorId);
 
   return (
     <div>
-      {/* Toolbar */}
       {canEdit && activeDoctorId && (
         <div className="flex gap-2 mb-4 justify-end">
           <button className="btn btn-outline btn-sm gap-1.5" onClick={() => setShowOverride(true)}>
@@ -247,50 +88,15 @@ function WeeklyTemplate() {
       )}
 
       <div className={cn("grid gap-4 min-h-[600px]", !isDoctor ? "grid-cols-[220px_1fr]" : "grid-cols-1")}>
-        {/* Doctor sidebar */}
         {!isDoctor && (
-          <div className="card overflow-hidden">
-            <div className="card-pad border-b border-[var(--line)] bg-[var(--surface-2)]">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-muted)]">{t("selectDoctor")}</p>
-            </div>
-            {loadingDoctors ? (
-              <p className="p-3 text-sm text-[var(--ink-muted)]">{t("loading")}</p>
-            ) : (doctorsList as any[]).length === 0 ? (
-              <p className="p-3 text-sm text-[var(--ink-muted)]">{t("noData")}</p>
-            ) : (
-              <ul className="divide-y divide-[var(--line)]">
-                {(doctorsList as any[]).map((doc: any) => (
-                  <li key={doc.id}>
-                    <button
-                      onClick={() => setSelectedDoctorId(doc.id)}
-                      className={cn(
-                        "w-full flex items-start gap-2.5 text-start px-3 py-2.5 text-sm transition-colors hover:bg-[var(--surface-2)]",
-                        selectedDoctorId === doc.id
-                          ? "bg-[var(--teal-50)] border-s-2 border-[var(--teal-600)] font-medium"
-                          : ""
-                      )}
-                    >
-                      <DoctorAvatar id={doc.id} name={doc.fullName} size={28} />
-                      <div className="min-w-0">
-                        <div className="font-medium leading-tight text-[var(--ink)] truncate">{doc.fullName}</div>
-                        {doc.specialty && (
-                          <div className="text-xs text-[var(--ink-muted)] mt-0.5 truncate">{doc.specialty}</div>
-                        )}
-                        <div className="mt-1">
-                          <span className={cn("badge text-[10px] px-1 py-0", doc.isOnShift ? "badge-teal" : "")}>
-                            {doc.isOnShift ? t("onShift") : t("offShift")}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <DoctorSidebar
+            doctors={doctors}
+            loading={loadingDoctors}
+            selectedId={selectedDoctorId}
+            onSelect={setSelectedDoctorId}
+          />
         )}
 
-        {/* Main content */}
         <div className="flex flex-col gap-4">
           {!activeDoctorId ? (
             <div className="flex items-center justify-center h-full text-[var(--ink-muted)] text-sm">
@@ -300,7 +106,6 @@ function WeeklyTemplate() {
             <p className="text-sm text-[var(--ink-muted)]">{t("loading")}</p>
           ) : (
             <>
-              {/* Doctor header */}
               {selectedDoctor && (
                 <div className="flex items-center gap-3">
                   <DoctorAvatar id={selectedDoctor.id} name={selectedDoctor.fullName} size={44} />
@@ -313,370 +118,95 @@ function WeeklyTemplate() {
                 </div>
               )}
 
-              {/* Weekly template */}
               <section className="card overflow-hidden">
                 <div className="card-pad border-b border-[var(--line)] bg-[var(--surface-2)] flex items-center justify-between">
                   <span className="font-medium text-sm text-[var(--ink)]">{t("weeklyTemplate")}</span>
                 </div>
-                {(scheduleDetail as any)?.weeklyTemplate?.length === 0 ? (
-                  <p className="p-4 text-sm text-[var(--ink-muted)]">{t("noScheduleSet")}</p>
-                ) : (
-                  <div className="p-3 space-y-2">
-                    {((scheduleDetail as any)?.weeklyTemplate ?? [])
-                      .slice()
-                      .sort((a: any, b: any) => DAYS.indexOf(a.dayOfWeek) - DAYS.indexOf(b.dayOfWeek))
-                      .map((block: any) => (
-                        <div
-                          key={block.id}
-                          className={cn(
-                            "flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-[var(--line)] px-3 py-2.5",
-                            block.status === "active" ? "bg-[var(--surface)]" : "bg-[var(--surface-2)] opacity-70"
-                          )}
-                        >
-                          <div className="w-24 flex-shrink-0">
-                            <div className="font-medium text-[13px] text-[var(--ink)] capitalize">{t(block.dayOfWeek as any)}</div>
-                            <div className="text-[11px] text-[var(--ink-muted)]">
-                              {block.startTime.slice(0, 5)} – {block.endTime.slice(0, 5)}
-                            </div>
-                          </div>
-                          <span className="badge text-[11px] gap-1"><Clock className="w-3 h-3" /> {block.slotMinutes} min</span>
-                          <span className="badge text-[11px] gap-1"><Users className="w-3 h-3" /> {block.maxPatients}</span>
-                          <div className="ms-auto flex items-center gap-1.5">
-                            {canEdit ? (
-                              <button
-                                onClick={() =>
-                                  toggleStatus.mutate({
-                                    doctorId: activeDoctorId,
-                                    day: block.dayOfWeek,
-                                    data: { status: block.status === "active" ? "inactive" : "active" },
-                                  })
-                                }
-                                className="btn btn-ghost btn-sm h-7 w-7 p-0"
-                                title={block.status === "active" ? t("active") : t("inactive")}
-                              >
-                                {block.status === "active" ? (
-                                  <CheckCircle2 className="w-4 h-4 text-[var(--teal-600)]" />
-                                ) : (
-                                  <XCircle className="w-4 h-4 text-[var(--ink-muted)]" />
-                                )}
-                              </button>
-                            ) : (
-                              <span className={cn("badge text-[11px]", block.status === "active" ? "badge-teal" : "")}>
-                                {t(block.status as any)}
-                              </span>
-                            )}
-                            {canEdit && (
-                              <>
-                                <button className="btn btn-ghost btn-sm h-7 w-7 p-0" onClick={() => openEditBlock(block)}>
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                                <button
-                                  className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
-                                  onClick={() => deleteBlock.mutate({ doctorId: activeDoctorId, day: block.dayOfWeek })}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                )}
+                <WeeklyTemplateList
+                  blocks={scheduleDetail?.weeklyTemplate ?? []}
+                  canEdit={canEdit}
+                  doctorId={activeDoctorId}
+                  onEdit={openEditBlock}
+                  onToggleStatus={toggleBlockStatus}
+                  onDelete={deleteBlock}
+                />
               </section>
 
-              {/* Week calendar */}
-              <section className="card overflow-hidden">
-                <div className="card-pad border-b border-[var(--line)] bg-[var(--surface-2)] flex items-center justify-between">
-                  <span className="font-medium text-sm text-[var(--ink)]">
-                    {new Date(weekStart + "T00:00:00").toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button className="btn btn-ghost btn-sm h-6 w-6 p-0" onClick={() => setWeekStart(addDays(weekStart, -7))}>
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button className="btn btn-ghost btn-sm h-6 text-xs px-2" onClick={() => setWeekStart(getWeekStart(new Date()))}>
-                      {t("today")}
-                    </button>
-                    <button className="btn btn-ghost btn-sm h-6 w-6 p-0" onClick={() => setWeekStart(addDays(weekStart, 7))}>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-7 divide-x divide-[var(--line)]">
-                  {((weekData as any)?.days ?? []).map((day: any) => (
-                    <div
-                      key={day.date}
-                      className={cn("p-2 text-center text-xs", day.isToday ? "bg-[var(--teal-50)]" : "")}
-                    >
-                      <div className="font-medium capitalize text-[var(--ink-muted)]">
-                        {t(day.dayName as any).slice(0, 3)}
-                      </div>
-                      <div className={cn("text-sm font-semibold mt-0.5", day.isToday ? "text-[var(--teal-600)]" : "text-[var(--ink)]")}>
-                        {new Date(day.date + "T00:00:00").getDate()}
-                      </div>
-                      {day.isWorking ? (
-                        <>
-                          <div className="text-[10px] text-[var(--ink-muted)] mt-1">
-                            {day.bookedCount}/{day.totalSlots}
-                          </div>
-                          <div className="h-1.5 rounded-full bg-[var(--line)] mt-1 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${workloadColor(day.bookedCount, day.totalSlots)}`}
-                              style={{ width: workloadWidth(day.bookedCount, day.totalSlots) }}
-                            />
-                          </div>
-                          {day.overrideReason && (
-                            <div className="text-[10px] text-[var(--amber-600)] mt-1 truncate" title={day.overrideReason}>
-                              {day.overrideReason}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="text-[10px] text-[var(--ink-muted)] mt-1">
-                          {day.overrideReason ?? "—"}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
+              <WeekCalendar
+                weekStart={weekStart}
+                days={weekData?.days ?? []}
+                onPrev={() => setWeekStart(shiftWeek(weekStart, -1))}
+                onNext={() => setWeekStart(shiftWeek(weekStart, 1))}
+                onToday={() => setWeekStart(getWeekStart(new Date()))}
+              />
 
-              {/* Overrides */}
               <section className="card overflow-hidden">
                 <div className="card-pad border-b border-[var(--line)] bg-[var(--surface-2)] flex items-center justify-between">
                   <span className="font-medium text-sm text-[var(--ink)]">{t("overrides")}</span>
                 </div>
-                {(scheduleDetail as any)?.overrides?.length === 0 ? (
-                  <p className="p-4 text-sm text-[var(--ink-muted)]">{t("noOverrides")}</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-[var(--ink-muted)] border-b border-[var(--line)]">
-                        <th className="px-4 py-2 text-start">{t("date")}</th>
-                        <th className="px-4 py-2 text-start">{t("status")}</th>
-                        <th className="px-4 py-2 text-start">{t("notes")}</th>
-                        {canEdit && <th className="px-4 py-2 text-start">{t("actions")}</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--line)]">
-                      {((scheduleDetail as any)?.overrides ?? [])
-                        .slice()
-                        .sort((a: any, b: any) => a.overrideDate.localeCompare(b.overrideDate))
-                        .map((ov: any) => (
-                          <tr key={ov.id} className="hover:bg-[var(--surface-2)]">
-                            <td className="px-4 py-2 font-mono text-xs text-[var(--ink)]">{ov.overrideDate}</td>
-                            <td className="px-4 py-2">
-                              {ov.isBlocked ? (
-                                <span className="badge badge-rose text-xs">{t("dayOff")}</span>
-                              ) : (
-                                <span className="badge text-xs">
-                                  {ov.startTime?.slice(0, 5)} – {ov.endTime?.slice(0, 5)}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-[var(--ink-muted)]">{ov.reason ?? "—"}</td>
-                            {canEdit && (
-                              <td className="px-4 py-2">
-                                <button
-                                  className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--rose-500)]"
-                                  onClick={() =>
-                                    deleteOverride.mutate({ doctorId: activeDoctorId, date: ov.overrideDate })
-                                  }
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
+                <OverridesTable
+                  overrides={scheduleDetail?.overrides ?? []}
+                  canEdit={canEdit}
+                  doctorId={activeDoctorId}
+                  onDelete={deleteOverride}
+                />
               </section>
             </>
           )}
         </div>
       </div>
 
-      {/* Add/Edit block dialog */}
-      {canEdit && (
-        <Dialog open={showBlock} onOpenChange={setShowBlock}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {editingDay ? t("editBlock") : t("addBlock")}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-3 py-2">
-              {!editingDay && (
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">{t("date")}</Label>
-                  <Select
-                    value={blockForm.dayOfWeek}
-                    onValueChange={(v) => setBlockForm((f) => ({ ...f, dayOfWeek: v as DayOfWeek }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DAYS.map((d) => (
-                        <SelectItem key={d} value={d}>{t(d as any)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">{t("startTime")}</Label>
-                  <Input
-                    type="time"
-                    value={blockForm.startTime}
-                    onChange={(e) => setBlockForm((f) => ({ ...f, startTime: e.target.value }))}
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">{t("endTime")}</Label>
-                  <Input
-                    type="time"
-                    value={blockForm.endTime}
-                    onChange={(e) => setBlockForm((f) => ({ ...f, endTime: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">{t("slotDuration")} (min)</Label>
-                  <Select
-                    value={String(blockForm.slotMinutes)}
-                    onValueChange={(v) => setBlockForm((f) => ({ ...f, slotMinutes: Number(v) }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SLOT_OPTIONS.map((n) => (
-                        <SelectItem key={n} value={String(n)}>{n} min</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1.5">
-                  <Label className="text-xs">{t("maxPatients")}</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={blockForm.maxPatients}
-                    onChange={(e) => setBlockForm((f) => ({ ...f, maxPatients: Number(e.target.value) }))}
-                  />
-                </div>
-              </div>
-              <div className="grid gap-1.5">
-                <Label className="text-xs">{t("notes")}</Label>
-                <Textarea
-                  rows={2}
-                  value={blockForm.notes}
-                  onChange={(e) => setBlockForm((f) => ({ ...f, notes: e.target.value }))}
-                />
-              </div>
-              {previewSlotCount > 0 && (
-                <p className="text-xs text-[var(--ink-muted)]">
-                  {previewSlotCount} {t("previewSlots")}
-                </p>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn btn-outline btn-sm" onClick={() => setShowBlock(false)}>{t("cancel")}</button>
-              <button className="btn btn-primary btn-sm" onClick={submitBlock} disabled={upsertBlock.isPending}>
-                {t("save")}
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {/* Add override dialog */}
-      {canEdit && (
-        <Dialog open={showOverride} onOpenChange={setShowOverride}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t("addOverride")}</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-3 py-2">
-              <div className="grid gap-1.5">
-                <Label className="text-xs">{t("date")}</Label>
-                <Input
-                  type="date"
-                  value={overrideForm.overrideDate}
-                  onChange={(e) => setOverrideForm((f) => ({ ...f, overrideDate: e.target.value }))}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <Switch
-                  checked={overrideForm.isBlocked}
-                  onCheckedChange={(v) => setOverrideForm((f) => ({ ...f, isBlocked: v }))}
-                />
-                <Label className="text-sm">{t("blockEntireDay")}</Label>
-              </div>
-              {!overrideForm.isBlocked && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">{t("startTime")}</Label>
-                    <Input
-                      type="time"
-                      value={overrideForm.startTime}
-                      onChange={(e) => setOverrideForm((f) => ({ ...f, startTime: e.target.value }))}
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label className="text-xs">{t("endTime")}</Label>
-                    <Input
-                      type="time"
-                      value={overrideForm.endTime}
-                      onChange={(e) => setOverrideForm((f) => ({ ...f, endTime: e.target.value }))}
-                    />
-                  </div>
-                </div>
-              )}
-              <div className="grid gap-1.5">
-                <Label className="text-xs">{t("notes")}</Label>
-                <Textarea
-                  rows={2}
-                  value={overrideForm.reason}
-                  onChange={(e) => setOverrideForm((f) => ({ ...f, reason: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn btn-outline btn-sm" onClick={() => setShowOverride(false)}>{t("cancel")}</button>
-              <button className="btn btn-primary btn-sm" onClick={submitOverride} disabled={upsertOverride.isPending}>
-                {t("save")}
-              </button>
-            </div>
-          </DialogContent>
-        </Dialog>
+      {canEdit && activeDoctorId && (
+        <>
+          <BlockDialog
+            open={showBlock}
+            onOpenChange={setShowBlock}
+            editingDay={editingDay}
+            form={blockForm}
+            onFormChange={(patch) => setBlockForm((f) => ({ ...f, ...patch }))}
+            onSubmit={handleBlockSubmit}
+            doctorId={activeDoctorId}
+            pending={upsertBlockPending}
+          />
+          <OverrideDialog
+            open={showOverride}
+            onOpenChange={setShowOverride}
+            form={overrideForm}
+            onFormChange={(patch) => setOverrideForm((f) => ({ ...f, ...patch }))}
+            onSubmit={handleOverrideSubmit}
+            doctorId={activeDoctorId}
+            pending={upsertOverridePending}
+          />
+        </>
       )}
     </div>
   );
 }
 
+// ─── Page root ────────────────────────────────────────────────────────────────
+
 export default function Schedule() {
   const { t } = useI18n();
   const [view, setView] = useState<"day" | "template">("day");
+
   return (
     <div className="page">
       <div className="flex border border-[var(--line)] rounded-lg overflow-hidden w-fit mb-4">
         <button
-          className={cn("h-8 px-3 text-xs flex items-center gap-1.5 transition-colors", view === "day" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+          className={cn(
+            "h-8 px-3 text-xs flex items-center gap-1.5 transition-colors",
+            view === "day" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]",
+          )}
           onClick={() => setView("day")}
           data-testid="schedule-tab-day"
         >
           <CalendarDays className="w-3.5 h-3.5" /> {t("dayView")}
         </button>
         <button
-          className={cn("h-8 px-3 text-xs flex items-center gap-1.5 border-s border-[var(--line)] transition-colors", view === "template" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]")}
+          className={cn(
+            "h-8 px-3 text-xs flex items-center gap-1.5 border-s border-[var(--line)] transition-colors",
+            view === "template" ? "bg-[var(--teal-600)] text-white" : "hover:bg-[var(--surface-2)] text-[var(--ink-muted)]",
+          )}
           onClick={() => setView("template")}
           data-testid="schedule-tab-template"
         >
