@@ -1,4 +1,5 @@
-import { pgTable, serial, text, numeric, boolean, timestamp, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, numeric, boolean, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { clinicsTable } from "./clinics";
@@ -21,6 +22,12 @@ export const servicesCatalogTable = pgTable("services_catalog", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("services_catalog_clinic_idx").on(t.clinicId),
+  // Charge auto-generation looks prices up by stable code (LAB_DEFAULT, …).
+  // UNIQUE among non-deleted rows: duplicate live codes would make the
+  // auto-charge price nondeterministic (unordered LIMIT 1). Reusing a code
+  // requires soft-deleting the old row, not just deactivating it.
+  uniqueIndex("services_catalog_clinic_code_idx").on(t.clinicId, t.code)
+    .where(sql`code IS NOT NULL AND deleted_at IS NULL`),
 ]);
 
 export const insertServiceCatalogSchema = createInsertSchema(servicesCatalogTable).omit({

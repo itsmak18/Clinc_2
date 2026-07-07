@@ -2,13 +2,14 @@ import { Router } from "express";
 import { requireAuth, requireRole, type AuthRequest } from "../../middlewares/auth";
 import { asyncHandler } from "../../middlewares/asyncHandler";
 import { validate } from "../../middlewares/validate";
-import { CreateInvoiceBody, UpdateInvoiceBody, PayInvoiceBody } from "@workspace/api-zod";
+import { CreateInvoiceBody, UpdateInvoiceBody, PayInvoiceBody, OverrideInvoiceClearanceBody } from "@workspace/api-zod";
 import { ValidationError } from "../../services/errors";
 import { safeParseInt } from "../../lib/validators";
 import {
   listInvoices, createInvoice, getInvoice, updateInvoice, cancelInvoice, payInvoice, getDailySummary,
   getBillingReconciliation,
 } from "./billing.service";
+import { overrideInvoiceClearance } from "./clearance.service";
 
 const router = Router();
 router.use(requireAuth);
@@ -58,9 +59,27 @@ router.post("/billing/invoices/:invoiceId/cancel",
   }),
 );
 
-// Pay invoice: billing_manager, admin, super_admin — NOT front_desk (SoD)
+// Emergency clearance override: CLINICAL roles (doctor/nurse) + admin/super_admin
+// — deliberately not front_desk/billing (they settle by payment, not override).
+// Flips the basket's pending orders to 'overridden' so care proceeds; the
+// invoice stays pending (visible debt). Reason ≥30 chars, audited, and
+// surfaced on the reconciliation report for daily review.
+router.post("/billing/invoices/:invoiceId/clearance-override",
+  requireRole("super_admin", "admin", "doctor", "nurse"),
+  validate(OverrideInvoiceClearanceBody),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const invoiceId = safeParseInt(req.params.invoiceId);
+    if (!invoiceId) throw new ValidationError("Invalid invoice ID");
+    res.json(await overrideInvoiceClearance(req, invoiceId, req.body?.reason));
+  }),
+);
+
+// Pay invoice: billing_manager, admin, super_admin. front_desk may settle
+// ORDER BASKETS only (service-enforced kind check) — marking lab/imaging
+// orders paid at the desk is exactly the clearance-gate cashier flow; manual
+// invoices keep the original front_desk-creates / billing-settles SoD.
 router.post("/billing/invoices/:invoiceId/pay",
-  requireRole("super_admin", "admin", "billing_manager"),
+  requireRole("super_admin", "admin", "billing_manager", "front_desk"),
   validate(PayInvoiceBody),
   asyncHandler(async (req: AuthRequest, res) => {
     const invoiceId = safeParseInt(req.params.invoiceId);

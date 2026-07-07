@@ -1,5 +1,22 @@
 # Roadmap
 
+> As of 2026-07-05: **Financial clearance gate Phase A landed flag-OFF (ADR-011).** Follow-up phases
+> from the 2026-07-04 workflow audit, in priority order:
+> - ⏳ **Flip-on prerequisites:** price `LAB_DEFAULT`/`XRAY_DEFAULT`/`US_DEFAULT` per clinic (zero-price
+>   warn-log is the tripwire), staging rehearsal (order → basket → front-desk pay → queue → complete;
+>   override loop; TTL-0 expiry), then `CLEARANCE_GATE_ENABLED=true` in prod.
+> - 💡 **Phase B — consult prepay + episodes:** `checkin` requires a paid consult line OR an
+>   auto-detected free-follow-up window (`parentAppointmentId` episode link); checkout tail becomes
+>   conditional on balance > 0.
+> - 💡 **Phase C — pharmacy coupling:** dispense requires a paid line + atomic `inventory_transactions`
+>   decrement; live stock at prescribing; substitution workflow.
+> - 💡 **Phase D — fraud controls:** discount reason-codes + role caps + per-employee monthly report;
+>   wire `requireStepUp` for void/refund; three-way ordered↔paid↔performed reconciliation (now
+>   structurally possible via `invoice_item_id`); doctor self-cancel of own pending orders; retire or
+>   confine the `markPaid` POS bypass.
+> - 💡 **Phase E — payer model:** insurance authorization / deposits / wallet / credit accounts /
+>   charity codes as additional clearance sources (`clearance_status` model already accommodates).
+
 > As of 2026-07-02: **Independent architecture audit — Phase 1 quick wins done, Phases 2–4 tracked.**
 > Full report: [ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md) (§13b has one row
 > per finding with a suggested fix). Phase 1 (F1 worker-healthcheck CI gap, F5 audit-fallback alerting)

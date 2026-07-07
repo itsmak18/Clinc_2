@@ -29,18 +29,24 @@ import { sql } from "drizzle-orm";
 
 import type { RealDbHarness } from "./_helpers/realDb";
 import { startRealDb } from "./_helpers/realDb";
-import { SYSTEM_USER_ID, SYSTEM_CLINIC_ID } from "../lib/audit";
 
 let harness: RealDbHarness;
 let db: typeof import("@workspace/db").db;
 let drainAuditOutbox: typeof import("../lib/audit").drainAuditOutbox;
 let auditOutboxTable: any;
 let auditLogsTable: any;
+// Imported dynamically with the rest of ../lib/audit: a STATIC import of that
+// module pulls in @workspace/db at collection time, which either throws
+// (DATABASE_URL unset) or — worse — pins the eager pg pool to the developer's
+// dev database so the drain writes into it instead of the per-file scratch DB
+// (rows then accumulate across runs and the count assertions rot).
+let SYSTEM_USER_ID: number;
+let SYSTEM_CLINIC_ID: number;
 
 beforeAll(async () => {
   harness = await startRealDb();
   ({ db, auditOutboxTable, auditLogsTable } = await import("@workspace/db"));
-  ({ drainAuditOutbox } = await import("../lib/audit"));
+  ({ drainAuditOutbox, SYSTEM_USER_ID, SYSTEM_CLINIC_ID } = await import("../lib/audit"));
 }, 180_000);
 
 afterAll(async () => {

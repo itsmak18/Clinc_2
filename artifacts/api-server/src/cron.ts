@@ -8,13 +8,14 @@ import { emitToUser } from "./lib/sse";
 import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import type { Request } from "express";
-import { drainAuditOutbox, logAudit } from "./lib/audit";
+import { drainAuditOutbox, logAudit, SYSTEM_USER_ID } from "./lib/audit";
 import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
 import { reconcileAuditOutboxFallback } from "./lib/audit-outbox-fallback";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
 import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./modules/audit/csp-report.service";
 import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./modules/imaging/imaging-attachments.service";
+import { expirePendingClearances } from "./modules/billing";
 import { config } from "./lib/config";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
@@ -283,22 +284,48 @@ export function startCronJobs() {
 
         // F-P1-4: this bulk scheduled→no_show transition is a PHI-adjacent
         // mutation with no request context, so it previously left no audit
-        // trail (§164.312(b) gap). Record it under the system actor (SYSTEM_USER_ID
-        // / SYSTEM_CLINIC_ID via logAudit's no-req fallback). The write is
-        // deliberately cross-tenant (the rule is tenant-uniform); the affected
-        // appointment ids + their clinics are captured in details for review.
-        // One summary entry per run.
-        const systemReq = { headers: {} } as unknown as Request;
-        await logAudit(
-          systemReq,
-          "SYSTEM_NO_SHOW",
-          "appointment",
-          undefined,
-          { count: result.length, appointments: result },
-        );
+        // trail (§164.312(b) gap). Recorded under the system actor, one entry
+        // PER CLINIC attributed to that clinic: a single cross-tenant row
+        // would land under SYSTEM_CLINIC_ID (= clinic 1) with every clinic's
+        // appointment ids in its details — readable by clinic 1's compliance
+        // officers, since audit reads are WHERE-scoped to the caller's clinic.
+        const byClinic = new Map<number, number[]>();
+        for (const r of result) {
+          const ids = byClinic.get(r.clinicId) ?? [];
+          ids.push(r.id);
+          byClinic.set(r.clinicId, ids);
+        }
+        for (const [clinicId, appointmentIds] of byClinic) {
+          const systemReq = { headers: {}, user: { userId: SYSTEM_USER_ID, clinicId } } as unknown as Request;
+          await logAudit(
+            systemReq,
+            "SYSTEM_NO_SHOW",
+            "appointment",
+            undefined,
+            { count: appointmentIds.length, appointmentIds },
+          );
+        }
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Failed to run No-show Auto-Transition");
+    }
+  }));
+
+  // Clearance-gate expiry sweep (hourly at :15 — offset from the :00 no-show
+  // job). Orders that sat clearance_status='pending' past CLEARANCE_TTL_HOURS
+  // expire, their basket charge lines are withdrawn, and an emptied basket is
+  // auto-cancelled. Runs regardless of CLEARANCE_GATE_ENABLED (data plane:
+  // pending rows only exist from flag-ON operation and must still drain after
+  // a rollback); writes one SYSTEM_CLEARANCE_EXPIRED audit per affected
+  // clinic per non-empty run (ADR-011).
+  scheduledTasks.push(cron.schedule("15 * * * *", async () => {
+    try {
+      const { expired, basketsCancelled } = await expirePendingClearances();
+      if (expired > 0) {
+        logger.info({ expired, basketsCancelled }, "[Cron] Clearance expiry sweep complete");
+      }
+    } catch (err) {
+      logger.error({ err }, "[Cron] Clearance expiry sweep failed");
     }
   }));
 

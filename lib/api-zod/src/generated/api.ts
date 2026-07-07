@@ -705,7 +705,15 @@ export const GetPatientSummaryResponse = zod.object({
       orderGroupId: zod.string().nullish(),
       report: zod.string().nullish(),
       reportAr: zod.string().nullish(),
-      status: zod.enum(["requested", "in_progress", "completed"]),
+      status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+      clearanceStatus: zod.enum([
+        "pending",
+        "cleared",
+        "overridden",
+        "expired",
+      ]),
+      invoiceItemId: zod.number().nullish(),
+      invoiceId: zod.number().nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -767,6 +775,14 @@ export const GetPatientSummaryResponse = zod.object({
       results: zod.string().nullish(),
       resultsAr: zod.string().nullish(),
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+      clearanceStatus: zod.enum([
+        "pending",
+        "cleared",
+        "overridden",
+        "expired",
+      ]),
+      invoiceItemId: zod.number().nullish(),
+      invoiceId: zod.number().nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       orderGroupId: zod.string().nullish(),
@@ -1466,6 +1482,14 @@ export const GetAppointmentDischargeResponse = zod.object({
       results: zod.string().nullish(),
       resultsAr: zod.string().nullish(),
       status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+      clearanceStatus: zod.enum([
+        "pending",
+        "cleared",
+        "overridden",
+        "expired",
+      ]),
+      invoiceItemId: zod.number().nullish(),
+      invoiceId: zod.number().nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       orderGroupId: zod.string().nullish(),
@@ -1539,7 +1563,15 @@ export const GetAppointmentDischargeResponse = zod.object({
       orderGroupId: zod.string().nullish(),
       report: zod.string().nullish(),
       reportAr: zod.string().nullish(),
-      status: zod.enum(["requested", "in_progress", "completed"]),
+      status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+      clearanceStatus: zod.enum([
+        "pending",
+        "cleared",
+        "overridden",
+        "expired",
+      ]),
+      invoiceItemId: zod.number().nullish(),
+      invoiceId: zod.number().nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -1581,6 +1613,12 @@ export const GetAppointmentDischargeResponse = zod.object({
       discount: zod.number(),
       total: zod.number(),
       status: zod.enum(["pending", "paid", "cancelled"]),
+      kind: zod
+        .enum(["manual", "order_basket"])
+        .optional()
+        .describe(
+          "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+        ),
       paidAt: zod.coerce.date().nullish(),
       notes: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -3000,7 +3038,12 @@ export const SendPrescriptionToPharmacyResponse = zod.object({
  */
 export const ListXrayImagesQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
-  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
+  status: zod
+    .enum(["requested", "in_progress", "completed", "cancelled"])
+    .optional(),
+  clearanceStatus: zod
+    .enum(["pending", "cleared", "overridden", "expired"])
+    .optional(),
 });
 
 export const ListXrayImagesResponseItem = zod.object({
@@ -3069,7 +3112,10 @@ export const ListXrayImagesResponseItem = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3162,7 +3208,10 @@ export const GetXrayRecordResponse = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3190,7 +3239,9 @@ export const UpdateXrayRecordBody = zod.object({
     .optional(),
   report: zod.string().optional(),
   reportAr: zod.string().optional(),
-  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
+  status: zod
+    .enum(["requested", "in_progress", "completed", "cancelled"])
+    .optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
   bodyPartAr: zod.string().optional(),
@@ -3262,7 +3313,10 @@ export const UpdateXrayRecordResponse = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3314,7 +3368,12 @@ export const DeleteXrayImageParams = zod.object({
  */
 export const ListUltrasoundRecordsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
-  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
+  status: zod
+    .enum(["requested", "in_progress", "completed", "cancelled"])
+    .optional(),
+  clearanceStatus: zod
+    .enum(["pending", "cleared", "overridden", "expired"])
+    .optional(),
 });
 
 export const ListUltrasoundRecordsResponseItem = zod.object({
@@ -3384,7 +3443,10 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3481,7 +3543,10 @@ export const GetUltrasoundRecordResponse = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3509,7 +3574,9 @@ export const UpdateUltrasoundRecordBody = zod.object({
     .optional(),
   report: zod.string().optional(),
   reportAr: zod.string().optional(),
-  status: zod.enum(["requested", "in_progress", "completed"]).optional(),
+  status: zod
+    .enum(["requested", "in_progress", "completed", "cancelled"])
+    .optional(),
   notes: zod.string().optional(),
   notesAr: zod.string().optional(),
   bodyPartAr: zod.string().optional(),
@@ -3582,7 +3649,10 @@ export const UpdateUltrasoundRecordResponse = zod.object({
   orderGroupId: zod.string().nullish(),
   report: zod.string().nullish(),
   reportAr: zod.string().nullish(),
-  status: zod.enum(["requested", "in_progress", "completed"]),
+  status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3636,6 +3706,9 @@ export const ListLabTestsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
   status: zod
     .enum(["requested", "in_progress", "completed", "cancelled"])
+    .optional(),
+  clearanceStatus: zod
+    .enum(["pending", "cleared", "overridden", "expired"])
     .optional(),
 });
 
@@ -3694,6 +3767,9 @@ export const ListLabTestsResponseItem = zod.object({
   results: zod.string().nullish(),
   resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),
@@ -3776,6 +3852,9 @@ export const GetLabTestResponse = zod.object({
   results: zod.string().nullish(),
   resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),
@@ -3855,6 +3934,9 @@ export const UpdateLabTestResponse = zod.object({
   results: zod.string().nullish(),
   resultsAr: zod.string().nullish(),
   status: zod.enum(["requested", "in_progress", "completed", "cancelled"]),
+  clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
+  invoiceItemId: zod.number().nullish(),
+  invoiceId: zod.number().nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),
@@ -3906,6 +3988,12 @@ export const ListInvoicesResponseItem = zod.object({
   discount: zod.number(),
   total: zod.number(),
   status: zod.enum(["pending", "paid", "cancelled"]),
+  kind: zod
+    .enum(["manual", "order_basket"])
+    .optional()
+    .describe(
+      "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+    ),
   paidAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3976,6 +4064,12 @@ export const GetInvoiceResponse = zod.object({
   discount: zod.number(),
   total: zod.number(),
   status: zod.enum(["pending", "paid", "cancelled"]),
+  kind: zod
+    .enum(["manual", "order_basket"])
+    .optional()
+    .describe(
+      "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+    ),
   paidAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -4038,9 +4132,43 @@ export const UpdateInvoiceResponse = zod.object({
   discount: zod.number(),
   total: zod.number(),
   status: zod.enum(["pending", "paid", "cancelled"]),
+  kind: zod
+    .enum(["manual", "order_basket"])
+    .optional()
+    .describe(
+      "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+    ),
   paidAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+ */
+export const OverrideInvoiceClearanceParams = zod.object({
+  invoiceId: zod.coerce.number(),
+});
+
+export const overrideInvoiceClearanceBodyReasonMin = 30;
+
+export const OverrideInvoiceClearanceBody = zod.object({
+  reason: zod
+    .string()
+    .min(overrideInvoiceClearanceBodyReasonMin)
+    .describe(
+      "Clinical justification for performing before payment. Audited (EMERGENCY_CLEARANCE_OVERRIDE) and reviewed daily via the reconciliation report.",
+    ),
+});
+
+export const OverrideInvoiceClearanceResponse = zod.object({
+  overriddenCount: zod.number(),
+  counts: zod.object({
+    lab: zod.number(),
+    xray: zod.number(),
+    ultrasound: zod.number(),
+    total: zod.number(),
+  }),
 });
 
 /**
@@ -4089,6 +4217,12 @@ export const PayInvoiceResponse = zod.object({
   discount: zod.number(),
   total: zod.number(),
   status: zod.enum(["pending", "paid", "cancelled"]),
+  kind: zod
+    .enum(["manual", "order_basket"])
+    .optional()
+    .describe(
+      "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+    ),
   paidAt: zod.coerce.date().nullish(),
   notes: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -4189,6 +4323,12 @@ export const GetDailyBillingSummaryResponse = zod.object({
       discount: zod.number(),
       total: zod.number(),
       status: zod.enum(["pending", "paid", "cancelled"]),
+      kind: zod
+        .enum(["manual", "order_basket"])
+        .optional()
+        .describe(
+          "manual = staff-created (POS\/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).",
+        ),
       paidAt: zod.coerce.date().nullish(),
       notes: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -4225,6 +4365,19 @@ export const GetBillingReconciliationResponse = zod.object({
       createdByName: zod.string().nullish(),
     }),
   ),
+  overridesOutstanding: zod.object({
+    orderCount: zod.number(),
+    invoiceCount: zod.number(),
+    total: zod.number(),
+    invoices: zod.array(
+      zod.object({
+        id: zod.number(),
+        invoiceNumber: zod.string(),
+        patientName: zod.string().nullish(),
+        total: zod.number(),
+      }),
+    ),
+  }),
 });
 
 /**

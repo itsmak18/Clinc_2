@@ -400,6 +400,17 @@ export const XrayRecordStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type ClearanceStatus =
+  (typeof ClearanceStatus)[keyof typeof ClearanceStatus];
+
+export const ClearanceStatus = {
+  pending: "pending",
+  cleared: "cleared",
+  overridden: "overridden",
+  expired: "expired",
 } as const;
 
 export interface XrayRecord {
@@ -418,6 +429,9 @@ export interface XrayRecord {
   report?: string | null;
   reportAr?: string | null;
   status: XrayRecordStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -444,6 +458,9 @@ export interface LabTest {
   results?: string | null;
   resultsAr?: string | null;
   status: LabTestStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   orderGroupId?: string | null;
@@ -570,6 +587,16 @@ export const InvoiceStatus = {
   cancelled: "cancelled",
 } as const;
 
+/**
+ * manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).
+ */
+export type InvoiceKind = (typeof InvoiceKind)[keyof typeof InvoiceKind];
+
+export const InvoiceKind = {
+  manual: "manual",
+  order_basket: "order_basket",
+} as const;
+
 export interface Invoice {
   id: number;
   invoiceNumber: string;
@@ -581,6 +608,8 @@ export interface Invoice {
   discount: number;
   total: number;
   status: InvoiceStatus;
+  /** manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011). */
+  kind?: InvoiceKind;
   paidAt?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -726,6 +755,7 @@ export const UpdateXrayBodyStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UpdateXrayBody {
@@ -748,6 +778,7 @@ export const UltrasoundRecordStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UltrasoundRecord {
@@ -767,6 +798,9 @@ export interface UltrasoundRecord {
   report?: string | null;
   reportAr?: string | null;
   status: UltrasoundRecordStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -790,6 +824,7 @@ export const UpdateUltrasoundBodyStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UpdateUltrasoundBody {
@@ -832,6 +867,26 @@ export interface UpdateLabTestBody {
   status?: UpdateLabTestBodyStatus;
   notes?: string;
   notesAr?: string;
+}
+
+export interface ClearanceOverrideBody {
+  /**
+   * Clinical justification for performing before payment. Audited (EMERGENCY_CLEARANCE_OVERRIDE) and reviewed daily via the reconciliation report.
+   * @minLength 30
+   */
+  reason: string;
+}
+
+export type ClearanceOverrideResultCounts = {
+  lab: number;
+  xray: number;
+  ultrasound: number;
+  total: number;
+};
+
+export interface ClearanceOverrideResult {
+  overriddenCount: number;
+  counts: ClearanceOverrideResultCounts;
 }
 
 export interface InvoiceItemInput {
@@ -955,10 +1010,25 @@ export type BillingReconciliationPaymentsItem = {
   createdByName?: string | null;
 };
 
+export type BillingReconciliationOverridesOutstandingInvoicesItem = {
+  id: number;
+  invoiceNumber: string;
+  patientName?: string | null;
+  total: number;
+};
+
+export type BillingReconciliationOverridesOutstanding = {
+  orderCount: number;
+  invoiceCount: number;
+  total: number;
+  invoices: BillingReconciliationOverridesOutstandingInvoicesItem[];
+};
+
 export interface BillingReconciliation {
   date: string;
   summary: BillingReconciliationSummary;
   payments: BillingReconciliationPaymentsItem[];
+  overridesOutstanding: BillingReconciliationOverridesOutstanding;
 }
 
 export interface ServiceCatalogItem {
@@ -1955,6 +2025,7 @@ export type SendPrescriptionToPharmacy200 = {
 export type ListXrayImagesParams = {
   patientId?: number;
   status?: ListXrayImagesStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListXrayImagesStatus =
@@ -1964,6 +2035,7 @@ export const ListXrayImagesStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export type GetXrayImageFileParams = {
@@ -1976,6 +2048,7 @@ export type GetXrayImageFileParams = {
 export type ListUltrasoundRecordsParams = {
   patientId?: number;
   status?: ListUltrasoundRecordsStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListUltrasoundRecordsStatus =
@@ -1985,6 +2058,7 @@ export const ListUltrasoundRecordsStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export type GetUltrasoundImageFileParams = {
@@ -1997,6 +2071,7 @@ export type GetUltrasoundImageFileParams = {
 export type ListLabTestsParams = {
   patientId?: number;
   status?: ListLabTestsStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListLabTestsStatus =

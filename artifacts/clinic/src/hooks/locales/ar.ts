@@ -1058,6 +1058,15 @@
     kbdSelect: "تحديد",
     kbdClose: "إغلاق",
     kbdToggle: "تبديل",
+    // Financial clearance gate (ADR-011)
+    awaitingPayment: "بانتظار الدفع",
+    clearanceOverridden: "تجاوز طارئ",
+    clearanceExpired: "انتهت مهلة الدفع",
+    lockedUntilCleared: "مقفل حتى سداد فاتورة السلة أو تطبيق تجاوز سريري",
+    emergencyOverride: "تجاوز طارئ",
+    overrideReason: "المبرر السريري (30 حرفًا على الأقل)",
+    overrideSuccess: "تم تحرير الطلبات للتنفيذ",
+    orderBasket: "سلة الطلبات",
     // Login / print language
     changeLanguage: "English",
     printLanguage: "لغة الطباعة",

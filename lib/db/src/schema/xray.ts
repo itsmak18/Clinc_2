@@ -5,11 +5,15 @@ import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { appointmentsTable } from "./appointments";
 import { clinicsTable } from "./clinics";
+import { clearanceStatusEnum } from "./billing";
+import { invoiceItemsTable } from "./invoice_items";
 
 // Workflow: requested (doctor ordered) → in_progress (tech acquiring/uploading)
 // → completed (images + report finalized). Renamed from pending/uploaded/reviewed
 // in migration 0038 (ALTER TYPE … RENAME VALUE — values renamed in place).
-export const xrayStatusEnum = pgEnum("xray_status", ["requested", "in_progress", "completed"]);
+// "cancelled" added in migration 0041 — ADD VALUE must live alone in its own
+// migration file (PG forbids using a new enum value in the tx that added it).
+export const xrayStatusEnum = pgEnum("xray_status", ["requested", "in_progress", "completed", "cancelled"]);
 
 export const xrayRecordsTable = pgTable("xray_records", {
   id: serial("id").primaryKey(),
@@ -26,6 +30,9 @@ export const xrayRecordsTable = pgTable("xray_records", {
   images: jsonb("images").$type<{ url: string; fileName?: string; caption?: string }[]>(),
   // Ties together studies created in the same request/visit (e.g. chest + left hand).
   orderGroupId: text("order_group_id"),
+  // Financial clearance gate (migration 0042) — see lab_tests.ts for semantics.
+  clearanceStatus: clearanceStatusEnum("clearance_status").notNull().default("cleared"),
+  invoiceItemId: integer("invoice_item_id").references(() => invoiceItemsTable.id),
   report: text("report"),
   reportAr: text("report_ar"),
   status: xrayStatusEnum("status").notNull().default("requested"),
@@ -43,6 +50,7 @@ export const xrayRecordsTable = pgTable("xray_records", {
   index("xray_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
   index("xray_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
   index("xray_order_group_idx").on(t.clinicId, t.orderGroupId),
+  index("xray_clearance_idx").on(t.clinicId, t.clearanceStatus),
 ]);
 
 export const insertXrayRecordSchema = createInsertSchema(xrayRecordsTable).omit({

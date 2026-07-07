@@ -2,54 +2,21 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { invoicesTable, patientsTable, invoiceItemsTable, clinicInvoiceCountersTable, usersTable, paymentsTable } from "@workspace/db";
+import { invoicesTable, patientsTable, invoiceItemsTable, usersTable, paymentsTable, labTestsTable, xrayRecordsTable, ultrasoundRecordsTable } from "@workspace/db";
 import { eq, isNull, desc, gte, lte, and, or, sql, inArray } from "drizzle-orm";
 import { dayBoundary, clinicDateString, getClinicTimezone } from "../../lib/dateUtils";
 import { logAudit, logRead, auditSnapshot } from "../../lib/audit";
 import { itemsSchema } from "../../lib/jsonb-schemas";
 import { parseMoneyToCents, sumCents, formatCents, centsToNumber } from "../../lib/money";
-import { NotFoundError, ValidationError, ConflictError } from "../../services/errors";
+import { NotFoundError, ValidationError, ConflictError, ForbiddenError } from "../../services/errors";
 import { autoAdvanceVisit } from "../clinical";
 import type { AuthRequest } from "../../middlewares/auth";
 
-// Transaction client handed to the runInTenantContext callback. Mirrors the
-// pattern in lib/schedule-validator.ts so helpers can run inside the caller's tx.
-type TenantTx = Parameters<Parameters<typeof runInTenantContext>[1]>[0];
-
-// Per-clinic atomic counter — avoids leaking cross-tenant invoice volume via
-// a global sequence. UPDATE ... RETURNING is atomic; no SELECT FOR UPDATE needed.
-// Runs on the caller's tx so the counter increment commits/rolls back together
-// with the invoice it numbers (no gap-burning a seq on a failed create).
-async function generateInvoiceNumber(tx: TenantTx, clinicId: number): Promise<string> {
-  const [row] = await tx
-    .update(clinicInvoiceCountersTable)
-    .set({ lastSeq: sql`${clinicInvoiceCountersTable.lastSeq} + 1` })
-    .where(eq(clinicInvoiceCountersTable.clinicId, clinicId))
-    .returning({ lastSeq: clinicInvoiceCountersTable.lastSeq });
-
-  if (!row) {
-    // First invoice for this clinic — insert the counter row and return seq 1.
-    const [inserted] = await tx
-      .insert(clinicInvoiceCountersTable)
-      .values({ clinicId, lastSeq: 1 })
-      .onConflictDoUpdate({
-        target: clinicInvoiceCountersTable.clinicId,
-        set: { lastSeq: sql`${clinicInvoiceCountersTable.lastSeq} + 1` },
-      })
-      .returning({ lastSeq: clinicInvoiceCountersTable.lastSeq });
-    const seq = inserted.lastSeq;
-    const ym = formatYM();
-    return `INV-${ym}-${String(seq).padStart(6, "0")}`;
-  }
-
-  const ym = formatYM();
-  return `INV-${ym}-${String(row.lastSeq).padStart(6, "0")}`;
-}
-
-function formatYM(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
+// Invoice numbering + the TenantTx helper type moved to ./invoice-number.ts
+// (Phase A) so clearance.service.ts can number basket invoices without a
+// billing.service ↔ clearance.service import cycle.
+import { generateInvoiceNumber } from "./invoice-number";
+import { settleInvoiceOrders, lockBasket } from "./clearance.service";
 
 async function fetchInvoiceItems(invoiceId: number, clinicId: number) {
   const rows = await db.select({
@@ -113,6 +80,7 @@ export async function listInvoices(req: AuthRequest, params: { status?: string; 
       discount: invoicesTable.discount,
       total: invoicesTable.total,
       status: invoicesTable.status,
+      kind: invoicesTable.kind,
       paidAt: invoicesTable.paidAt,
       notes: invoicesTable.notes,
       createdAt: invoicesTable.createdAt,
@@ -265,58 +233,113 @@ export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason:
 
   const cancelConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
 
-  const [updated] = await db.update(invoicesTable)
-    .set({ status: "cancelled", updatedAt: new Date() })
-    .where(and(...cancelConditions))
-    .returning();
+  // Cancel + basket-order expiry in one tx: cancelling an order basket
+  // permanently blocks its linked pending orders (clearance → expired), so a
+  // cancelled bill can never leave orders that later perform unpaid.
+  const { updated, expired } = await runInTenantContext(req.user!, async (tx) => {
+    const [u] = await tx.update(invoicesTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(and(...cancelConditions))
+      .returning();
+    if (!u) throw new ConflictError("Invoice status changed by a concurrent request.");
+    const ex = u.kind === "order_basket"
+      ? await settleInvoiceOrders(tx, req.user!.clinicId, invoiceId, "expired")
+      : null;
+    return { updated: u, expired: ex };
+  });
 
-  if (!updated) throw new ConflictError("Invoice status changed by a concurrent request.");
-  await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, { reason: trimmedReason });
+  await logAudit(req, "INVOICE_CANCEL", "invoice", invoiceId, {
+    reason: trimmedReason,
+    ...(expired && expired.total > 0 ? { ordersExpired: expired } : {}),
+  });
   const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...updated, items };
 }
 
+/**
+ * SoD: which invoice kinds a role may settle. Front desk settles ORDER
+ * BASKETS only (marks lab/imaging orders paid so the department knows it may
+ * process them — ADR-011). Manual invoices keep the original SoD: front_desk
+ * creates them, billing/admin settles them. Baskets are system-created with
+ * createdById = the ordering clinician, so a front-desk payer never violates
+ * creator≠payer (the 30s anti-fraud gate still applies regardless).
+ * The route-level requireRole list and the frontend's canPayInvoice mirror
+ * this rule — change all three together.
+ */
+export function canRoleSettleInvoiceKind(role: string, kind: string): boolean {
+  return role !== "front_desk" || kind === "order_basket";
+}
+
 export async function payInvoice(req: AuthRequest, invoiceId: number, amountReceived?: number) {
-  const conditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId)];
-  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
-  if (!invoice) throw new NotFoundError("invoice", invoiceId);
+  const clinicId = req.user!.clinicId;
+  const invoiceWhere = and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId));
 
-  if (invoice.status !== "pending") {
-    throw new ConflictError(`Invoice is already ${invoice.status}. Cannot process payment.`);
-  }
+  // Everything — validation included — runs inside one tx. For baskets the
+  // per-(clinic,patient) advisory lock serializes this payment against
+  // appendOrderCharge, and the invoice is re-read UNDER the lock, so the
+  // total that amountReceived is validated against is the same total that
+  // gets recorded to the ledger and whose linked orders get cleared. A
+  // pre-tx validation snapshot allowed a concurrently appended charge to be
+  // cleared without the collected cash covering it.
+  const { updated, settled } = await runInTenantContext(req.user!, async (tx) => {
+    let [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere);
+    if (!invoice) throw new NotFoundError("invoice", invoiceId);
 
-  // Anti-fraud: reject if the invoice was created by the same user within the last 30 seconds
-  const payerId = req.user?.userId;
-  const ageMs = Date.now() - new Date(invoice.createdAt).getTime();
-  if (payerId && invoice.createdById === payerId && ageMs < 30_000) {
-    await logAudit(req, "INVOICE_PAY_FRAUD_GATE", "invoice", invoiceId, { ageMs });
-    throw new ConflictError("Invoice was created too recently by the same user. Have a second staff member process payment.");
-  }
+    if (invoice.kind === "order_basket") {
+      await lockBasket(tx, clinicId, invoice.patientId);
+      [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere);
+    }
 
-  if (amountReceived !== undefined && parseMoneyToCents(amountReceived) < parseMoneyToCents(String(invoice.total))) {
-    throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
-  }
+    if (invoice.status !== "pending") {
+      throw new ConflictError(`Invoice is already ${invoice.status}. Cannot process payment.`);
+    }
 
-  // Flip to paid AND record the full payment in the ledger atomically, so the
-  // payments ledger (F-02) stays the source of truth. The conditional UPDATE
-  // (status='pending') still guards against a concurrent double-pay.
-  const updated = await runInTenantContext(req.user!, async (tx) => {
+    if (!canRoleSettleInvoiceKind(req.user!.role, invoice.kind)) {
+      throw new ForbiddenError("Front desk settles order baskets only — manual invoices are settled by billing.");
+    }
+
+    // Anti-fraud: reject if the invoice was created by the same user within the last 30 seconds
+    const payerId = req.user?.userId;
+    const ageMs = Date.now() - new Date(invoice.createdAt).getTime();
+    if (payerId && invoice.createdById === payerId && ageMs < 30_000) {
+      // logAudit writes the outbox on the global connection, so the entry
+      // survives this tx's rollback.
+      await logAudit(req, "INVOICE_PAY_FRAUD_GATE", "invoice", invoiceId, { ageMs });
+      throw new ConflictError("Invoice was created too recently by the same user. Have a second staff member process payment.");
+    }
+
+    if (amountReceived !== undefined && parseMoneyToCents(amountReceived) < parseMoneyToCents(String(invoice.total))) {
+      throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
+    }
+
+    // Flip to paid AND record the full payment in the ledger atomically, so the
+    // payments ledger (F-02) stays the source of truth. The conditional UPDATE
+    // (status='pending') still guards against a concurrent double-pay. Clearance
+    // gate: settling the invoice flips its linked orders pending→cleared in the
+    // SAME tx, so an order is never observably cleared under an unpaid invoice.
     const [u] = await tx.update(invoicesTable)
       .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")))
+      .where(and(invoiceWhere, eq(invoicesTable.status, "pending")))
       .returning();
     if (!u) throw new ConflictError("Invoice was already paid by a concurrent request.");
     await tx.insert(paymentsTable).values({
-      clinicId: req.user!.clinicId,
+      clinicId,
       invoiceId,
       amountCents: parseMoneyToCents(String(u.total)),
       method: "cash",
       receivedById: req.user!.userId,
     });
-    return u;
+    // Only baskets carry linked orders — manual invoices skip the settle scan.
+    const s = u.kind === "order_basket"
+      ? await settleInvoiceOrders(tx, clinicId, invoiceId)
+      : { lab: 0, xray: 0, ultrasound: 0, total: 0 };
+    return { updated: u, settled: s };
   });
 
   await logAudit(req, "PAY", "invoice", invoiceId, { amountReceived });
+  if (settled.total > 0) {
+    await logAudit(req, "CLEARANCE_CLEARED", "invoice", invoiceId, { counts: settled });
+  }
   const items = await fetchInvoiceItems(invoiceId, req.user!.clinicId);
   return { ...updated, items };
 }
@@ -384,6 +407,12 @@ export async function getBillingReconciliation(req: AuthRequest, dateStr?: strin
   const pendingToday = created.filter(r => r.status === "pending");
   const cancelledToday = created.filter(r => r.status === "cancelled");
 
+  // Clearance gate: every emergency-overridden order whose basket is STILL
+  // unpaid, regardless of date — the admin follow-up/collection list. Exact by
+  // construction (overridden order ∧ pending basket), no date approximation;
+  // per-event forensics live in the EMERGENCY_CLEARANCE_OVERRIDE audit trail.
+  const overridesOutstanding = await getOutstandingOverrides(req);
+
   await logRead(req, "invoice", undefined);
   await logAudit(req, "RECONCILIATION_VIEW", "invoice", undefined, { date });
 
@@ -395,6 +424,7 @@ export async function getBillingReconciliation(req: AuthRequest, dateStr?: strin
       outstandingTotal: sum(pendingToday),  outstandingCount: pendingToday.length,
       cancelledTotal:   sum(cancelledToday),cancelledCount:   cancelledToday.length,
     },
+    overridesOutstanding,
     payments: paidToday.map(r => ({
       id: r.id,
       invoiceNumber: r.invoiceNumber,
@@ -404,4 +434,65 @@ export async function getBillingReconciliation(req: AuthRequest, dateStr?: strin
       createdByName: r.createdByName,
     })),
   };
+}
+
+/**
+ * Emergency-overridden orders whose basket invoice is still pending — unpaid
+ * debt created by clinical overrides. Grouped per invoice for the Z-report.
+ */
+async function getOutstandingOverrides(req: AuthRequest) {
+  const clinicId = req.user!.clinicId;
+  return runInTenantContext(req.user!, async (tx) => {
+    const overriddenItemIds: number[] = [];
+    const pick = (rows: { invoiceItemId: number | null }[]) => {
+      for (const r of rows) if (r.invoiceItemId != null) overriddenItemIds.push(r.invoiceItemId);
+    };
+    pick(await tx.select({ invoiceItemId: labTestsTable.invoiceItemId }).from(labTestsTable)
+      .where(and(eq(labTestsTable.clinicId, clinicId), eq(labTestsTable.clearanceStatus, "overridden"), isNull(labTestsTable.deletedAt))));
+    pick(await tx.select({ invoiceItemId: xrayRecordsTable.invoiceItemId }).from(xrayRecordsTable)
+      .where(and(eq(xrayRecordsTable.clinicId, clinicId), eq(xrayRecordsTable.clearanceStatus, "overridden"), isNull(xrayRecordsTable.deletedAt))));
+    pick(await tx.select({ invoiceItemId: ultrasoundRecordsTable.invoiceItemId }).from(ultrasoundRecordsTable)
+      .where(and(eq(ultrasoundRecordsTable.clinicId, clinicId), eq(ultrasoundRecordsTable.clearanceStatus, "overridden"), isNull(ultrasoundRecordsTable.deletedAt))));
+
+    if (overriddenItemIds.length === 0) return { orderCount: 0, invoiceCount: 0, total: 0, invoices: [] as any[] };
+
+    const items = await tx
+      .select({ id: invoiceItemsTable.id, invoiceId: invoiceItemsTable.invoiceId })
+      .from(invoiceItemsTable)
+      .where(and(inArray(invoiceItemsTable.id, overriddenItemIds), eq(invoiceItemsTable.clinicId, clinicId)));
+    const invoiceIds = [...new Set(items.map(i => i.invoiceId))];
+    if (invoiceIds.length === 0) return { orderCount: 0, invoiceCount: 0, total: 0, invoices: [] as any[] };
+
+    const invs = await tx
+      .select({
+        id: invoicesTable.id,
+        invoiceNumber: invoicesTable.invoiceNumber,
+        total: invoicesTable.total,
+        patientName: patientsTable.fullName,
+      })
+      .from(invoicesTable)
+      .leftJoin(patientsTable, eq(invoicesTable.patientId, patientsTable.id))
+      .where(and(
+        inArray(invoicesTable.id, invoiceIds),
+        eq(invoicesTable.clinicId, clinicId),
+        eq(invoicesTable.status, "pending"),
+        eq(invoicesTable.kind, "order_basket"),
+        isNull(invoicesTable.deletedAt),
+      ));
+
+    const pendingInvoiceIds = new Set(invs.map(i => i.id));
+    const orderCount = items.filter(i => pendingInvoiceIds.has(i.invoiceId)).length;
+    const totalCents = sumCents(invs.map(i => parseMoneyToCents(String(i.total))));
+    return {
+      orderCount,
+      invoiceCount: invs.length,
+      total: centsToNumber(totalCents),
+      invoices: invs.map(i => ({
+        id: i.id,
+        invoiceNumber: i.invoiceNumber,
+        patientName: i.patientName,
+        total: centsToNumber(parseMoneyToCents(String(i.total))),
+      })),
+    };
+  });
 }

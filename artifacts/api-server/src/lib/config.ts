@@ -121,6 +121,14 @@ export const config = {
   // ── Workflow ──────────────────────────────────────────────────────────────
   autoAdvanceFlow: process.env["AUTO_ADVANCE_FLOW"] !== "false",
 
+  // ── Financial clearance gate (Phase A) ────────────────────────────────────
+  // OFF (default): order creation/progress behaves exactly as before the gate
+  // existed. ON: lab/xray/ultrasound orders are created clearance_status=pending
+  // with an auto-charge on the patient's basket invoice; workflow progress is
+  // blocked until the basket is paid or a clinical emergency override clears it.
+  clearanceGateEnabled: envBool("CLEARANCE_GATE_ENABLED", false),
+  clearanceTtlHours:    envNum("CLEARANCE_TTL_HOURS", 48),
+
   // ── Phase 2 auth flags (read via auth-constants.ts helpers) ──────────────
   phase2DeviceTrustEnabled:     envBool("PHASE2_DEVICE_TRUST_ENABLED", false),
   phase2EmailVerifyEnabled:     envBool("PHASE2_EMAIL_VERIFY_ENABLED", false),

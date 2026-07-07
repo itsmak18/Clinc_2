@@ -5,12 +5,14 @@ import {
   ConflictError,
   ValidationError,
   UnauthorizedError,
+  ClearanceRequiredError,
+  ClearanceGateDisabledError,
 } from "../services/errors";
 import type { ErrorDef } from "../errors";
 
 type AsyncFn = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
 
-type DomainError = (NotFoundError | ForbiddenError | ConflictError | ValidationError | UnauthorizedError) & {
+type DomainError = (NotFoundError | ForbiddenError | ConflictError | ValidationError | UnauthorizedError | ClearanceRequiredError | ClearanceGateDisabledError) & {
   errorDef: ErrorDef;
 };
 
@@ -20,7 +22,9 @@ function isDomainError(err: unknown): err is DomainError {
     err instanceof ForbiddenError ||
     err instanceof ConflictError ||
     err instanceof ValidationError ||
-    err instanceof UnauthorizedError
+    err instanceof UnauthorizedError ||
+    err instanceof ClearanceRequiredError ||
+    err instanceof ClearanceGateDisabledError
   );
 }
 

@@ -1049,7 +1049,11 @@ paths:
           in: query
           schema:
             type: string
-            enum: [requested, in_progress, completed]
+            enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of X-ray records
@@ -1209,7 +1213,11 @@ paths:
           in: query
           schema:
             type: string
-            enum: [requested, in_progress, completed]
+            enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of ultrasound records
@@ -1370,6 +1378,10 @@ paths:
           schema:
             type: string
             enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of lab tests
@@ -1533,6 +1545,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+
+  /billing/invoices/{invoiceId}/clearance-override:
+    post:
+      operationId: overrideInvoiceClearance
+      tags: [billing]
+      summary: Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClearanceOverrideBody"
+      responses:
+        "200":
+          description: Orders overridden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearanceOverrideResult"
 
   /billing/invoices/{invoiceId}/pay:
     post:
@@ -4075,7 +4112,15 @@ components:
           nullable: true
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -4085,7 +4130,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, bodyPart, status, createdAt]
+      required: [id, patientId, requestedById, bodyPart, status, clearanceStatus, createdAt]
 
     CreateXrayBody:
       type: object
@@ -4125,7 +4170,7 @@ components:
           type: string
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
         notes:
           type: string
         notesAr:
@@ -4178,7 +4223,15 @@ components:
           nullable: true
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -4188,7 +4241,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, examType, bodyPart, status, createdAt]
+      required: [id, patientId, requestedById, examType, bodyPart, status, clearanceStatus, createdAt]
 
     CreateUltrasoundBody:
       type: object
@@ -4230,7 +4283,7 @@ components:
           type: string
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
         notes:
           type: string
         notesAr:
@@ -4268,6 +4321,14 @@ components:
         status:
           type: string
           enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -4280,7 +4341,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, testName, status, createdAt]
+      required: [id, patientId, requestedById, testName, status, clearanceStatus, createdAt]
 
     CreateLabTestBody:
       type: object
@@ -4344,6 +4405,10 @@ components:
         status:
           type: string
           enum: [pending, paid, cancelled]
+        kind:
+          type: string
+          enum: [manual, order_basket]
+          description: manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).
         paidAt:
           type: string
           format: date-time
@@ -4355,6 +4420,42 @@ components:
           type: string
           format: date-time
       required: [id, invoiceNumber, patientId, createdById, items, subtotal, discount, total, status, createdAt]
+
+    # Financial clearance of a clinical order (lab/x-ray/ultrasound) — orthogonal
+    # to the order's workflow status (ADR-011). pending = awaiting payment,
+    # workflow blocked; cleared = basket paid; overridden = emergency clearance
+    # (invoice stays pending); expired = never paid within TTL / basket cancelled.
+    ClearanceStatus:
+      type: string
+      enum: [pending, cleared, overridden, expired]
+
+    ClearanceOverrideBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 30
+          description: Clinical justification for performing before payment. Audited (EMERGENCY_CLEARANCE_OVERRIDE) and reviewed daily via the reconciliation report.
+      required: [reason]
+
+    ClearanceOverrideResult:
+      type: object
+      properties:
+        overriddenCount:
+          type: integer
+        counts:
+          type: object
+          properties:
+            lab:
+              type: integer
+            xray:
+              type: integer
+            ultrasound:
+              type: integer
+            total:
+              type: integer
+          required: [lab, xray, ultrasound, total]
+      required: [overriddenCount, counts]
 
     InvoiceItem:
       type: object
@@ -4554,7 +4655,27 @@ components:
               paidAt:        { type: string, format: date-time, nullable: true }
               createdByName: { type: string, nullable: true }
             required: [id, invoiceNumber, total]
-      required: [date, summary, payments]
+        # Emergency-overridden orders whose basket is still unpaid — the admin
+        # follow-up/collection list (ADR-011). Exact by construction (overridden
+        # order AND pending basket), not a date approximation.
+        overridesOutstanding:
+          type: object
+          properties:
+            orderCount:   { type: integer }
+            invoiceCount: { type: integer }
+            total:        { type: number }
+            invoices:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:            { type: integer }
+                  invoiceNumber: { type: string }
+                  patientName:   { type: string, nullable: true }
+                  total:         { type: number }
+                required: [id, invoiceNumber, total]
+          required: [orderCount, invoiceCount, total, invoices]
+      required: [date, summary, payments, overridesOutstanding]
 
     ServiceCatalogItem:
       type: object

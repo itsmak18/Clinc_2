@@ -1080,6 +1080,15 @@
     kbdSelect: "select",
     kbdClose: "close",
     kbdToggle: "toggle",
+    // Financial clearance gate (ADR-011)
+    awaitingPayment: "Awaiting payment",
+    clearanceOverridden: "Emergency override",
+    clearanceExpired: "Payment expired",
+    lockedUntilCleared: "Locked until the basket invoice is paid or a clinical override is applied",
+    emergencyOverride: "Emergency override",
+    overrideReason: "Clinical justification (minimum 30 characters)",
+    overrideSuccess: "Orders released for processing",
+    orderBasket: "Order basket",
     // Login / print language
     changeLanguage: "العربية",
     printLanguage: "Print language",

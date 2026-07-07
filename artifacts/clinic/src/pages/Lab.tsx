@@ -5,6 +5,8 @@ import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
+import ClearanceChip from "@/components/ClearanceChip";
+import OverrideClearanceDialog from "@/components/OverrideClearanceDialog";
 import PatientSearchSelect from "@/components/PatientSearchSelect";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +20,7 @@ import { usePrintLang } from "@/hooks/printLang";
 import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { Plus, ClipboardList, Trash2, Printer, ChevronDown, ChevronUp, ShieldCheck, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isClearanceLocked, canOverrideClearance } from "@/lib/clearance";
 
 const COMMON_TESTS = ["CBC", "Lipid Panel", "HbA1c", "Blood Glucose", "Liver Function", "Kidney Function", "Thyroid Panel", "Urinalysis", "Coagulation Panel"];
 
@@ -26,6 +29,7 @@ const STATUS_SORT_ORDER: Record<string, number> = { requested: 0, in_progress: 1
 // Only lab staff (and admins) fill/verify results. Doctors request tests and read
 // results, but cannot edit values or change status — mirrors X-Ray/Ultrasound.
 const EDIT_ROLES = ["super_admin", "admin", "lab_staff"];
+
 
 function parseResults(raw: string | null | undefined): { params: LabParam[]; notes: string } {
   if (!raw) return { params: [], notes: "" };
@@ -67,6 +71,7 @@ export default function Lab() {
   const [lines, setLines] = useState<{ testName: string; testNameAr: string }[]>([{ testName: "", testNameAr: "" }]);
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [overrideInvoiceId, setOverrideInvoiceId] = useState<number | null>(null);
   const [inlineParams, setInlineParams] = useState<LabParam[]>([emptyParam()]);
   const [inlineNotes, setInlineNotes] = useState("");
   const [inlineStatus, setInlineStatus] = useState("completed");
@@ -198,6 +203,16 @@ export default function Lab() {
                 {(row.patient as any)?.dateOfBirth && <div><span className="text-[var(--ink-muted)]">{t("dateOfBirth")}: </span><span className="text-[var(--ink)]">{formatDate((row.patient as any).dateOfBirth)}</span></div>}
                 {(row.patient as any)?.gender && <div><span className="text-[var(--ink-muted)]">{t("gender")}: </span><span className="text-[var(--ink)] capitalize">{(row.patient as any).gender}</span></div>}
                 {row.requestedBy?.fullName && <div><span className="text-[var(--ink-muted)]">{t("requestedBy")}: </span><span className="text-[var(--ink)]">{row.requestedBy.fullName}</span></div>}
+                <ClearanceChip status={(row as any).clearanceStatus} />
+                {(row as any).clearanceStatus === "pending" && (row as any).invoiceId && canOverrideClearance(user?.role) && (
+                  <button
+                    className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1"
+                    onClick={() => setOverrideInvoiceId((row as any).invoiceId)}
+                    data-testid={`button-override-${row.id}`}
+                  >
+                    {t("emergencyOverride")}
+                  </button>
+                )}
               </div>
               {/* Parameter grid */}
               <div>
@@ -274,7 +289,13 @@ export default function Lab() {
                   <Select value={inlineStatus} onValueChange={setInlineStatus}>
                     <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {statuses.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+                      {statuses.map(s => (
+                        // While clearance-locked only "cancelled" is actionable —
+                        // the backend rejects progress with CLEARANCE_REQUIRED.
+                        <SelectItem key={s} value={s} disabled={isClearanceLocked(row as any) && s !== "cancelled" && s !== row.status}>
+                          {t(s as any)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -346,7 +367,12 @@ export default function Lab() {
               },
             },
             { key: "date",    header: t("date"),   render: l => <span className="text-[12px] text-[var(--ink-muted)]">{formatDate(l.createdAt)}</span> },
-            { key: "status",  header: t("status"), render: l => <StatusBadge status={l.status} /> },
+            { key: "status",  header: t("status"), render: l => (
+              <div className="flex flex-col items-start gap-1">
+                <StatusBadge status={l.status} />
+                <ClearanceChip status={(l as any).clearanceStatus} />
+              </div>
+            ) },
             {
               key: "actions",
               header: t("actions"),
@@ -364,6 +390,12 @@ export default function Lab() {
           ]}
         />
       </div>
+
+      <OverrideClearanceDialog
+        invoiceId={overrideInvoiceId}
+        onOpenChange={o => { if (!o) setOverrideInvoiceId(null); }}
+        onDone={() => queryClient.invalidateQueries({ queryKey: getListLabTestsQueryKey() })}
+      />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">

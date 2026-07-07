@@ -28,6 +28,8 @@ import type {
   BillingDashboard,
   BillingReconciliation,
   BreakGlassSession,
+  ClearanceOverrideBody,
+  ClearanceOverrideResult,
   ClinicNotice,
   ComplianceDashboard,
   Consent,
@@ -6515,6 +6517,97 @@ export const useUpdateInvoice = <
   TContext
 > => {
   return useMutation(getUpdateInvoiceMutationOptions(options));
+};
+
+/**
+ * @summary Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+ */
+export const getOverrideInvoiceClearanceUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/clearance-override`;
+};
+
+export const overrideInvoiceClearance = async (
+  invoiceId: number,
+  clearanceOverrideBody: ClearanceOverrideBody,
+  options?: RequestInit,
+): Promise<ClearanceOverrideResult> => {
+  return customFetch<ClearanceOverrideResult>(
+    getOverrideInvoiceClearanceUrl(invoiceId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(clearanceOverrideBody),
+    },
+  );
+};
+
+export const getOverrideInvoiceClearanceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    TError,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+  TError,
+  { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+  TContext
+> => {
+  const mutationKey = ["overrideInvoiceClearance"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> }
+  > = (props) => {
+    const { invoiceId, data } = props ?? {};
+
+    return overrideInvoiceClearance(invoiceId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OverrideInvoiceClearanceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>
+>;
+export type OverrideInvoiceClearanceMutationBody =
+  BodyType<ClearanceOverrideBody>;
+export type OverrideInvoiceClearanceMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+ */
+export const useOverrideInvoiceClearance = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    TError,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+  TError,
+  { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+  TContext
+> => {
+  return useMutation(getOverrideInvoiceClearanceMutationOptions(options));
 };
 
 /**

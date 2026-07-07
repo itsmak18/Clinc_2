@@ -53,3 +53,21 @@ export class ConsentRequiredError extends Error {
     this.name = "ConsentRequiredError";
   }
 }
+
+export class ClearanceRequiredError extends Error {
+  readonly status = 409;
+  readonly errorDef: ErrorDef = E.CLEARANCE_REQUIRED;
+  constructor(reason = "Order is awaiting financial clearance — settle the basket invoice or apply an emergency override") {
+    super(reason);
+    this.name = "ClearanceRequiredError";
+  }
+}
+
+export class ClearanceGateDisabledError extends Error {
+  readonly status = 409;
+  readonly errorDef: ErrorDef = E.CLEARANCE_GATE_DISABLED;
+  constructor(reason = "The financial clearance gate is disabled on this deployment") {
+    super(reason);
+    this.name = "ClearanceGateDisabledError";
+  }
+}

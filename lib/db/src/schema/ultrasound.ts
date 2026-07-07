@@ -4,10 +4,13 @@ import { z } from "zod/v4";
 import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { clinicsTable } from "./clinics";
+import { clearanceStatusEnum } from "./billing";
+import { invoiceItemsTable } from "./invoice_items";
 
 // Workflow: requested → in_progress → completed (renamed from pending/uploaded/
-// reviewed in migration 0038 via ALTER TYPE … RENAME VALUE).
-export const ultrasoundStatusEnum = pgEnum("ultrasound_status", ["requested", "in_progress", "completed"]);
+// reviewed in migration 0038 via ALTER TYPE … RENAME VALUE). "cancelled" added in
+// migration 0041 (ADD VALUE alone in its own file — see xray.ts note).
+export const ultrasoundStatusEnum = pgEnum("ultrasound_status", ["requested", "in_progress", "completed", "cancelled"]);
 
 export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   id: serial("id").primaryKey(),
@@ -24,6 +27,9 @@ export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   images: jsonb("images").$type<{ url: string; fileName?: string; caption?: string }[]>(),
   // Ties together exams created in the same request/visit (e.g. abdominal + pelvic).
   orderGroupId: text("order_group_id"),
+  // Financial clearance gate (migration 0042) — see lab_tests.ts for semantics.
+  clearanceStatus: clearanceStatusEnum("clearance_status").notNull().default("cleared"),
+  invoiceItemId: integer("invoice_item_id").references(() => invoiceItemsTable.id),
   report: text("report"),
   reportAr: text("report_ar"),
   status: ultrasoundStatusEnum("status").notNull().default("requested"),
@@ -37,6 +43,7 @@ export const ultrasoundRecordsTable = pgTable("ultrasound_records", {
   index("ultrasound_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
   index("ultrasound_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
   index("ultrasound_order_group_idx").on(t.clinicId, t.orderGroupId),
+  index("ultrasound_clearance_idx").on(t.clinicId, t.clearanceStatus),
 ]);
 
 export const insertUltrasoundRecordSchema = createInsertSchema(ultrasoundRecordsTable).omit({
