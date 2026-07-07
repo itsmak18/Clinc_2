@@ -246,7 +246,7 @@ lib/api-zod/src/generated/            ← backend validates against
 | Fingerprint binding | `fph` claim checked on every request; mismatch → error 1004; `FINGERPRINT_BINDING=disabled` env var as emergency bypass. **The two levers (`FINGERPRINT_BINDING`, `FPH_GRANDFATHER_UNTIL`) are centralized in `lib/fingerprint-lever.ts` (AUD-SEC-07)** — both `policy.ts` (kernel) and `auth.ts` (legacy verifier) call it, never re-read env inline. In production the `disabled` bypass requires `FINGERPRINT_BINDING_EXPIRES_AT` and self-expires (fail-secure on no/expired TTL); engaged state is loud-logged (throttled) + exposed via the `fingerprint_binding_disabled` gauge → `FingerprintBindingDisabled` critical alert. |
 | Logging | Pino — PHI fields (`fullName`, `vitals`, `phone`, `email`, etc.) → `[REDACTED]` |
 | Audit Trail | `audit_logs` table — append-only, 7-year retention, immutable; every read logs `AUDIT_LOG_READ`. Writes go via `audit_outbox` (unindexed, no FK) → drained every 5 s to `audit_logs` with exponential backoff (5 s/30 s/2 min/10 min, max 5 attempts). Exhausted rows counted in `audit_log_write_failures_total` + logged `audit_outbox_row_exhausted`. `auditOutboxDepthGauge` Prometheus gauge sampled at each drain tick. Final drain flush on graceful shutdown before `pool.end()`. **Hash chain**: nightly cron (`"0 2 * * *"`) (1) records a SHA-256 chain over each day's rows in `audit_integrity_checks` (`recordDailyIntegrity`, migration `0010`), then (2) **verifies** it (F-P4-1, 2026-06-05): `verifyRecentIntegrity()` re-derives + compares the last `AUDIT_VERIFY_WINDOW_DAYS` days (default 7), and `verifyChainLinkage()` asserts each `prevHash` == the prior calendar day's `rootHash`. Any divergence sets `status=mismatch` + increments `audit_integrity_check_failures_total` → `AuditIntegrityMismatch` alert (`for: 0m`). Recording alone never set `mismatch`; verification is what actually runs the check. `audit_logs` is append-only for `medicore_app` — UPDATE/DELETE revoked (migration `0026`). New partitions are auto-revoked by migration `0028`'s `audit_partition_append_only_trg` event trigger (so 0020's default-privs re-grant can no longer silently re-open them); proven by `audit-append-only.integration-db.test.ts`. |
-| Billing SoD | `front_desk` creates invoices; `billing_manager`/admin pays/cancels; cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create |
+| Billing SoD | `front_desk` creates manual invoices; `billing_manager`/admin pays/cancels; **`front_desk` may also PAY `order_basket` invoices only** (clearance-gate desk flow, ADR-011 — baskets are system-created by the ordering clinician so creator≠payer holds); cancel requires reason ≥ 30 chars; anti-fraud gate blocks same-user pay within 30s of create; emergency clearance override = doctor/nurse/admin, reason ≥ 30 chars, audited + surfaced in reconciliation `overridesOutstanding` |
 | PHI Field Encryption | AES-256-GCM via `lib/field-encryption.ts`. Fields: `diagnosis`, `vitals`, `medications`, `allergies`, `emergencyContact`. Current envelope: `enc:v2:<kid>:<iv>:<tag>:<data>`. Legacy `enc:v1:` envelopes still decrypt via kid="1". Key registry: `FIELD_ENCRYPTION_KEY` (kid=1), optional `FIELD_ENCRYPTION_KEY_NEXT` (kid=2 during rotation). `FIELD_ENCRYPTION_KEY_WRITE_KID` (default "1") controls active write kid. Prod fail-closed if write kid has no registered key. Rotation procedure in `docs/SECURITY.md`. |
 | Patient Consent | `patient_consents` table. `treatment` consent required before `createMedicalRecord` / `createPrescription` (service-layer check via `hasActiveConsent`). Throws `ConsentRequiredError` (HTTP 422, code 3010). |
 | Break-Glass Access | `break_glass_sessions` table. 15-min TTL. **Activate is gated to clinical roles** (`super_admin`, `admin`, `doctor`, `nurse` — front_desk / billing / pharmacy / lab / xray are not eligible). Request body requires both `justification` (≥30 chars) AND `reasonCategory` (enum: `life_threatening_emergency` \| `patient_unconscious` \| `code_blue_response` \| `covering_attending_unavailable` \| `regulatory_audit_request`). Immediate SSE alert to all same-clinic `compliance_officer` users; payload contains IDs + `reasonCategory` only (no PHI). Every PHI access during session logs `BREAK_GLASS_ACCESS`. Owner or compliance_officer can revoke early. Sessions, the patient lookup, and the officer fan-out are all clinic-scoped. **Clinical-PHI read bypass (F-P2-1, 2026-06-04):** an active session lets the activating doctor READ the patient's 5 doctor-bound clinical tables — enforced at the DB layer by migration 0024's `app.break_glass_patient_ids` clause on the `doctor_scope` RLS policy (read-only; `WITH CHECK` unchanged). Wired via `getActiveBreakGlassPatientIds()` → `runInTenantContext(..., { breakGlassPatientIds })`; see Doctor Scope Rule. |
@@ -268,10 +268,19 @@ appointment_status: scheduled → checked_in → in_triage → ready_for_doctor 
                     (also: cancelled, no_show)
 booking_source:     online | phone | walk_in          ← on appointments table, default walk_in
 triage_priority:    normal | urgent | critical         ← on appointments table, default normal
-xray_status:        requested → in_progress → completed   ← renamed from pending/uploaded/reviewed (migration 0038)
-ultrasound_status:  requested → in_progress → completed   ← renamed from pending/uploaded/reviewed (migration 0038)
+xray_status:        requested → in_progress → completed | cancelled  ← renamed 0038; cancelled added 0041
+ultrasound_status:  requested → in_progress → completed | cancelled  ← renamed 0038; cancelled added 0041
 lab_test_status:    requested → in_progress → completed | cancelled
 invoice_status:     pending → paid | cancelled
+invoice_kind:       manual | order_basket                 ← order_basket = system-created per-patient
+                                                            basket of clinical-order auto-charges (ADR-011);
+                                                            at most ONE open per patient (invoice_open_basket_uq)
+clearance_status:   pending → cleared | overridden | expired  ← ORTHOGONAL financial state on lab_tests/
+                                                            xray_records/ultrasound_records (ADR-011, default
+                                                            'cleared'). Gate ON: orders start 'pending' with an
+                                                            auto-charge on the basket; workflow progress
+                                                            (in_progress/completed) is 409/3020-blocked until
+                                                            paid ('cleared') or clinically overridden.
 operation_status:   scheduled → in_progress → completed | cancelled
 notification_type:  patient_arrived | lab_ready | xray_ready | ultrasound_ready | general
 ```
@@ -313,6 +322,21 @@ DB_STATEMENT_TIMEOUT=30000    # ms Postgres-side cap on a single statement —
 # ── SSE caps (Phase 3, 2026-05-31) ─────────────────────────────────────────────
 SSE_MAX_CONNECTIONS=500       # Per-process cap. Over-cap → 503 + Retry-After: 30.
 SSE_MAX_PER_USER=10           # Per-user cap; oldest connection evicted at the limit.
+
+# ── Financial clearance gate (Phase A, ADR-011) ────────────────────────────────
+CLEARANCE_GATE_ENABLED=false   # CONTROL-PLANE switch, default OFF (byte-identical off). ON:
+                              #   lab/xray/ultrasound orders are created clearance_status=
+                              #   'pending' with an auto-charge line on the patient's
+                              #   order_basket invoice (priced from services_catalog codes
+                              #   LAB_DEFAULT/XRAY_DEFAULT/US_DEFAULT — PRICE THEM before
+                              #   flipping ON, zero-price lines warn-log, codes UNIQUE per
+                              #   clinic since 0043); workflow progress blocks (409/3020)
+                              #   until the basket is paid or clinically overridden. The
+                              #   DATA PLANE (settle-on-pay, expiry sweep) runs regardless
+                              #   of the flag — safe rollback, no orphaned baskets (ADR-011 §8).
+CLEARANCE_TTL_HOURS=48         # Hourly cron expires orders still pending-clearance past
+                              #   this window, withdraws their basket lines, auto-cancels
+                              #   emptied baskets (SYSTEM_CLEARANCE_EXPIRED audit per clinic).
 
 # ── Audit integrity verification (F-P4-1, 2026-06-05) ──────────────────────────
 AUDIT_VERIFY_WINDOW_DAYS=7     # Daily integrity cron re-derives + compares the last

@@ -14,8 +14,8 @@ router.use(requireAuth);
 router.use("/ultrasound", requireRole("super_admin", "admin", "doctor", "nurse", "xray_staff"));
 
 router.get("/ultrasound", asyncHandler(async (req: AuthRequest, res) => {
-  const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-  const result = await listUltrasounds(req, { status, patientId, limit, cursor });
+  const { status, clearanceStatus, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
+  const result = await listUltrasounds(req, { status, clearanceStatus, patientId, limit, cursor });
   res.json(result.data);
 }));
 

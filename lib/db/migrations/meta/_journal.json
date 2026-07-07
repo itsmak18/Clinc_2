@@ -288,6 +288,27 @@
       "when": 1783166922649,
       "tag": "0040_premium_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1783201692779,
+      "tag": "0041_unknown_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783201882636,
+      "tag": "0042_late_typhoid_mary",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783443717449,
+      "tag": "0043_stale_nuke",
+      "breakpoints": true
     }
   ]
 }

@@ -12,3 +12,20 @@
 export { default as billingRouter } from "./billing.routes";
 export { default as servicesCatalogRouter } from "./services-catalog.routes";
 export { default as paymentsRouter } from "./payments.routes";
+
+// Financial clearance gate (Phase A, ADR-011). The clinical/imaging order
+// services call these inside their create/cancel transactions; cron.ts runs
+// the expiry sweep. All are hoisted function declarations, so the
+// clinical ⇄ billing barrel cycle this creates resolves safely under ESM
+// live bindings (same class of cycle as billing.service → clinical's
+// autoAdvanceVisit, now bidirectional).
+// Only what outside-module consumers actually import lives here; same-module
+// siblings (billing.service, payments.service, billing.routes) and the tests
+// import ./clearance.service directly.
+export {
+  isClearanceGateEnabled,
+  appendOrderCharge,
+  removeOrderCharge,
+  clearanceBlocksProgress,
+  expirePendingClearances,
+} from "./clearance.service";

@@ -1,0 +1,2 @@
+DROP INDEX "services_catalog_clinic_code_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "services_catalog_clinic_code_idx" ON "services_catalog" USING btree ("clinic_id","code") WHERE code IS NOT NULL AND deleted_at IS NULL;

@@ -5,6 +5,8 @@ import { usersTable } from "./users";
 import { patientsTable } from "./patients";
 import { appointmentsTable } from "./appointments";
 import { clinicsTable } from "./clinics";
+import { clearanceStatusEnum } from "./billing";
+import { invoiceItemsTable } from "./invoice_items";
 
 export const labTestStatusEnum = pgEnum("lab_test_status", [
   "requested",
@@ -29,6 +31,13 @@ export const labTestsTable = pgTable("lab_tests", {
   notesAr: text("notes_ar"),
   // Ties together tests ordered from the same draw/visit (e.g. CBC + Lipid + HbA1c).
   orderGroupId: text("order_group_id"),
+  // Financial clearance gate (migration 0042). Default 'cleared' grandfathers
+  // existing rows and keeps flag-OFF inserts byte-identical; the service writes
+  // 'pending' explicitly when CLEARANCE_GATE_ENABLED. Orthogonal to `status`.
+  clearanceStatus: clearanceStatusEnum("clearance_status").notNull().default("cleared"),
+  // The auto-generated basket invoice line backing this order (null when the
+  // gate was off at creation or the charge was removed on cancel/expiry).
+  invoiceItemId: integer("invoice_item_id").references(() => invoiceItemsTable.id),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -41,6 +50,7 @@ export const labTestsTable = pgTable("lab_tests", {
   index("lab_clinic_patient_created_idx").on(t.clinicId, t.patientId, t.createdAt),
   index("lab_clinic_status_created_idx").on(t.clinicId, t.status, t.createdAt),
   index("lab_order_group_idx").on(t.clinicId, t.orderGroupId),
+  index("lab_clearance_idx").on(t.clinicId, t.clearanceStatus),
 ]);
 
 export const insertLabTestSchema = createInsertSchema(labTestsTable).omit({

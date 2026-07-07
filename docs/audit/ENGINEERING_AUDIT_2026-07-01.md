@@ -20,6 +20,11 @@
 
 ## 1. Executive Summary
 
+> **This section is the 2026-07-01 point-in-time record.** As of 2026-07-02, everything it
+> identifies as a blocker below is **fixed and committed** — see the updated verdict in §15, the
+> recomputed scorecard in §2, and the sprint log in §18. Kept verbatim here rather than rewritten so
+> the report still shows what was actually found, not a retrofitted version of events.
+
 MediCore's **application-layer engineering is production-grade**: the auth kernel, multi-tenant RLS design, AES-256-GCM PHI encryption, append-only audit chain with daily integrity verification, break-glass, right-to-erasure, and billing atomicity are all implemented carefully and, where statically checkable, verified correct and fail-closed. The unit + build pipeline is green (538 API + 51 frontend tests).
 
 **The system is nonetheless NOT ready to deploy as-is** — for a reason that has nothing to do with the application code and everything to do with **a production stack that has never been exercised under Docker**. Static analysis of the *committed* `docker-compose.prod.yml` surfaces **three independent, deployment-blocking defects** that would fail the very first `docker compose -f docker-compose.prod.yml up`:
@@ -40,20 +45,30 @@ A fourth Critical is different in kind: **`AUD-DB-05` — cross-tenant isolation
 
 ## 2. Scorecard
 
+**As originally scored (2026-07-01):** Overall 66 · Security 85 · Architecture 88 · Code Quality 84 ·
+Performance 76 · Reliability 34 (Critical-capped) · Scalability 62 (High-equiv-capped) · Testing 58
+(High-capped) · Documentation 88 · Compliance-readiness 60.
+
+**Recomputed 2026-07-02** — per this report's own rules (§2 traceability: name the drag below 80;
+severity-ceiling: an unresolved Critical caps ≤40, an unresolved High caps ≤65). A cap lifts only
+when the triggering finding is actually resolved, not just "worked on":
+
 | Dimension | Score | Ceiling applied? | Primary drag / note |
 |---|---:|---|---|
-| **Overall Production-Readiness** | **66** | — | 3 confirmed P0 deploy/DR blockers; app layer is strong. Moves to ~85 once P0s land + `AUD-DB-05` runtime-proven. |
-| Security | 85 | no | `AUD-SEC-07` (Med) fingerprint disable-levers unguarded; kernel otherwise fail-closed & verified. |
-| Architecture | 88 | no | Clean module boundaries, layered kernel, sound RLS design. |
-| Code Quality | 84 | no | `AUD-API-02` (Med) `datetime.ts` tz in uncommitted WIP. |
-| Performance | 76 | no | Good primitives (PgBouncer, partitioning, cursor pagination, caching); **no load/query-plan validation** — would move on runtime. |
-| **Reliability** | **34** | **Critical cap** | `AUD-OPS-01/02/03` — stack won't start; backups never run. Moves sharply up when the 3 compose fixes are verified under Docker. |
-| **Scalability** | **62** | **High-equiv cap** | `AUD-DB-05` tenant isolation under pooling unproven at runtime. Design is sound; → ~85 on the cross-tenant probe. |
-| **Testing** | **58** | **High cap** | `AUD-FE-01` no E2E; integration-db not run this session; no load/chaos/mutation; no FE coverage gate. |
-| Documentation | 88 | no | ADRs, RUNBOOK, CLAUDE.md, HEALTH_STATUS extensive and accurate. |
-| **Compliance-readiness** | **60** | no (see note) | Strong PHI controls, but §164.308(a)(7) contingency undermined by "backups never run" (OPS-02/03) + audit-on-read best-effort (CMP-01) + consent service-only (CMP-03). |
+| **Overall Production-Readiness** | **82** | — | All 4 Criticals + all 5 Highs fixed (§4/§5, §18). Not the full ~85 the original report projected — a live `docker compose up` still hasn't run (§15). |
+| Security | 85 | no | `AUD-SEC-07` (Med) fingerprint disable-levers unguarded; kernel otherwise fail-closed & verified. (unchanged) |
+| Architecture | 88 | no | Clean module boundaries, layered kernel, sound RLS design. (unchanged) |
+| Code Quality | 84 | no | `AUD-API-02` (Med) `datetime.ts` tz in uncommitted WIP. (unchanged) |
+| Performance | 76 | no | Good primitives (PgBouncer, partitioning, cursor pagination, caching); **no load/query-plan validation** — would move on runtime. (unchanged) |
+| **Reliability** | **65** | **High cap** | Critical cap lifted — `AUD-OPS-01/02/03` fixed. Now capped by `AUD-SEAM-04` (unresolved High: roll-forward-only migrations, no automated recovery from a non-idempotent cutover). |
+| **Scalability** | **85** | *removed* | `AUD-DB-05` is **proven**, not just designed-sound — cap lifted, matches the original report's own stated target. |
+| **Testing** | **76** | *removed* | High cap lifted — `AUD-FE-01` E2E landed, integration-db ran repeatedly. Remaining drag: `AUD-FE-03` (Med, no accessibility automation) + still no load/chaos/mutation testing. |
+| Documentation | 88 | no | ADRs, RUNBOOK, CLAUDE.md, HEALTH_STATUS extensive and accurate. (unchanged) |
+| **Compliance-readiness** | **74** | no | Critical/High drag (`AUD-OPS-02/03` backups) resolved. Remaining drag: `AUD-CMP-01` (Med — audit-on-read still best-effort; a PHI read still returns 200 if the durable fallback sink itself also fails) + `AUD-CMP-03` (Med — consent gate service-layer only). |
 
-**System risk is concentrated, not diffuse:** 9 of 10 dimensions are 58–88; the outlier (Reliability 34) is a cluster of trivially-fixable ops-plumbing defects, not architectural rot.
+**System risk is now diffuse, not concentrated:** every dimension sits at 65–88; no dimension is
+severity-capped by an unresolved Critical, and only Reliability is High-capped (by `AUD-SEAM-04`,
+itself a "no automated recovery path" design gap rather than a live defect).
 
 ---
 
@@ -69,14 +84,24 @@ Debt is **low in the application core** and **concentrated at the deployment bou
 
 ## 4. Critical Findings (4)
 
+> **Status update — 2026-07-02: all 4 FIXED.** See §18. `AUD-OPS-01/02/03` landed in `c1941f1`
+> (healthcheck route, backup script bind-mount, `postgresql16-client`), validated via
+> `docker compose ... config -q` + typecheck/build — the one thing still genuinely NOT-EXECUTED is
+> an actual `docker compose up` smoke-test, since Docker has not been available on this host across
+> any session this week (config-level validation is not the same claim as a live boot). `AUD-DB-05`
+> is no longer "consistent-with-fine on inspection" — it is **PROVEN**: a real-Postgres integration
+> test (local PG18, not Docker/postgres:16) forces `DB_POOL_MAX=1`, confirms the same physical
+> connection is reused via `pg_backend_pid()`, and proves zero cross-tenant leak including the
+> mid-transaction-rollback path.
+
 | ID | Finding | Status | Fix effort |
 |---|---|---|---|
-| **AUD-OPS-01** | api/worker healthcheck probes non-existent `/api/health` (real: `/api/healthz`) → nothing downstream starts; **stack won't deploy**. Confirmed by route grep + mount-chain trace. | Confirmed (static); runtime NOT-EXECUTED | 5 min (P0) |
-| **AUD-OPS-02** | Backup container runs `scripts/backup-verify.mjs` but `scripts/` is excluded from the image (`.dockerignore:37` + no `COPY`) → module-not-found → **backups never run**. | Confirmed (static) | 15 min (P0) |
-| **AUD-OPS-03** | Backup container lacks `postgresql-client` → `pg_dump`/`psql` absent → **cannot dump or restore** even if OPS-02 is fixed. | Confirmed (static) | incl. above (P0) |
-| **AUD-DB-05** / SEAM-03 | Cross-tenant isolation under PgBouncer pooling: code-level (a)–(d) all verified; end-to-end connection-reuse probe **not run** (no Docker). Reported "consistent-with-fine on inspection, **not proven**." | Needs runtime | 30 min to run integration-db under Docker |
+| **AUD-OPS-01** | api/worker healthcheck probes non-existent `/api/health` (real: `/api/healthz`) → nothing downstream starts; **stack won't deploy**. Confirmed by route grep + mount-chain trace. | **FIXED** (`c1941f1`); `docker compose up` live smoke-test still NOT-EXECUTED (no Docker on this host) | 5 min (P0) |
+| **AUD-OPS-02** | Backup container runs `scripts/backup-verify.mjs` but `scripts/` is excluded from the image (`.dockerignore:37` + no `COPY`) → module-not-found → **backups never run**. | **FIXED** (`c1941f1`) | 15 min (P0) |
+| **AUD-OPS-03** | Backup container lacks `postgresql-client` → `pg_dump`/`psql` absent → **cannot dump or restore** even if OPS-02 is fixed. | **FIXED** (`c1941f1`) | incl. above (P0) |
+| **AUD-DB-05** / SEAM-03 | Cross-tenant isolation under PgBouncer pooling: code-level (a)–(d) all verified; end-to-end connection-reuse probe **not run** (no Docker). Reported "consistent-with-fine on inspection, **not proven**." | **PROVEN** (`c1941f1`) — real-Postgres forced-reuse test, not a mock | 30 min to run integration-db under Docker |
 
-OPS-02 + OPS-03 must ship together (a fixed script still fails at the dump step without the client). Exact diffs in `appendix/devops-infra-dr.md`.
+OPS-02 + OPS-03 shipped together (a fixed script still fails at the dump step without the client). Exact diffs in `appendix/devops-infra-dr.md`.
 
 ---
 
@@ -88,7 +113,7 @@ OPS-02 + OPS-03 must ship together (a fixed script still fails at the dump step 
 | **AUD-SEAM-04** | Roll-forward-only migrations; the 0021 partition cutover is non-idempotent on partial apply → manual cleanup/restore. | Mitigated: the ephemeral `migrate` container blocks api/worker start on failure (now documented — RUNBOOK §10.4, applied this run). |
 | **AUD-OPS-04** | ~~Worker exposes no `/metrics` on `:5001`~~ **FIXED 2026-07-02 — see §18.** | Real `/healthz`+`/metrics` listener added to the worker + compose healthcheck. |
 | **AUD-OPS-05** | ~~Blackbox TLS probe target is a placeholder~~ **FIXED 2026-07-02 — see §18.** | New `scripts/preflight-prod.mjs` go-live gate + RUNBOOK §10.5. |
-| **AUD-FE-01** | No E2E tests (no Playwright/Cypress). Unit coverage is strong but a UI-flow regression (broken render, wrong button) passes CI. | Add Playwright + MSW layer. **Still open** — deferred, greenfield frontend infra. |
+| **AUD-FE-01** | ~~No E2E tests (no Playwright/Cypress)~~ **FIXED 2026-07-02 (`e31dd39`).** | Playwright + MSW harness + 3 specs (login/appointment/billing), advisory (non-blocking) CI job. **All 5 audit Highs now closed.** |
 
 ---
 
@@ -107,7 +132,7 @@ OPS-02 + OPS-03 must ship together (a fixed script still fails at the dump step 
 | AUD-FE-03 | No accessibility automation (axe/jest-axe/Lighthouse). |
 | AUD-OPS-06 | Observability + base images are tag-only (no `@sha256`); datastore/edge images are digest-pinned. No container-image scan wired. |
 | AUD-OPS-07 | Backup/migrate `apk add` at container start → alpine-mirror/air-gapped outage breaks DR at the worst time. |
-| AUD-OPS-08 | Healthchecks assume `wget` exists in the minimal runtime image (busybox, undocumented). Compounds OPS-01. |
+| AUD-OPS-08 | ~~Healthchecks assume `wget` exists in the minimal runtime image~~ **FIXED 2026-07-02 (`c1941f1`)** — folded into the OPS-01 healthcheck fix; api/worker probes now use Node's global `fetch`, no external binary. |
 | AUD-OPS-09 | `backend` network `internal: false` → PHI-tier containers have open egress. Documented trade-off (Resend/HIBP). |
 | AUD-SEAM-05 | ~~Outbox drain is insert-then-delete across two non-transactional statements~~ **FIXED & proven 2026-07-02 — see §18.** |
 | AUD-SEAM-06a | Backup captures the DB dump and the imaging tar sequentially against a live volume → point-in-time skew / dangling references on restore. |
@@ -145,7 +170,30 @@ Actively validated, not assumed:
 
 ## 10. Findings Requiring Runtime Validation (Docker/DB needed)
 
-`AUD-DB-05`/SEAM-03 (two-tenant pooled-connection isolation) · `AUD-OPS-01/02/03` (deploy under Docker — static evidence is Strong; runtime would merely demonstrate the certain failure) · `AUD-OPS-04` (`up{worker}` + which metric series carry the worker job) · `AUD-OPS-05` (`probe_ssl_earliest_cert_expiry` for the real edge) · `AUD-SEAM-01` (outbox-insert fault → read still 200) · `AUD-SEAM-05` (crash-loop → duplicate audit rows) · `AUD-CMP-03` (raw-insert-without-consent DB rejection) · `AUD-CMP-07` (bare cross-tenant SELECT as `medicore_app` returns foreign rows) · **the entire integration-db suite (≈54–120 real-Postgres tests) did not execute this run.**
+**As of 2026-07-01 (original):** `AUD-DB-05`/SEAM-03 · `AUD-OPS-01/02/03` · `AUD-OPS-04` · `AUD-OPS-05` ·
+`AUD-SEAM-01` · `AUD-SEAM-05` · `AUD-CMP-03` · `AUD-CMP-07` · the entire integration-db suite did not
+execute.
+
+**Updated 2026-07-02 — resolved by real (non-Docker) runtime proof:**
+- `AUD-DB-05`/SEAM-03 — **PROVEN**, forced-connection-reuse test against local PG18.
+- `AUD-OPS-04` — **PROVEN live**: the worker was actually started and its `/healthz` (200) +
+  `/metrics` (200, new gauges present) + an unknown path (404) were curled directly.
+- `AUD-SEAM-05` — **PROVEN**, forced-failure (`REVOKE DELETE`) test against real Postgres.
+- Integration-db suite — **DID run**, repeatedly (127 tests in the final pass), on **local
+  PostgreSQL 18 via `INTEGRATION_PG_ADMIN_URL`** — not Docker, not the CI's `postgres:16-alpine`.
+  This is strong corroborating evidence, not a byte-identical substitute for the CI path.
+
+**Still genuinely NOT-EXECUTED:**
+- `AUD-OPS-01/02/03` — a live `docker compose -f docker-compose.prod.yml up` smoke-test (Docker has
+  not been available on this host in any session). Config-level validation (`compose config -q`)
+  and unit/build coverage are not the same claim as a boot.
+- `AUD-OPS-05` — the preflight guard + RUNBOOK step are done and tested both ways, but there is no
+  real production domain here to point the blackbox probe at, so `probe_ssl_earliest_cert_expiry`
+  for a live edge has never actually been queried.
+- `AUD-SEAM-01` — the durable-fallback *mechanism* is unit-proven, but the specific live scenario
+  ("outbox-insert fault while a PHI op is mid-flight → does the read still return 200") was not
+  separately re-run against a real fault injection.
+- `AUD-CMP-03`, `AUD-CMP-07` — untouched since the original audit.
 
 ---
 
@@ -159,20 +207,46 @@ Actively validated, not assumed:
 
 ## 12. Recommended Roadmap
 
+> **Status update — 2026-07-02:** the "Immediate" and "Short-term" tiers below are **complete**
+> except the one item Docker-unavailability still blocks (the live `docker compose up` smoke-test).
+> `AUD-FE-01` (originally Medium-term) is also done. See §18. Remaining open items are relisted under
+> **§12a Current remaining roadmap** below the original tiers, which are left as the point-in-time
+> record.
+
 **Immediate (0–7 days) — unblock deployment**
-1. Fix `AUD-OPS-01` (healthcheck → `/api/healthz`), `AUD-OPS-02` (bind-mount `backup-verify.mjs`), `AUD-OPS-03` (`apk add postgresql16-client`, drop the `|| true`). Then `docker compose -f docker-compose.prod.yml up` smoke-test on staging.
-2. Run the **integration-db suite under Docker** to close `AUD-DB-05` (two-tenant connection-reuse probe) and re-confirm RLS/append-only/CAS end-to-end.
-3. Add a `compose-validate` CI job (`AUD-OPS-11`) so these three P0s can never recur.
-4. Commit the five kept remediations (§17) with review.
+1. ~~Fix `AUD-OPS-01`~~ ✅ · ~~`AUD-OPS-02`~~ ✅ · ~~`AUD-OPS-03`~~ ✅ (`c1941f1`). `docker compose -f docker-compose.prod.yml up` smoke-test on staging — still pending (needs a Docker host).
+2. ~~Run the integration-db suite~~ ✅ — ran repeatedly on local PG18 (not Docker); `AUD-DB-05` proven.
+3. ~~Add a `compose-validate` CI job (`AUD-OPS-11`)~~ ✅ (`c1941f1`).
+4. ~~Commit the five kept remediations (§17)~~ ✅ (`a59f118`).
 
 **Short-term (30 days) — close alerting & audit-durability gaps**
-`AUD-OPS-04` worker `/metrics` · `AUD-OPS-05` blackbox TLS go-live guard + external cert monitor · `AUD-SEAM-01` durable local fallback for outbox-write failures · `AUD-SEAM-05` wrap outbox drain in a transaction / add a dedup key · `AUD-COMP-01` read-audit on nurse/pharmacist dashboards · `AUD-CMP-03` consent DB backstop · `AUD-SEC-07` fingerprint-lever gauge + alert.
+~~`AUD-OPS-04` worker `/metrics`~~ ✅ · ~~`AUD-OPS-05` blackbox TLS go-live guard~~ ✅ (external cert
+monitor is an operator action, not code — still a recommendation) · ~~`AUD-SEAM-01` durable local
+fallback~~ ✅ · ~~`AUD-SEAM-05` transaction wrap~~ ✅ (all `b4478cd`) · `AUD-COMP-01` read-audit on
+nurse/pharmacist dashboards — **open** · `AUD-CMP-03` consent DB backstop — **open** · `AUD-SEC-07`
+fingerprint-lever gauge + alert — **open**.
 
 **Medium-term (90 days) — breadth & compliance depth**
-E2E layer (Playwright + MSW) closing `AUD-FE-01`; accessibility automation (`AUD-FE-03`); frontend coverage threshold (`AUD-FE-02`); encrypt Arabic clinical fields (`AUD-CMP-02`); digest-pin all images + Trivy scan (`AUD-OPS-06`); bake ops tooling into an image stage (`AUD-OPS-07`); first load/query-plan test (Performance).
+~~E2E layer (Playwright + MSW) closing `AUD-FE-01`~~ ✅ (`e31dd39`). Still open: accessibility
+automation (`AUD-FE-03`); frontend coverage threshold (`AUD-FE-02`); encrypt Arabic clinical fields
+(`AUD-CMP-02`); digest-pin all images + Trivy scan (`AUD-OPS-06`); bake ops tooling into an image
+stage (`AUD-OPS-07`); first load/query-plan test (Performance).
 
 **Long-term (6–12 months)**
 Warm-standby/HA; lock down `backend` egress (`AUD-OPS-09`); KMS for the field-encryption DEK (currently a stub); automated weekly restore drill (`AUD-OPS-12`); chaos + mutation testing.
+
+### 12a. Current remaining roadmap (2026-07-02)
+
+With all 4 Criticals and all 5 Highs closed, what's actually left:
+1. **`AUD-COMP-01`, `AUD-CMP-03`, `AUD-SEC-07`** — the 3 Mediums explicitly named in the original
+   Short-term tier, never separately sprinted.
+2. **`AUD-FE-03`, `AUD-FE-02`, `AUD-CMP-02`, `AUD-OPS-06`, `AUD-OPS-07`** — Medium-term breadth items.
+3. **The one hard external dependency:** a live `docker compose up` on a real Docker host — closes
+   the last runtime caveat on `AUD-OPS-01/02/03` and lets the full CI-path integration-db suite
+   (postgres:16-alpine, not local PG18) run for the first time.
+4. **`AUD-SEAM-06a`/`06b` disputed backup-coverage item** (§11) — needs a runtime read of the backup
+   entrypoint, not code.
+5. Long-term tier, unchanged.
 
 ---
 
@@ -185,7 +259,7 @@ Warm-standby/HA; lock down `backend` egress (`AUD-OPS-09`); KMS for the field-en
 ## 14. Method Integrity (Red Team + anti-consensus)
 
 - **ADR re-validation (anti-laundering):** ADR-005 (audit retention), ADR-007 (jti latent, privileged-only), ADR-008 (RLS dormant + `medicore_app`), ADR-010 (revocation bounded fail-open) — **all four still match the code and their premises still hold.** No guardrail has drifted or gone stale.
-- **Consensus-strength annotations:** `AUD-DB-05`+`AUD-SEAM-03` (pooling proof) and `AUD-OPS-01`+`AUD-SEAM-04` (no-down-migration) were independent discoveries from different angles → counted **once** in scoring, not double-weighted. The `AUD-COMP-01`↔`AUD-API-08` overlap was flagged as *weak/false* corroboration.
+- **Consensus-strength annotations:** `AUD-DB-05`+`AUD-SEAM-03` (pooling proof — **both now closed, see §4**) and `AUD-OPS-01`+`AUD-SEAM-04` (no-down-migration) were independent discoveries from different angles → counted **once** in scoring, not double-weighted. The `AUD-COMP-01`↔`AUD-API-08` overlap was flagged as *weak/false* corroboration.
 - **Divergence worked:** the `AUD-FE-04` false positive was caught precisely because two agents disagreed and it was resolved by reading the file, not by majority.
 - **Empirical tie-break:** the two Red Team passes disagreed on whether pino `*.email` matches a top-level `email` key; it was settled by running pino directly (it does **not**), which is what surfaced the live PII-in-logs leak later fixed in §17.
 
@@ -193,11 +267,33 @@ Warm-standby/HA; lock down `backend` egress (`AUD-OPS-09`); KMS for the field-en
 
 ## 15. Overall Production-Readiness Assessment
 
-**Verdict: NOT ready to deploy today; ~1 focused day from a defensible pilot posture.**
+**Original verdict (2026-07-01): NOT ready to deploy today; ~1 focused day from a defensible pilot posture.**
 
 The application *runs* — its security, privacy, and data-integrity engineering is genuinely strong and, where statically checkable, verified. What is not ready is the **deployment artifact**: the production compose stack has never been started, and three committed defects guarantee it would fail at `up`, with backups silently never running. These are ops-plumbing bugs, not design flaws, and every one is trivial-to-low effort. The remaining consequential unknown — cross-tenant isolation under connection pooling (`AUD-DB-05`) — is *code-correct on inspection* and needs one Docker run to convert "consistent-with-fine" into "proven."
 
 Ship sequence: fix the three P0s → `compose up` on staging → run integration-db under Docker → close `AUD-DB-05` → then a HIPAA pilot is reasonable. **Do not go live while `docker compose up` fails.**
+
+---
+
+> ### Updated verdict — 2026-07-02
+>
+> **All 4 Criticals and all 5 Highs are fixed and committed** (`a59f118` through `e31dd39`; see §18
+> and the per-section status updates above). `AUD-DB-05` moved from "consistent-with-fine on
+> inspection" to **proven** via a forced-connection-reuse test on real Postgres. The three deploy
+> defects are patched, config-validated, and CI-gated against recurrence (`compose-validate`).
+>
+> **What is genuinely still missing before "ready to deploy" can be said without qualification:**
+> a live `docker compose -f docker-compose.prod.yml up` on an actual Docker host has never run in
+> any session — every proof this week substitutes a local, non-Docker equivalent (PostgreSQL 18
+> directly, or a running worker process outside Compose). That substitution is strong evidence, not
+> a byte-identical guarantee of the containerized boot sequence, image layering, secret-mount paths,
+> or network policy actually working together. **Recommended before a real go-live:** one supervised
+> `docker compose up` on staging, watching all healthchecks reach `healthy` and a backup cycle
+> actually produce a file — a short, mechanical step now that every defect it would have caught is
+> already fixed, but not one that can be marked done from static/local evidence alone.
+>
+> Remaining open findings are Medium/Low severity (§6/§7, roadmap §12a) — none block a staging
+> `compose up` attempt.
 
 ---
 

@@ -14,8 +14,8 @@ router.use(requireAuth);
 router.use("/xray", requireRole("super_admin", "admin", "doctor", "nurse", "xray_staff"));
 
 router.get("/xray", asyncHandler(async (req: AuthRequest, res) => {
-  const { status, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
-  const result = await listXrays(req, { status, patientId, limit, cursor });
+  const { status, clearanceStatus, patientId, limit, cursor } = req.query as Record<string, string | undefined>;
+  const result = await listXrays(req, { status, clearanceStatus, patientId, limit, cursor });
   res.json(result.data);
 }));
 

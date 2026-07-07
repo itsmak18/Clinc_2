@@ -7,6 +7,7 @@ import { eq, and, sql, desc } from "drizzle-orm";
 import { logAudit, logRead } from "../../lib/audit";
 import { parseMoneyToCents, formatCents, centsToNumber } from "../../lib/money";
 import { NotFoundError, ValidationError, ConflictError } from "../../services/errors";
+import { settleInvoiceOrders, lockBasket, type SettleCounts } from "./clearance.service";
 import type { AuthRequest } from "../../middlewares/auth";
 
 // `db` is referenced only to keep the dbUnsafe import meaningful for the CI guard;
@@ -89,11 +90,23 @@ export async function recordPayment(
   }
 
   const result = await runInTenantContext(req.user!, async (tx) => {
-    const [invoice] = await tx
+    let [invoice] = await tx
       .select()
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)));
     if (!invoice) throw new NotFoundError("invoice", invoiceId);
+
+    if (invoice.kind === "order_basket") {
+      // Serialize against appendOrderCharge and re-read: the total this
+      // payment settles against must be the total whose orders get cleared
+      // (mirrors payInvoice; without the lock a concurrently appended charge
+      // could be cleared by a ledger that never covered it).
+      await lockBasket(tx, clinicId, invoice.patientId);
+      [invoice] = await tx
+        .select()
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)));
+    }
     if (invoice.status === "cancelled") {
       throw new ConflictError("Cannot record a payment against a cancelled invoice.");
     }
@@ -132,14 +145,23 @@ export async function recordPayment(
     // Derive invoice status from the ledger. total>0 guard: a zero-total invoice
     // is never auto-marked paid by an (impossible) zero payment.
     let newStatus = invoice.status;
+    let settled: SettleCounts | null = null;
     if (paidAfter >= totalCents && totalCents > 0 && invoice.status !== "paid") {
       newStatus = "paid";
       await tx
         .update(invoicesTable)
         .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
         .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)));
+      // Clearance gate: a fully settled ledger clears the linked orders in the
+      // same tx (mirrors payInvoice). Partial payments never clear. Only
+      // baskets carry linked orders — manual invoices skip the settle scan.
+      if (invoice.kind === "order_basket") {
+        settled = await settleInvoiceOrders(tx, clinicId, invoiceId);
+      }
     } else if (paidAfter < totalCents && invoice.status === "paid") {
       // A refund dropped a previously-paid invoice back below its total.
+      // Deliberately does NOT revoke clearance on linked orders — the service
+      // may already be underway; disputes go through the cancel workflow.
       newStatus = "pending";
       await tx
         .update(invoicesTable)
@@ -147,7 +169,7 @@ export async function recordPayment(
         .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)));
     }
 
-    return { payment, paidAfter, totalCents, newStatus };
+    return { payment, paidAfter, totalCents, newStatus, settled };
   });
 
   await logAudit(req, "PAYMENT_RECORDED", "invoice", invoiceId, {
@@ -157,6 +179,9 @@ export async function recordPayment(
     balance: formatCents(result.totalCents - result.paidAfter),
     status: result.newStatus,
   });
+  if (result.settled && result.settled.total > 0) {
+    await logAudit(req, "CLEARANCE_CLEARED", "invoice", invoiceId, { counts: result.settled });
+  }
 
   return {
     id: result.payment.id,

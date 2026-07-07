@@ -7,13 +7,15 @@ import DataTable from "@/components/DataTable";
 import SearchSelect from "@/components/SearchSelect";
 import PatientSearchSelect from "@/components/PatientSearchSelect";
 import StatusBadge from "@/components/StatusBadge";
+import OverrideClearanceDialog from "@/components/OverrideClearanceDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
-import { Plus, DollarSign, Trash2, Printer, Receipt } from "lucide-react";
+import { canOverrideClearance, canPayInvoiceKind } from "@/lib/clearance";
+import { Plus, DollarSign, Trash2, Printer, Receipt, ShieldAlert } from "lucide-react";
 import { openPrintWindow, invoiceHtml } from "@/lib/print";
 import { usePrintLang } from "@/hooks/printLang";
 
@@ -28,7 +30,16 @@ export default function Billing() {
   // Recording payments is billing_manager/admin/super_admin (SoD) — front_desk can
   // view the ledger but not record; the API enforces this regardless.
   const canRecordPayment = !!user && ["super_admin", "admin", "billing_manager"].includes(user.role);
+  // Emergency clearance override — clinical roles + admin (API-enforced too).
+  const canOverride = canOverrideClearance(user?.role);
+  // Pay Now: billing roles settle everything; front_desk settles ORDER BASKETS
+  // only (marks lab/imaging orders paid → departments may process). API-enforced.
+  const canPayInvoice = (inv: { kind?: string }) =>
+    !!user &&
+    ["super_admin", "admin", "billing_manager", "front_desk"].includes(user.role) &&
+    canPayInvoiceKind(user.role, inv.kind);
   const [showCreate, setShowCreate] = useState(false);
+  const [overrideInvoiceId, setOverrideInvoiceId] = useState<number | null>(null);
   const [showPay, setShowPay] = useState<number | null>(null);
   const [showLedger, setShowLedger] = useState<number | null>(null);
   const [payAmount, setPayAmount] = useState("");
@@ -186,7 +197,12 @@ export default function Billing() {
           })}
           emptyMessage={t("noInvoices")}
           columns={[
-            { key: "num",     header: t("invoiceNumber"), render: inv => <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{inv.invoiceNumber}</span> },
+            { key: "num",     header: t("invoiceNumber"), render: inv => (
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{inv.invoiceNumber}</span>
+                {(inv as any).kind === "order_basket" && <span className="badge badge-teal text-[10px]">{t("orderBasket")}</span>}
+              </div>
+            ) },
             { key: "patient", header: t("patient"),       render: inv => <span className="font-medium text-[13px] text-[var(--ink)]">{inv.patient?.fullName || `#${inv.patientId}`}</span> },
             { key: "total",   header: t("total"),         render: inv => <span className="font-semibold text-[13px] text-[var(--ink)]">${formatCurrency(Number(inv.total))}</span> },
             { key: "status",  header: t("status"),        render: inv => <StatusBadge status={inv.status} /> },
@@ -196,13 +212,23 @@ export default function Billing() {
               header: t("actions"),
               render: inv => (
                 <div className="flex items-center gap-1.5">
-                  {inv.status === "pending" && (
+                  {inv.status === "pending" && canPayInvoice(inv as any) && (
                     <button
                       className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1 text-[var(--teal-700)]"
                       onClick={e => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }}
                       data-testid={`button-pay-${inv.id}`}
                     >
                       <DollarSign className="w-3 h-3" />{t("payNow")}
+                    </button>
+                  )}
+                  {inv.status === "pending" && (inv as any).kind === "order_basket" && canOverride && (
+                    <button
+                      className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--amber-700)]"
+                      onClick={e => { e.stopPropagation(); setOverrideInvoiceId(inv.id); }}
+                      title={t("emergencyOverride")}
+                      data-testid={`button-override-${inv.id}`}
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {inv.status !== "cancelled" && (
@@ -229,6 +255,12 @@ export default function Billing() {
           ]}
         />
       </div>
+
+      <OverrideClearanceDialog
+        invoiceId={overrideInvoiceId}
+        onOpenChange={o => { if (!o) setOverrideInvoiceId(null); }}
+        onDone={() => queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() })}
+      />
 
       {/* Create Invoice */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

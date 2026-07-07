@@ -2,10 +2,31 @@
 // db calls carry explicit eq(clinicId) filters (belt-and-braces).
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
 import { servicesCatalogTable } from "@workspace/db";
-import { eq, isNull, and, lt, desc } from "drizzle-orm";
+import { eq, ne, isNull, and, lt, desc } from "drizzle-orm";
 import { logAudit, auditSnapshot } from "../../lib/audit";
 import { NotFoundError, ValidationError } from "../../services/errors";
 import type { AuthRequest } from "../../middlewares/auth";
+import type { TenantTx } from "./invoice-number";
+
+/**
+ * Look a catalog service up by its stable code (LAB_DEFAULT, XRAY_DEFAULT,
+ * US_DEFAULT, …) — the charge auto-generation path of the clearance gate.
+ * Runs on the caller's transaction. Returns null when the clinic has no
+ * active row for the code (the charge falls back to a zero-price line).
+ */
+export async function getServiceByCode(tx: TenantTx, clinicId: number, code: string) {
+  const [row] = await tx
+    .select()
+    .from(servicesCatalogTable)
+    .where(and(
+      eq(servicesCatalogTable.clinicId, clinicId),
+      eq(servicesCatalogTable.code, code),
+      eq(servicesCatalogTable.active, true),
+      isNull(servicesCatalogTable.deletedAt),
+    ))
+    .limit(1);
+  return row ?? null;
+}
 
 export async function listServices(req: AuthRequest, params: { category?: string; includeInactive?: boolean; cursor?: string; limit?: string }) {
   return runInTenantContext(req.user!, async (tx) => {
@@ -23,6 +44,26 @@ export async function listServices(req: AuthRequest, params: { category?: string
   });
 }
 
+/**
+ * Codes are UNIQUE per clinic among non-deleted rows (partial index
+ * services_catalog_clinic_code_idx) — a duplicate live code would make the
+ * clearance auto-charge price nondeterministic. This pre-check turns the
+ * 23505 into a friendly 400.
+ */
+async function assertCodeAvailable(tx: TenantTx, clinicId: number, code: string, excludeId?: number) {
+  const conditions = [
+    eq(servicesCatalogTable.clinicId, clinicId),
+    eq(servicesCatalogTable.code, code),
+    isNull(servicesCatalogTable.deletedAt),
+  ];
+  if (excludeId !== undefined) conditions.push(ne(servicesCatalogTable.id, excludeId));
+  const [dup] = await tx.select({ id: servicesCatalogTable.id }).from(servicesCatalogTable)
+    .where(and(...conditions)).limit(1);
+  if (dup) {
+    throw new ValidationError(`A service with code "${code}" already exists — delete it first or pick another code.`);
+  }
+}
+
 export async function createService(
   req: AuthRequest,
   data: { name: string; nameAr?: string; defaultPrice: number; category?: string; code?: string; description?: string },
@@ -33,6 +74,7 @@ export async function createService(
   if (Number(data.defaultPrice) < 0) throw new ValidationError("Price cannot be negative");
 
   return runInTenantContext(req.user!, async (tx) => {
+    if (data.code) await assertCodeAvailable(tx, req.user!.clinicId, data.code);
     const [row] = await tx.insert(servicesCatalogTable).values({
       clinicId: req.user!.clinicId,
       name: data.name,
@@ -54,6 +96,9 @@ export async function updateService(req: AuthRequest, id: number, data: Record<s
     if (!before) throw new NotFoundError("service", id);
     const patch: Record<string, any> = { ...data, updatedAt: new Date() };
     if (patch.defaultPrice !== undefined) patch.defaultPrice = String(patch.defaultPrice);
+    if (patch.code != null && patch.code !== before.code) {
+      await assertCodeAvailable(tx, req.user!.clinicId, patch.code, id);
+    }
     const [row] = await tx.update(servicesCatalogTable).set(patch).where(and(...conditions)).returning();
     const fields = Object.keys(data).filter(k => k !== "updatedAt");
     await logAudit(req, "UPDATE", "service_catalog", row.id, { fields }, auditSnapshot(before), auditSnapshot(row));
@@ -105,10 +150,13 @@ const DEFAULT_SERVICES: { name: string; nameAr: string; category: string; code?:
 
 export async function seedDefaultServices(req: AuthRequest) {
   return runInTenantContext(req.user!, async (tx) => {
-    const existing = await tx.select({ name: servicesCatalogTable.name }).from(servicesCatalogTable)
+    const existing = await tx.select({ name: servicesCatalogTable.name, code: servicesCatalogTable.code }).from(servicesCatalogTable)
       .where(and(eq(servicesCatalogTable.clinicId, req.user!.clinicId), isNull(servicesCatalogTable.deletedAt)));
     const have = new Set(existing.map(e => e.name.trim().toLowerCase()));
-    const toInsert = DEFAULT_SERVICES.filter(d => !have.has(d.name.toLowerCase()));
+    // A renamed default row still holds its code — skip by code too, or the
+    // re-seed would trip the unique (clinic_id, code) index.
+    const haveCodes = new Set(existing.map(e => e.code).filter((c): c is string => c != null));
+    const toInsert = DEFAULT_SERVICES.filter(d => !have.has(d.name.toLowerCase()) && !(d.code && haveCodes.has(d.code)));
     if (toInsert.length) {
       await tx.insert(servicesCatalogTable).values(toInsert.map(d => ({
         clinicId: req.user!.clinicId,

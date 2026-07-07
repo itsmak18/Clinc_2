@@ -2,23 +2,25 @@
 // remaining raw db calls have explicit eq(clinicId) filters (belt-and-braces). Using
 // dbUnsafe acknowledges the intentional bypass for those specific call sites.
 import { dbUnsafe as db, runInTenantContext } from "@workspace/db";
-import { labTestsTable, patientsTable, usersTable, notificationsTable } from "@workspace/db";
+import { labTestsTable, patientsTable, usersTable, notificationsTable, invoiceItemsTable } from "@workspace/db";
 import { eq, isNull, desc, lt, and, inArray } from "drizzle-orm";
 import { logAudit, logRead } from "../../lib/audit";
 import { emitToUser } from "../../lib/sse";
 import { isDoctorScoped, getDoctorPatientScope, getDoctorListScope } from "../../lib/scope";
 import { getActiveBreakGlassPatientIds } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
-import { NotFoundError, ForbiddenError, ValidationError } from "../../services/errors";
+import { NotFoundError, ForbiddenError, ValidationError, ClearanceRequiredError } from "../../services/errors";
 import { autoAdvanceVisit } from "./appointments.service";
+import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress } from "../billing";
 import type { AuthRequest } from "../../middlewares/auth";
 
 export async function listLabTests(
   req: AuthRequest,
-  params: { status?: string; patientId?: string; limit?: string; cursor?: string },
+  params: { status?: string; clearanceStatus?: string; patientId?: string; limit?: string; cursor?: string },
 ) {
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(labTestsTable.deletedAt), eq(labTestsTable.clinicId, req.user!.clinicId)];
+  if (params.clearanceStatus) conditions.push(eq(labTestsTable.clearanceStatus, params.clearanceStatus as any));
 
   let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
@@ -49,6 +51,11 @@ export async function listLabTests(
       results: labTestsTable.results,
       resultsAr: labTestsTable.resultsAr,
       status: labTestsTable.status,
+      clearanceStatus: labTestsTable.clearanceStatus,
+      invoiceItemId: labTestsTable.invoiceItemId,
+      // Basket invoice backing the auto-charge — lets the UI open the emergency
+      // override / payment flow straight from the order row (ADR-011).
+      invoiceId: invoiceItemsTable.invoiceId,
       notes: labTestsTable.notes,
       notesAr: labTestsTable.notesAr,
       orderGroupId: labTestsTable.orderGroupId,
@@ -58,6 +65,7 @@ export async function listLabTests(
     }).from(labTestsTable)
       .leftJoin(patientsTable, eq(labTestsTable.patientId, patientsTable.id))
       .leftJoin(usersTable, eq(labTestsTable.requestedById, usersTable.id))
+      .leftJoin(invoiceItemsTable, eq(labTestsTable.invoiceItemId, invoiceItemsTable.id))
       .where(and(...conditions))
       .orderBy(desc(labTestsTable.id))
       .limit(lim),
@@ -76,15 +84,43 @@ export async function createLabTest(
   if (!data.patientId || !data.requestedById || !data.testName) {
     throw new ValidationError("Missing required fields");
   }
-  const [test] = await db.insert(labTestsTable).values({
+  const values = {
     clinicId: req.user!.clinicId,
     patientId: Number(data.patientId), requestedById: Number(data.requestedById), testName: data.testName,
     testNameAr: data.testNameAr,
     notes: data.notes, notesAr: data.notesAr,
     appointmentId: data.appointmentId != null ? Number(data.appointmentId) : null,
     orderGroupId: data.orderGroupId || null,
-  }).returning();
+  };
+
+  let test;
+  let charge: { invoiceId: number; invoiceItemId: number } | null = null;
+  if (isClearanceGateEnabled()) {
+    // Clearance gate (ADR-011): order + basket charge line are created in ONE
+    // tx — an order awaiting payment can never exist without its charge.
+    ({ test, charge } = await runInTenantContext(req.user!, async (tx) => {
+      const [row] = await tx.insert(labTestsTable)
+        .values({ ...values, clearanceStatus: "pending" as const })
+        .returning();
+      const c = await appendOrderCharge(tx, req.user!, {
+        patientId: row.patientId,
+        modality: "lab",
+        description: `Lab: ${row.testName}`,
+      });
+      const [linked] = await tx.update(labTestsTable)
+        .set({ invoiceItemId: c.invoiceItemId })
+        .where(and(eq(labTestsTable.id, row.id), eq(labTestsTable.clinicId, req.user!.clinicId)))
+        .returning();
+      return { test: linked, charge: c };
+    }));
+  } else {
+    [test] = await db.insert(labTestsTable).values(values).returning();
+  }
+
   await logAudit(req, "CREATE", "lab_test", test.id);
+  if (charge) {
+    await logAudit(req, "CHARGE_AUTO_CREATED", "lab_test", test.id, charge);
+  }
   // Ordering a study from a consultation auto-advances the visit to
   // awaiting_diagnostics (best-effort, no-ops if the visit isn't in_consultation).
   await autoAdvanceVisit(req, { patientId: Number(data.patientId), appointmentId: test.appointmentId, actions: ["diagnostics"] });
@@ -125,11 +161,35 @@ export async function updateLabTest(
   data: { results?: string; resultsAr?: string; status?: string; performedById?: number; notes?: string; notesAr?: string },
 ) {
   const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
-  const [test] = await db.update(labTestsTable)
-    .set({ results: data.results, resultsAr: data.resultsAr, status: data.status as any, performedById: data.performedById, notes: data.notes, notesAr: data.notesAr, updatedAt: new Date() })
-    .where(and(...conditions))
-    .returning();
-  if (!test) throw new NotFoundError("lab test", testId);
+  const patch = { results: data.results, resultsAr: data.resultsAr, status: data.status as any, performedById: data.performedById, notes: data.notes, notesAr: data.notesAr, updatedAt: new Date() };
+
+  let test;
+  if (isClearanceGateEnabled()) {
+    // Clearance guard (ADR-011): the workflow may not progress while the order
+    // awaits payment. Cancel is always allowed and withdraws the basket charge.
+    test = await runInTenantContext(req.user!, async (tx) => {
+      const [before] = await tx.select().from(labTestsTable).where(and(...conditions));
+      if (!before) throw new NotFoundError("lab test", testId);
+      if (clearanceBlocksProgress(data.status, before.clearanceStatus)) {
+        throw new ClearanceRequiredError();
+      }
+      const txPatch: Record<string, unknown> = { ...patch };
+      if (data.status === "cancelled" && before.clearanceStatus === "pending") {
+        txPatch.clearanceStatus = "expired";
+        if (before.invoiceItemId != null) {
+          await removeOrderCharge(tx, req.user!.clinicId, before.invoiceItemId, "lab");
+        }
+      }
+      const [row] = await tx.update(labTestsTable).set(txPatch).where(and(...conditions)).returning();
+      return row;
+    });
+  } else {
+    [test] = await db.update(labTestsTable)
+      .set(patch)
+      .where(and(...conditions))
+      .returning();
+    if (!test) throw new NotFoundError("lab test", testId);
+  }
 
   if (data.status === "completed") {
     const notifData = {
