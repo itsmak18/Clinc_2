@@ -20,11 +20,11 @@
  * rollback — flipping the flag off must not orphan in-flight pending
  * baskets/orders.
  *
- * dbUnsafe: expirePendingClearances() is a system cron sweep that is
- * deliberately cross-tenant (the TTL rule is tenant-uniform, there is no
- * request context); every other function runs on the caller's
- * runInTenantContext transaction.
  */
+// dbUnsafe: expirePendingClearances() is a system cron sweep that is
+// deliberately cross-tenant (the TTL rule is tenant-uniform, there is no
+// request context); every other function runs on the caller's
+// runInTenantContext transaction.
 import { dbUnsafe as db } from "@workspace/db";
 import {
   invoicesTable,
