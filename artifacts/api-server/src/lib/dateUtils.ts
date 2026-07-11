@@ -1,7 +1,8 @@
 import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import type { AuthRequest } from "../middlewares/auth";
+import { config } from "./config";
 
-const DEFAULT_TZ = process.env.CLINIC_TZ ?? "Europe/Istanbul";
+const DEFAULT_TZ = config.clinicTz;
 
 /**
  * Resolve effective timezone for a request: per-clinic from JWT claim if

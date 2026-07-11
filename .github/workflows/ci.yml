@@ -12,7 +12,6 @@ concurrency:
 
 env:
   NODE_VERSION: "24"
-  PNPM_VERSION: "10"
 
 jobs:
   # ── 1. Typecheck ─────────────────────────────────────────────────────────────
@@ -23,8 +22,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -49,8 +46,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -62,6 +57,27 @@ jobs:
 
       - name: Run ESLint on routes
         run: pnpm --filter @workspace/api-server run lint
+
+      # Cross-module barrel guard for src/lib + src/middlewares (2026-07-02
+      # architecture audit, F4/F6). The `lint` script above only points ESLint at
+      # `src/routes src/modules src/services` — src/lib and src/middlewares are
+      # NOT covered by that invocation (confirmed while landing this guard: those
+      # two dirs currently fail 35 pre-existing no-restricted-properties checks
+      # under the full config, which is unrelated legacy debt out of scope here —
+      # widening the `lint` script would make this job fail on that debt instead
+      # of the thing this step actually checks). A parallel eslint.config.mjs rule
+      # (4b) exists for when src/lib IS eventually linted; this grep is the real
+      # enforcement until then. Caught live: lib/scope.ts imported
+      # `../modules/compliance/break-glass.service` directly instead of the
+      # `../modules/compliance` barrel.
+      - name: Block deep cross-module .service imports in src/lib + src/middlewares
+        run: |
+          if grep -rnE 'from "\.\./modules/[a-zA-Z_-]+/[a-zA-Z_.-]+\.service"' \
+               artifacts/api-server/src/lib artifacts/api-server/src/middlewares ; then
+            echo "::error::Cross-module service imports from src/lib or src/middlewares must go through the target module's index.ts barrel (e.g. \"../modules/compliance\"), not a deep \"../modules/<module>/<file>.service\" path."
+            exit 1
+          fi
+          echo "OK — no deep cross-module .service imports in src/lib or src/middlewares."
 
       # Frontend CSRF guard: every mutation in pages must go through Orval's
       # customFetch (which attaches X-CSRF-Token). Hand-written fetch("/api/...")
@@ -101,11 +117,50 @@ jobs:
         run: |
           if grep -rnE "document\s*\.\s*write\s*\(" artifacts/clinic/src/ \
                --include=*.ts --include=*.tsx \
-               --exclude=print.ts --exclude=DischargeSheet.tsx ; then
+               --exclude=print.ts --exclude=DischargeSheet.tsx \
+               --exclude-dir=test ; then
             echo "::error::document.write is forbidden outside the reviewed print sinks (lib/print.ts, components/DischargeSheet.tsx). Route printing through openPrintWindow() and escapeHtml() every dynamic field — see audit F-01."
             exit 1
           fi
           echo "OK — no unsanctioned document.write sinks in clinic src."
+
+      # Tenant-isolation guard (audit F-07): `dbUnsafe` is the raw, non-RLS client
+      # — queries through it are NOT protected by the runInTenantContext RLS
+      # backstop and rely entirely on a hand-written eq(clinicId) filter. A future
+      # dbUnsafe PHI query that forgets that filter is a silent cross-tenant leak.
+      # CLAUDE.md already mandates a one-line justification comment at every
+      # dbUnsafe import site; this makes that mandate enforceable. Every service
+      # file that pulls in dbUnsafe must carry a `// dbUnsafe: <why it's safe>`
+      # comment (explicit clinic filter, or a genuinely non-tenant table). This
+      # does not itself prove each query filters by clinic — that stays a review +
+      # RLS-backstop concern — but it blocks unexamined raw-client use. Escalate to
+      # a semantic ESLint rule if per-query proof becomes necessary.
+      - name: Require justification comment on every dbUnsafe import in services
+        run: |
+          fail=0
+          # Match the import binding (`dbUnsafe as db`), not prose mentions of the
+          # word — a comment like "no raw dbUnsafe call sites" must not trip this.
+          for f in $(grep -rlE 'dbUnsafe as ' artifacts/api-server/src/modules --include='*.service.ts'); do
+            if ! grep -qE '//[[:space:]]*dbUnsafe' "$f"; then
+              echo "::error file=$f::imports dbUnsafe (raw, non-RLS client) but has no '// dbUnsafe: <justification>' comment. State why the tenant-context/RLS bypass is safe (explicit eq(clinicId) filter, or a non-tenant table)."
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then exit 1; fi
+          echo "OK — every dbUnsafe service import carries a justification comment."
+
+      # Supply-chain guard (audit F-08): every registry base image in a Dockerfile
+      # must be pinned by @sha256: digest, not a mutable tag — otherwise the tag can
+      # be repointed upstream between builds (non-reproducible + a supply-chain
+      # window). Internal stage refs (FROM <stage> AS ...) have no tag and are skipped.
+      # Bump the digests via Renovate/Dependabot.
+      - name: Require digest-pinned base images in Dockerfiles
+        run: |
+          if grep -rEn '^FROM [^ ]+:[^ ]+ ' Dockerfile Dockerfile.clinic | grep -v '@sha256:'; then
+            echo "::error::A Dockerfile base image is pinned by tag, not digest. Use FROM image:tag@sha256:<digest> — see audit F-08."
+            exit 1
+          fi
+          echo "OK — all Dockerfile base images are digest-pinned."
 
   # ── 3. Unit Tests ─────────────────────────────────────────────────────────────
   test:
@@ -115,8 +170,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -148,8 +201,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -190,8 +241,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -235,8 +284,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -270,8 +317,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -298,8 +343,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -311,6 +354,44 @@ jobs:
 
       - name: Run frontend tests
         run: pnpm --filter @workspace/clinic run test
+
+  # ── E2E Tests (Playwright + MSW, AUD-FE-01) ──────────────────────────────────
+  # Deliberately advisory, NOT in ci-gate's needs: below. E2E suites are more
+  # prone to environment flake than unit tests, and gating merges on that
+  # would trade a real regression signal for merge friction. This job still
+  # runs on every PR and its report is always uploaded, so failures are
+  # visible — they just don't block. No backend/DB is started; every request
+  # is intercepted by MSW (artifacts/clinic/src/mocks/handlers.ts) against a
+  # real `vite dev` server.
+  e2e:
+    name: E2E Tests (Playwright, advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Install Playwright browsers (chromium only)
+        run: pnpm --filter @workspace/clinic exec playwright install --with-deps chromium
+
+      - name: Run E2E suite
+        run: pnpm --filter @workspace/clinic run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: artifacts/clinic/playwright-report/
+          retention-days: 14
 
   # ── 10. Monitoring config validation ─────────────────────────────────────────
   # Promtool parses prometheus-alerts.yml and fails on a malformed alert rule
@@ -331,11 +412,83 @@ jobs:
             --entrypoint promtool prom/prometheus:v2.53.0 \
             check rules prometheus-alerts.yml
 
+  # ── Compose / Dockerfile validation ──────────────────────────────────────────
+  # Added after the 2026-07-01 audit found three deploy-blocking defects that
+  # nothing mechanically exercised: a healthcheck probing a route that doesn't
+  # exist (AUD-OPS-01), a backup script excluded from its own image
+  # (AUD-OPS-02), and a missing pg_dump/psql in the backup container
+  # (AUD-OPS-03). This job fails the build on the same class of drift.
+  compose-validate:
+    name: Compose & Dockerfile Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.prod.yml syntax + required env placeholders
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file .env.prod.example config -q
+
+      - name: Validate docker-compose.yml (dev) syntax
+        env:
+          # docker-compose.yml marks SESSION_SECRET as required (:?). This is a
+          # syntax-validation dummy only — never a real credential.
+          SESSION_SECRET: ci-compose-validate-dummy
+        run: |
+          docker compose -f docker-compose.yml config -q
+
+      - name: Hadolint (Dockerfile + Dockerfile.clinic)
+        run: |
+          docker run --rm -i hadolint/hadolint:v2.12.0 < Dockerfile
+          docker run --rm -i hadolint/hadolint:v2.12.0 < Dockerfile.clinic
+
+      - name: Healthcheck routes must exist in the app (catches AUD-OPS-01 class)
+        run: |
+          set -euo pipefail
+          # Extract every /api/... path referenced by an api-container healthcheck
+          # (localhost:5000 is the api/worker port; Grafana/Prometheus/etc. probe
+          # their own bundled endpoints on other ports, so they're excluded by
+          # matching the port), then confirm each path is a registered Express
+          # route — this is exactly the class of drift AUD-OPS-01 found.
+          paths=$(grep -hoE "localhost:5000/api/[a-zA-Z0-9/_-]+" docker-compose*.yml \
+            | sed -E 's#.*(/api/[a-zA-Z0-9/_-]+)#\1#' | sort -u)
+          if [ -z "$paths" ]; then
+            echo "No /api healthchecks found to validate — check the grep pattern."
+            exit 1
+          fi
+          fail=0
+          for p in $paths; do
+            route="${p#/api}"
+            if ! grep -rqE "router\.(get|use)\(\s*[\"']${route}([\"']|/)" artifacts/api-server/src/modules/; then
+              echo "FATAL: compose healthcheck targets '$p' but no route '$route' is registered under artifacts/api-server/src/modules/"
+              fail=1
+            else
+              echo "OK: $p is a registered route"
+            fi
+          done
+
+          # Worker (localhost:5001) isn't an Express app — worker.ts runs a raw
+          # http.createServer with a hardcoded `req.url === "<path>"` check
+          # (AUD-OPS-04), so it can't be found via the router grep above. Confirm
+          # the compose healthcheck path and the worker's literal string still
+          # agree, so the two can't silently drift apart the way AUD-OPS-01 did
+          # for the api container.
+          worker_paths=$(grep -hoE "localhost:5001/[a-zA-Z0-9/_-]+" docker-compose*.yml \
+            | sed -E 's#.*(/[a-zA-Z0-9/_-]+)#\1#' | sort -u)
+          for p in $worker_paths; do
+            if ! grep -qE "req\.url === [\"']${p}[\"']" artifacts/api-server/src/worker.ts; then
+              echo "FATAL: compose worker healthcheck targets '$p' but worker.ts has no matching 'req.url === \"$p\"' check"
+              fail=1
+            else
+              echo "OK: $p matches worker.ts's raw http listener"
+            fi
+          done
+          exit $fail
+
   # ── Status gate — all jobs must pass before merge ────────────────────────────
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test, monitoring-config]
+    needs: [typecheck, lint, test, audit, secrets-scan, build, migration-drift, integration-db, frontend-test, monitoring-config, compose-validate]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -349,7 +502,8 @@ jobs:
                 "${{ needs.migration-drift.result }}" != "success" ||
                 "${{ needs.integration-db.result }}" != "success" ||
                 "${{ needs.frontend-test.result }}" != "success" ||
-                "${{ needs.monitoring-config.result }}" != "success" ]]; then
+                "${{ needs.monitoring-config.result }}" != "success" ||
+                "${{ needs.compose-validate.result }}" != "success" ]]; then
             echo "CI gate FAILED — one or more jobs did not succeed"
             exit 1
           fi

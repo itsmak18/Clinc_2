@@ -12,6 +12,7 @@ import type { Request, Response } from "express";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
 import { fingerprintRequest, type TokenPayload } from "./auth";
+import { fingerprintBypassActive, fphGrandfatherActive } from "./fingerprint-lever";
 import { jwksVerify } from "./jwt-secret";
 import { E, type ErrorDef } from "../errors";
 
@@ -231,11 +232,12 @@ export async function evaluate(
   //                                       fail closed.
   //
   // Steady state: omit FPH_GRANDFATHER_UNTIL → all tokens must carry fph.
-  const fingerprintEnabled = process.env.FINGERPRINT_BINDING !== "disabled";
+  // Levers centralized in fingerprint-lever.ts (AUD-SEC-07): the `disabled`
+  // bypass is prod-TTL-guarded + metered there, not a bare env read here.
+  const fingerprintEnabled = !fingerprintBypassActive();
   if (fingerprintEnabled) {
     if (!payload.fph) {
-      const grandfatherUntil = Number(process.env.FPH_GRANDFATHER_UNTIL ?? 0);
-      if (grandfatherUntil > 0 && payload.iat <= grandfatherUntil) {
+      if (fphGrandfatherActive(payload.iat)) {
         // Legacy token issued before A1 rollout — accept this run, will expire naturally.
         step("fingerprint", true, "grandfathered");
       } else {

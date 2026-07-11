@@ -26,7 +26,7 @@ const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 beforeAll(async () => {
   harness = await startRealDb();
   ({ cspReportsTable } = (await import("@workspace/db")) as any);
-  ({ purgeOldCspReports } = await import("../services/csp-report.service"));
+  ({ purgeOldCspReports } = await import("../modules/audit/csp-report.service"));
   db = harness.db;
 }, 120_000);
 

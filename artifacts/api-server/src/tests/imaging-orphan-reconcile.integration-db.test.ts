@@ -55,7 +55,7 @@ beforeAll(async () => {
   seed = await seedCrossTenant(harness.db);
 
   ({ imagingAttachmentsTable } = (await import("@workspace/db")) as any);
-  ({ reconcileOrphanImagingFiles } = await import("../services/imaging-attachments.service"));
+  ({ reconcileOrphanImagingFiles } = await import("../modules/imaging/imaging-attachments.service"));
   ({ writeImageFile, readImageFile } = await import("../lib/imaging-storage"));
 
   const c = seed.clinicA.id;

@@ -23,7 +23,19 @@ vi.mock("../lib/logger", () => ({
   logger: { error: loggerErrorMock, info: vi.fn(), warn: loggerWarnMock, debug: vi.fn() },
 }));
 
-import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID } from "../lib/audit";
+const { appendAuditOutboxFallbackMock } = vi.hoisted(() => ({
+  appendAuditOutboxFallbackMock: vi.fn(),
+}));
+
+// AUD-SEAM-01: logAudit's failure path now also calls appendAuditOutboxFallback.
+// Mocked here (own behavior covered by audit-outbox-fallback.test.ts) so this
+// suite stays focused on logAudit's calling contract and never touches the
+// real filesystem.
+vi.mock("../lib/audit-outbox-fallback", () => ({
+  appendAuditOutboxFallback: appendAuditOutboxFallbackMock,
+}));
+
+import { logAudit, SYSTEM_USER_ID, SYSTEM_CLINIC_ID, toAuditLogUserId } from "../lib/audit";
 import { auditLogWriteFailuresTotal, auditSystemActorTotal } from "../lib/metrics";
 
 function fakeReq() {
@@ -47,6 +59,7 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     insertMock.mockReset();
     loggerErrorMock.mockReset();
     loggerWarnMock.mockReset();
+    appendAuditOutboxFallbackMock.mockReset();
   });
 
   it("does not throw when the audit insert rejects", async () => {
@@ -86,6 +99,28 @@ describe("logAudit — fire-and-forget on DB failure", () => {
     expect(await counterValue("CREATE", "patient")).toBe(before);
   });
 
+  it("[AUD-SEAM-01] does NOT write to the fallback sink when the insert succeeds", async () => {
+    insertMock.mockResolvedValueOnce(undefined);
+    await logAudit(fakeReq(), "CREATE", "patient", 1);
+    expect(appendAuditOutboxFallbackMock).not.toHaveBeenCalled();
+  });
+
+  it("[AUD-SEAM-01] durably captures the event in the local fallback sink when the outbox INSERT fails", async () => {
+    insertMock.mockRejectedValueOnce(new Error("connection refused"));
+    await logAudit(fakeReq(), "UPDATE", "invoice", 12);
+
+    expect(appendAuditOutboxFallbackMock).toHaveBeenCalledTimes(1);
+    const [row, action, entityType] = appendAuditOutboxFallbackMock.mock.calls[0];
+    expect(action).toBe("UPDATE");
+    expect(entityType).toBe("invoice");
+    expect(row).toMatchObject({
+      action: "UPDATE",
+      entityType: "invoice",
+      entityId: "12",
+      userId: 42,
+    });
+  });
+
   it("[Phase 3.2] writes a system-actor row when req.user is missing (no longer silent)", async () => {
     insertMock.mockResolvedValueOnce(undefined);
     await logAudit({ headers: {}, socket: {} } as any, "READ", "patient", 5);
@@ -122,5 +157,27 @@ describe("logAudit — fire-and-forget on DB failure", () => {
       .find(v => v.labels.action === "UPDATE" && v.labels.entity_type === "operation")?.value ?? 0;
 
     expect(after).toBe(before + 1);
+  });
+});
+
+describe("toAuditLogUserId — AUD-SEAM-07 (audit_logs.user_id FK remap)", () => {
+  it("maps SYSTEM_USER_ID (-1) to null", () => {
+    expect(toAuditLogUserId(SYSTEM_USER_ID)).toBeNull();
+  });
+
+  it("maps 0 to null (defense-in-depth against any other non-positive sentinel)", () => {
+    expect(toAuditLogUserId(0)).toBeNull();
+  });
+
+  it("maps null to null", () => {
+    expect(toAuditLogUserId(null)).toBeNull();
+  });
+
+  it("maps undefined to null", () => {
+    expect(toAuditLogUserId(undefined)).toBeNull();
+  });
+
+  it("passes a real positive user id through unchanged", () => {
+    expect(toAuditLogUserId(42)).toBe(42);
   });
 });

@@ -1,5 +1,4 @@
 import express, { type Express, type Request, type Response } from "express";
-import { timingSafeEqual } from "crypto";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
@@ -7,7 +6,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { correlationId } from "./middlewares/correlationId";
-import { metricsMiddleware, getMetrics } from "./lib/metrics";
+import { metricsMiddleware, getMetrics, checkMetricsAuth } from "./lib/metrics";
 import { ipRateLimit } from "./middlewares/rateLimiter";
 import { cspDirectives, cspReportUri } from "./lib/csp";
 import { loginShield, loginIpRateLimit } from "./middlewares/login-shield";
@@ -109,22 +108,10 @@ app.use(
 // ── Metrics ───────────────────────────────────────────────────────────────────
 app.use(metricsMiddleware);
 app.get("/metrics", (req: Request, res: Response) => {
-  const token = process.env.METRICS_TOKEN;
-  if (!token) {
-    // Fail CLOSED in production (F-2). An unauthenticated /metrics leaks operational
-    // telemetry; Prometheus scrapes with the metrics_token secret, so a missing token
-    // in prod is a misconfiguration, not "auth disabled". 404 (vs 401) avoids
-    // advertising the endpoint; the failing scrape surfaces it via the ServiceDown alert.
-    if (process.env.NODE_ENV === "production") { res.status(404).end(); return; }
-  } else {
-    // Constant-time compare to avoid a token-recovery timing oracle.
-    const a = Buffer.from(req.headers.authorization ?? "");
-    const b = Buffer.from(`Bearer ${token}`);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      res.status(401).end();
-      return;
-    }
-  }
+  // Shared with the worker's raw http listener (worker.ts, AUD-OPS-04) so the
+  // two auth paths cannot drift.
+  const { authorized, unauthorizedStatus } = checkMetricsAuth(req.headers.authorization);
+  if (!authorized) { res.status(unauthorizedStatus).end(); return; }
   getMetrics(req, res).catch(() => res.status(500).end());
 });
 

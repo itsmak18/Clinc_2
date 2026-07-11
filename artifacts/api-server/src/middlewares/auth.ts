@@ -38,7 +38,10 @@ export const requireAuth: RequestHandler = (req: Request, res: Response, next: N
  * call. That's intentional: idempotent, no measurable cost on a request that
  * already passed authGate once.
  */
-export function requireRole(...roles: string[]): RequestHandler {
+export type UserRole = "super_admin" | "admin" | "doctor" | "nurse" | "front_desk"
+  | "xray_staff" | "lab_staff" | "compliance_officer" | "billing_manager" | "pharmacist";
+
+export function requireRole(...roles: UserRole[]): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
     return authGate(scopeForMethod(req.method), roles)(req, res, next);
   };

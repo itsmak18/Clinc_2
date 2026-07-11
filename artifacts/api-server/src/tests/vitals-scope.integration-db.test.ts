@@ -42,7 +42,7 @@ beforeAll(async () => {
   const db = (await import("@workspace/db")) as any;
   const { usersTable, doctorPatientsTable } = db;
   const { hashPassword } = await import("../lib/password");
-  ({ createVitals, listVitals } = await import("../services/vitals.service"));
+  ({ createVitals, listVitals } = await import("../modules/clinical/vitals.service"));
   await import("../app"); // ensure runtime (audit outbox, metrics) is wired
 
   const pw = await hashPassword("test_password_123!");

@@ -15,6 +15,8 @@ export const prescriptionsTable = pgTable("prescriptions", {
   medications: jsonb("medications").notNull(),
   notes: text("notes"),
   notesAr: text("notes_ar"),
+  dispensedAt: timestamp("dispensed_at"),
+  dispensedById: integer("dispensed_by_id").references(() => usersTable.id),
   deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

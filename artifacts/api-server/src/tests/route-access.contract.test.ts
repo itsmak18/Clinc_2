@@ -201,3 +201,45 @@ describe("Route access drift â€” frontend roles must reach backend without 
     });
   }
 });
+
+// ── DENY contracts: roles that MUST receive 403 from backend GET endpoints ──
+// Asserts SoD boundaries and PHI access restrictions at the API layer.
+const DENY_CONTRACTS: Array<{ endpoint: string; deniedRoles: string[] }> = [
+  // Audit logs: only super_admin + compliance_officer
+  {
+    endpoint: "/api/audit-logs",
+    deniedRoles: ["admin", "doctor", "nurse", "front_desk", "xray_staff", "lab_staff", "billing_manager", "pharmacist"],
+  },
+  // Medical records: PHI — doctor + admin + super_admin only
+  {
+    endpoint: "/api/medical-records",
+    deniedRoles: ["nurse", "front_desk", "xray_staff", "lab_staff", "compliance_officer", "billing_manager", "pharmacist"],
+  },
+  // Billing invoices: SoD — must deny clinical roles
+  {
+    endpoint: "/api/billing/invoices",
+    deniedRoles: ["doctor", "nurse", "xray_staff", "lab_staff", "compliance_officer", "pharmacist"],
+  },
+  // Inventory: must deny compliance + billing
+  {
+    endpoint: "/api/inventory",
+    deniedRoles: ["compliance_officer", "billing_manager"],
+  },
+];
+
+describe("Route access drift — DENY: unauthorized roles must get 403 from backend GET endpoints", () => {
+  for (const { endpoint, deniedRoles } of DENY_CONTRACTS) {
+    describe(endpoint, () => {
+      for (const role of deniedRoles) {
+        it(`${role} must get 403 from ${endpoint}`, async () => {
+          const token = await signToken({ userId: 9001, username: `deny_${role}`, role, clinicId: 1 });
+          const res = await request(app).get(endpoint).set("Cookie", [`clinic_token=${token}`]);
+          expect(
+            res.status,
+            `${role} got ${res.status} from ${endpoint}, expected 403. Backend may have widened access.`,
+          ).toBe(403);
+        });
+      }
+    });
+  }
+});

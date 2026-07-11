@@ -5,6 +5,8 @@ import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import StatusBadge from "@/components/StatusBadge";
+import ClearanceChip from "@/components/ClearanceChip";
+import OverrideClearanceDialog from "@/components/OverrideClearanceDialog";
 import StatusStepper from "@/components/StatusStepper";
 import PatientSearchSelect from "@/components/PatientSearchSelect";
 import ImageUploader, { type UploaderImage } from "@/components/ImageUploader";
@@ -21,8 +23,11 @@ import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { xrayTemplates, type ReportTemplate } from "@/lib/reportTemplates";
 import { Plus, FileImage, Printer, ChevronDown, ChevronUp, ShieldCheck, Trash2, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isClearanceLocked, canOverrideClearance } from "@/lib/clearance";
 
 const IMAGING_STATUSES = ["requested", "in_progress", "completed"] as const;
+const FILTER_STATUSES = [...IMAGING_STATUSES, "cancelled"] as const;
+
 const STATUS_SORT_ORDER: Record<string, number> = { requested: 0, in_progress: 1, completed: 2 };
 const EDIT_ROLES = ["super_admin", "admin", "xray_staff"];
 
@@ -73,6 +78,7 @@ export default function XRay() {
   }, []);
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [overrideInvoiceId, setOverrideInvoiceId] = useState<number | null>(null);
   const [findings, setFindings] = useState("");
   const [impression, setImpression] = useState("");
   const [findingsAr, setFindingsAr] = useState("");
@@ -198,7 +204,7 @@ export default function XRay() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("all")}</SelectItem>
-            {IMAGING_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+            {FILTER_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
           </SelectContent>
         </Select>
         {openCount > 0 && (
@@ -225,6 +231,16 @@ export default function XRay() {
                 {(row.patient as any)?.dateOfBirth && <div><span className="text-[var(--ink-muted)]">{t("dateOfBirth")}: </span><span className="text-[var(--ink)]">{formatDate((row.patient as any).dateOfBirth)}</span></div>}
                 {(row.patient as any)?.gender && <div><span className="text-[var(--ink-muted)]">{t("gender")}: </span><span className="text-[var(--ink)] capitalize">{(row.patient as any).gender}</span></div>}
                 {row.requestedBy?.fullName && <div><span className="text-[var(--ink-muted)]">{t("requestedBy")}: </span><span className="text-[var(--ink)]">{row.requestedBy.fullName}</span></div>}
+                <ClearanceChip status={(row as any).clearanceStatus} />
+                {(row as any).clearanceStatus === "pending" && (row as any).invoiceId && canOverrideClearance(user?.role) && (
+                  <button
+                    className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1"
+                    onClick={() => setOverrideInvoiceId((row as any).invoiceId)}
+                    data-testid={`button-override-${row.id}`}
+                  >
+                    {t("emergencyOverride")}
+                  </button>
+                )}
               </div>
 
               {/* Workflow pipeline */}
@@ -233,7 +249,7 @@ export default function XRay() {
                   stages={IMAGING_STATUSES.map(s => ({ value: s, label: t(s as any) }))}
                   current={reportStatus}
                 />
-                {canEdit && reportStatus !== "completed" && (
+                {canEdit && reportStatus !== "completed" && !isClearanceLocked(row as any) && (
                   <button
                     type="button"
                     className="btn btn-outline btn-sm h-7 text-xs"
@@ -294,7 +310,13 @@ export default function XRay() {
                   <Select value={reportStatus} onValueChange={setReportStatus}>
                     <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {IMAGING_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
+                      {FILTER_STATUSES.map(s => (
+                        // While clearance-locked only "cancelled" is actionable —
+                        // the backend rejects progress with CLEARANCE_REQUIRED.
+                        <SelectItem key={s} value={s} disabled={isClearanceLocked(row as any) && s !== "cancelled" && s !== row.status}>
+                          {t(s as any)}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -359,7 +381,12 @@ export default function XRay() {
             },
             { key: "requested", header: t("requestedBy"), render: x => <span className="text-[13px] text-[var(--ink)]">{x.requestedBy?.fullName || `#${x.requestedById}`}</span> },
             { key: "date",      header: t("date"),         render: x => <span className="text-[12px] text-[var(--ink-muted)]">{formatDate(x.createdAt)}</span> },
-            { key: "status",    header: t("status"),       render: x => <StatusBadge status={x.status} /> },
+            { key: "status",    header: t("status"),       render: x => (
+              <div className="flex flex-col items-start gap-1">
+                <StatusBadge status={x.status} />
+                <ClearanceChip status={(x as any).clearanceStatus} />
+              </div>
+            ) },
             {
               key: "actions",
               header: t("actions"),
@@ -377,6 +404,12 @@ export default function XRay() {
           ]}
         />
       </div>
+
+      <OverrideClearanceDialog
+        invoiceId={overrideInvoiceId}
+        onOpenChange={o => { if (!o) setOverrideInvoiceId(null); }}
+        onDone={() => queryClient.invalidateQueries({ queryKey: getListXrayImagesQueryKey() })}
+      />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="max-w-md">

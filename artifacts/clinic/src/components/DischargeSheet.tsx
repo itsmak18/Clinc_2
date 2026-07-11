@@ -2,10 +2,8 @@ import { useEffect, useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Printer, Loader2 } from "lucide-react";
 import { formatDate, formatDateTime, formatCurrency } from "@/lib/api";
+import { useGetAppointmentDischarge, getGetAppointmentDischargeQueryKey } from "@workspace/api-client-react";
 import { useI18n, translations } from "@/hooks/i18n";
-
-const BASE = import.meta.env.BASE_URL ?? "/";
-const apiUrl = (path: string) => `${BASE}api/${path}`.replace(/\/+/g, "/");
 
 type PrintLang = "en" | "ar";
 
@@ -45,14 +43,18 @@ interface Props {
 
 export default function DischargeSheet({ appointmentId, open, onClose }: Props) {
   const { language } = useI18n();
-  const [data, setData] = useState<DischargeData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   // The printed paper can be produced in either language regardless of the UI
   // language — staff choose per print (e.g. Arabic copy for the patient, English
   // copy for an external referral). Defaults to the current UI language.
   const [printLang, setPrintLang] = useState<PrintLang>(language);
   const printRef = useRef<HTMLDivElement>(null);
+
+  const { data, isLoading, error } = useGetAppointmentDischarge(appointmentId ?? 0, {
+    query: {
+      queryKey: getGetAppointmentDischargeQueryKey(appointmentId ?? 0),
+      enabled: open && !!appointmentId,
+    },
+  });
 
   // Resolve a label in the chosen print language (independent of the UI language).
   const tr = (key: keyof typeof translations.en): string =>
@@ -60,20 +62,6 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
   const isRtl = printLang === "ar";
 
   useEffect(() => { if (open) setPrintLang(language); }, [open, language]);
-
-  useEffect(() => {
-    if (!open || !appointmentId) return;
-    setData(null);
-    setError(null);
-    setLoading(true);
-    fetch(apiUrl(`appointments/${appointmentId}/discharge`), {
-      credentials: "include",
-    })
-      .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject(t)))
-      .then(setData)
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [open, appointmentId]);
 
   const handlePrint = () => {
     const el = printRef.current;
@@ -119,7 +107,9 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
     setTimeout(() => { win.focus(); win.print(); }, 400);
   };
 
-  const d = data;
+  // Cast to local interface: generated DischargeSheet vitals shape diverges from
+  // component's bloodPressure string field — keep cast until vitals schema unified.
+  const d = data as unknown as DischargeData | null;
   const appt = d?.appointment;
   const patient = d?.patient;
   const rec = d?.medicalRecord;
@@ -145,19 +135,19 @@ export default function DischargeSheet({ appointmentId, open, onClose }: Props) 
                 onClick={() => setPrintLang("ar")}
               >العربية</button>
             </div>
-            <button className="btn btn-primary btn-sm gap-1.5" onClick={handlePrint} disabled={!data || loading}>
+            <button className="btn btn-primary btn-sm gap-1.5" onClick={handlePrint} disabled={!data || isLoading}>
               <Printer className="w-3.5 h-3.5" /> {tr("printSavePdf")}
             </button>
           </div>
         </DialogHeader>
 
-        {loading && (
+        {isLoading && (
           <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
             <Loader2 className="w-5 h-5 animate-spin" /> {tr("loadingVisitData")}
           </div>
         )}
         {error && (
-          <div className="p-4 text-destructive text-sm">{tr("failedToLoadColon")} {error}</div>
+          <div className="p-4 text-destructive text-sm">{tr("failedToLoadColon")} {error.message}</div>
         )}
 
         {d && (

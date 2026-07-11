@@ -36,8 +36,6 @@ jobs:
       # Install deps so Syft can resolve the full pnpm tree (catalog packages,
       # workspace links, etc.). --ignore-scripts mirrors the rest of CI.
       - uses: pnpm/action-setup@v4
-        with:
-          version: "10"
 
       - uses: actions/setup-node@v4
         with:

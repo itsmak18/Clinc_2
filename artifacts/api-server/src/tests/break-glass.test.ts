@@ -29,11 +29,15 @@ vi.mock("../lib/audit", () => ({
   logAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("../lib/break-glass-audit", () => ({
+  auditBreakGlass: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("../lib/sse", () => ({
   emitToUser: vi.fn(),
 }));
 
-import { activateBreakGlass, revokeBreakGlass, getActiveSession } from "../services/break-glass.service";
+import { activateBreakGlass, revokeBreakGlass, getActiveSession } from "../modules/compliance/break-glass.service";
 import { db } from "@workspace/db";
 import type { AuthRequest } from "../middlewares/auth";
 

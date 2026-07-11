@@ -3,10 +3,11 @@ import { doctorPatientsTable, medicalRecordsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import type { AuthRequest } from "../middlewares/auth";
 import { logAudit, logDenied } from "./audit";
+import { auditBreakGlass } from "./break-glass-audit";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
 import { ForbiddenError } from "../services/errors";
-import { getActiveSession, logBreakGlassAccess, getActiveBreakGlassPatientIds } from "../services/break-glass.service";
+import { getActiveSession, logBreakGlassAccess, getActiveBreakGlassPatientIds } from "../modules/compliance";
 
 const SCOPED_ROLE = "doctor";
 const SCOPE_CACHE_TTL_SEC = 60;
@@ -107,10 +108,10 @@ export async function getDoctorListScope(
   const assigned = await getDoctorPatientScope(req.user!.userId);
   const breakGlassPatientIds = await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId);
   if (breakGlassPatientIds.length > 0) {
-    await logAudit(req, "BREAK_GLASS_ACCESS", entityType, undefined, {
+    await auditBreakGlass(req, "BREAK_GLASS_ACCESS", entityType, undefined, {
       patientIds: breakGlassPatientIds,
       via: "list",
-    } as object);
+    });
   }
   const allowed = [...new Set([...assigned, ...breakGlassPatientIds])];
   return { allowed, breakGlassPatientIds };

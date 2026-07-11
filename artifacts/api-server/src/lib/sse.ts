@@ -2,6 +2,7 @@ import type { Response } from "express";
 import { runtime } from "./runtime";
 import { logger } from "./logger";
 import { sseConnectionsGauge } from "./metrics";
+import { config } from "./config";
 
 const clients = new Map<number, Set<Response>>();
 let totalConnections = 0;
@@ -13,13 +14,13 @@ const clinicClients = new Map<number, Set<Response>>();
 const resClinic = new Map<Response, number>();
 
 // Safety nets; not expected to hit at current scale (~20 internal users).
-const MAX_CONNECTIONS = parseInt(process.env.SSE_MAX_CONNECTIONS ?? "500", 10);
-const MAX_PER_USER    = parseInt(process.env.SSE_MAX_PER_USER    ?? "10",  10);
+const MAX_CONNECTIONS = config.sseMaxConnections;
+const MAX_PER_USER    = config.sseMaxPerUser;
 
 // Per-user event ring buffer for Last-Event-ID replay.
 // Stores the last SSE_REPLAY_BUFFER events per user so a reconnecting client
 // can catch up on events missed during a brief disconnection.
-const REPLAY_BUFFER_SIZE = parseInt(process.env.SSE_REPLAY_BUFFER ?? "50", 10);
+const REPLAY_BUFFER_SIZE = config.sseReplayBuffer;
 
 interface BufferedEvent {
   id:    number;

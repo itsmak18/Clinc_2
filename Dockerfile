@@ -1,6 +1,8 @@
 # ── Stage 1: base ──────────────────────────────────────────────────────────────
 # Node 24 Alpine — matches .nvmrc and engines.node constraint.
-FROM node:24-alpine AS base
+# Base image pinned by digest (F-08) for reproducible builds — bump via Renovate.
+# node:24-alpine as of 2026-07-04.
+FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS base
 RUN corepack enable
 WORKDIR /app
 
@@ -31,7 +33,7 @@ RUN pnpm --filter @workspace/api-server run build
 # ── Stage 4: minimal runtime image ────────────────────────────────────────────
 # esbuild bundles all pure-JS deps into dist/index.mjs.
 # Only native addons (bcrypt) must be present at runtime.
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS runtime
 WORKDIR /app
 
 # bcrypt uses a pre-compiled .node addon — copy it from the build stage.
@@ -48,6 +50,11 @@ USER medicore
 ENV NODE_ENV=production
 ENV PORT=5000
 EXPOSE 5000
+
+# Compose healthchecks override this; declared so the image is self-sufficient
+# when run outside compose (Trivy DS-0026).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD node -e "fetch('http://localhost:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # SIGTERM is forwarded by Docker stop — the server handles it for graceful shutdown
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]

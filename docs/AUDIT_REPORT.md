@@ -92,7 +92,7 @@ We verified the codebase against the following key security hypotheses and archi
 
 ### F-P2-3 — Fingerprint Binding Bypasses (VERIFIED PASS)
 * **Evidence:** [policy.ts:222-225](file:///c:/Users/xxmoh/OneDrive/Desktop/Clinic-Hub/Clinic-Hub/artifacts/api-server/src/lib/policy.ts#L222-L225)
-* **Finding:** If `FINGERPRINT_BINDING=disabled` is set in the environment as an emergency lever, user agent and accept-language binding checks are bypassed. This is documented in [RUNBOOK.md](file:///c:/Users/xxmoh/OneDrive/Desktop/Clinic-Hub/Clinic-Hub/RUNBOOK.md) as a recovery mechanism. In normal operations (env unset), it enforces strict binding and fail-closes on mismatch.
+* **Finding:** If `FINGERPRINT_BINDING=disabled` is set in the environment as an emergency lever, user agent and accept-language binding checks are bypassed. This is documented in [RUNBOOK.md](file:///c:/Users/xxmoh/OneDrive/Desktop/Clinic-Hub/Clinic-Hub/docs/RUNBOOK.md) as a recovery mechanism. In normal operations (env unset), it enforces strict binding and fail-closes on mismatch.
 * **Severity:** **Low / Info (Accepted Risk)** · **Confidence:** **HIGH** · **Blast Radius:** **User**
 
 ### F-P2-4 — Logout Route Authentication (VERIFIED PASS)

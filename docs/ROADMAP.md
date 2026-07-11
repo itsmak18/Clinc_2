@@ -1,5 +1,61 @@
 # Roadmap
 
+> As of 2026-07-05: **Financial clearance gate Phase A landed flag-OFF (ADR-011).** Follow-up phases
+> from the 2026-07-04 workflow audit, in priority order:
+> - ⏳ **Flip-on prerequisites:** price `LAB_DEFAULT`/`XRAY_DEFAULT`/`US_DEFAULT` per clinic (zero-price
+>   warn-log is the tripwire), staging rehearsal (order → basket → front-desk pay → queue → complete;
+>   override loop; TTL-0 expiry), then `CLEARANCE_GATE_ENABLED=true` in prod.
+> - 💡 **Phase B — consult prepay + episodes:** `checkin` requires a paid consult line OR an
+>   auto-detected free-follow-up window (`parentAppointmentId` episode link); checkout tail becomes
+>   conditional on balance > 0.
+> - 💡 **Phase C — pharmacy coupling:** dispense requires a paid line + atomic `inventory_transactions`
+>   decrement; live stock at prescribing; substitution workflow.
+> - 💡 **Phase D — fraud controls:** discount reason-codes + role caps + per-employee monthly report;
+>   wire `requireStepUp` for void/refund; three-way ordered↔paid↔performed reconciliation (now
+>   structurally possible via `invoice_item_id`); doctor self-cancel of own pending orders; retire or
+>   confine the `markPaid` POS bypass.
+> - 💡 **Phase E — payer model:** insurance authorization / deposits / wallet / credit accounts /
+>   charity codes as additional clearance sources (`clearance_status` model already accommodates).
+
+> As of 2026-07-02: **Independent architecture audit — Phase 1 quick wins done, Phases 2–4 tracked.**
+> Full report: [ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md) (§13b has one row
+> per finding with a suggested fix). Phase 1 (F1 worker-healthcheck CI gap, F5 audit-fallback alerting)
+> landed same day; F9 ("5 raw fetch in pages") was retracted as a grep false positive, not fixed.
+> **Next (Phase 2, structural, 1–2 weeks):**
+> - ⏳ **Barrel-honesty for cross-module service calls (F4)** — `autoAdvanceVisit`,
+>   `hasActiveConsent`, `getActiveBreakGlassPatientIds` are consumed via deep `../other-module/x.service`
+>   imports (10 call sites across billing/clinical/imaging), contradicting `CLAUDE.md`'s "barrel-only"
+>   rule. Re-export them from the owning module's `index.ts`; repoint consumers; add an ESLint rule
+>   banning deep `modules/*/*.service` imports so it can't regress.
+> - ⏳ **`lib/scope.ts` layer placement (F6)** — doctor-scope authz logic lives in the utility tier
+>   alongside `dateUtils`/`logger`. Move to a `modules/authz/` home or explicitly document it as kernel.
+> - ⏳ **Split the 5 large view pages (F10)** — Schedule/Reports/PatientDetail/Inventory/Dashboard;
+>   extract sub-sections into `components/` on next touch (Schedule already started).
+> - ⏳ **Land the doctor-schedule WIP** (7 uncommitted files as of 2026-07-02) as a reviewable PR.
+>
+> **Deliberately deferred (own dedicated change, not bundled):**
+> - 💡 **Flatten `Clinic-Hub/Clinic-Hub` → `Clinic-Hub` (F11)** — Med–High risk: rewrites every CI
+>   path, Docker build context/`COPY`, `pnpm-workspace` glob, and the `backups`/`storage` symlinks.
+>   Verify build+CI green before/after as its own PR, not mixed with lower-risk changes.
+>
+> **Also tracked, lower priority (see report §13b for full list):** F2 (roll-forward-only migrations,
+> no automated cutover recovery), F3 (no load/query-plan validation), F7 (31 `as any` in modules;
+> `strictFunctionTypes`/`noUnusedLocals` OFF), F8 (integration-db suite Docker-gated, doesn't always
+> run in CI), F13 (fph disable-lever unguarded), F14 (consent gate is service-layer only, no DB
+> backstop), F15 (jti replay defense dormant — deliberate per ADR-007, revisit only if re-scoping).
+
+> As of 2026-06-29: **Architecture audit P1+P2 complete + WIP landed.** 182-file uncommitted WIP committed in 7 logical slices (all green: 538/538 backend, 51/51 frontend, typecheck+lint). Architecture maturity 8.5→9.0/10. Closed:
+> - ✅ **P0 — WIP landing** — break-glass audit durability, prescription dispensing (migration 0039), CSP unification, DENY role contracts, dep CVE overrides, mockup-sandbox removal, docs prune.
+> - ✅ **P1 — Typed config module** — `lib/config.ts` centralizes all ~50 env reads; ESLint `no-restricted-properties` guard flipped to `"error"` (all 32 files migrated). `process.env` direct reads are a CI-blocking lint error.
+> - ✅ **P2a — Thin controller** — billing cancel reason moved to service; 0 business-logic leaks in routes.
+> - ✅ **P2b — Generated hooks** — last 2 raw `fetch()` calls replaced (`DischargeSheet` → `useGetAppointmentDischarge`, `GlobalSearch` → `useGlobalSearch`; `/search` added to OpenAPI contract).
+> - ✅ **P2c — i18n split** — `i18n.tsx` 2169-line monolith → `hooks/locales/en.ts` + `ar.ts`.
+>
+> **Still open / next:**
+> - ⏳ **integration-db suite** — run `pnpm --filter @workspace/api-server run test:integration-db` end-to-end on real Postgres (Docker or `INTEGRATION_PG_ADMIN_URL`). New `break-glass-audit.integration-db.test.ts` not yet CI-gated.
+> - ⏳ **P3 — Domain-event bus** (optional) — invert `autoAdvanceVisit` hub: 5 services import it; low blast-radius now, defer until coupling bites.
+> - ⏳ **Task Completion Rule** — update Obsidian vault note.
+
 > As of 2026-06-22: **Zero-trust audit hardening — codeable medium-and-above findings closed (working tree, uncommitted).** Source-first re-audit (overall ≈8.5→8.7). 29 new real-Postgres tests + targeted fixes; tsc 0, esbuild clean, no regressions. See CHANGELOG (2026-06-22) + HEALTH_STATUS note. **Closed:**
 > - ✅ **F-Z1 / F-014 — jti replay defense formally DISARMED (not armed).** Arming would regress: the live `privileged` routes (`PATCH`/`DELETE /users/:id`, admin reset) use the reused session cookie, so consuming its jti rejects the 2nd admin action in a session. Pinned by a kernel invariant test (`policy.unit.test.ts` "READS but never CONSUMES the jti") + **ADR-007 §4 correction** (the "zero routes use privileged scope" claim was stale — three now do). Supersedes the "author ADR-014 to arm" recommendation.
 > - ✅ **Imaging integration-db tests** — `imaging-attachments` (upload/scope/download/delete), `imaging-quota`, `imaging-orphan-reconcile` (+ `services-catalog`, `vitals-scope`, `login-mint`). Advances the ADR-012 test-breadth item (imaging done; break-glass-e2e still open).
@@ -18,7 +74,7 @@
 > - ⏳ **Imaging integration-db test** — fold upload/download/erasure into the real-Postgres suite (overlaps the ADR-012 "imaging" item below).
 > - 💡 **DICOM** — current pipeline is PNG/JPEG/WEBP (browser-renderable). A DICOM viewer + `.dcm` ingest is a separate future feature.
 
-> As of 2026-06-14: **Independent principal zero-trust re-audit — 8.4/10, no open criticals.** Full report [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + task-level plan `../HANDOFF.md`. **Next actions:**
+> As of 2026-06-14: **Independent principal zero-trust re-audit — 8.4/10, no open criticals.** Full report [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + task-level plan `HANDOFF.md`. **Next actions:**
 > - ⏳ **F-Z1 (Medium, security) — arm or formally disarm the jti replay defense** (`policy.ts:169` checks `isJtiUsed()` but prod never calls `markJtiUsed()` → unarmed). Recommend arming for break-glass activate / step-up / admin-reset / erasure execute; author **ADR-014**.
 > - ⏳ **Phase 0 go-live drills:** stand up staging (+`STAGING_URL`), verify **live** alert/probe delivery (`amtool` + blackbox), restore drill on real hardware (record RTO).
 > - ⏳ **Test breadth (ADR-012):** real-Postgres `*.integration-db` tests for billing SoD, appointments FSM, prescriptions/consent, imaging, break-glass e2e.
@@ -171,7 +227,7 @@ Closes the four operational gaps that left the platform blind in production: ale
 Closes frontend regression-blindness and standardizes backend route validation. **Not started.** Five work streams, executed in order WS3 → WS5 → WS1 → WS2 → WS4 so each stream lands on top of stable contracts.
 
 **Locked decisions:**
-- **E2E strategy → MSW-mocked, no CI.** No GitHub Actions exists; Docker-based E2E adds complexity with no automation payoff. Playwright runs locally against the Vite dev server with MSW intercepting fetches. Fixed fixtures (`e2e/mocks/fixtures.ts`), not per-test factories. Billing "anti-fraud same-user pay gate" moves to a backend integration test — it's a server invariant, not a UI behavior.
+- **E2E strategy → MSW-mocked. ✅ Shipped 2026-07-02 (AUD-FE-01) — now runs in CI as a non-blocking `e2e` job** (the original "no CI" call was reversed once `.github/workflows/ci.yml` existed: advisory job runs on every PR, failures visible, not in `ci-gate.needs`). Playwright runs against `vite dev` with MSW intercepting fetches. Shared `loginAs()` fixture in `e2e/fixtures.ts`. Billing "anti-fraud same-user pay gate" stays a backend integration test — it's a server invariant, not a UI behavior.
 - **i18n → ICU MessageFormat.** Arabic has 6 plural categories; plain JSON key-value can't express them cleanly. Use `@formatjs/intl`. Proactive `t()` callsite sweep at migration time (not lazy) so the placeholder→`{var}` conversion lands in one pass.
 - **Accessibility → critical/serious axe violations only.** Internal-staff app, ~10 known roles, no patient-facing surface. Full WCAG 2.1 AA is deferred until a patient portal becomes real. Filter by `v.impact === "critical" || "serious"`; do not constrain by `wcag2a/wcag2aa` tags.
 
@@ -179,7 +235,7 @@ Closes frontend regression-blindness and standardizes backend route validation. 
 - **WS3 — Zod route validation (first).** New `api-server/src/middlewares/validate.ts`; migrates 12 route files from raw `req.body` to `schema.safeParse`. **Breaking error-shape change** — `{ error: "Missing required fields" }` → `{ error: "Validation error", details: { field: [...] } }`. Frontend toast handler updated in the same pass to surface `details`.
 - **WS5 — i18n extraction + ICU.** Replaces 53KB eager-loaded inline translations in `clinic/src/hooks/i18n.tsx` with lazy-imported `locales/en.json` + `locales/ar.json`. Active locale only (~26KB) loaded per session. All `t()` callsites converted to ICU `{var}` syntax.
 - **WS1 — Vitest unit tests.** 7 spec files targeting highest-risk zero-coverage code: `route-access`, `auth` hook, `DataTable`, `useSessionTimeout`, `use-notifications-stream`, `StatusBadge`. Adds `vitest`, `@testing-library/react`, `jsdom`, `msw` to clinic devDeps.
-- **WS2 — Playwright + MSW E2E.** 4 spec files (login, patients, appointments, rbac). `playwright.config.ts` points at `http://localhost:5173` — no `webServer: docker compose`. No CI job.
+- **WS2 — Playwright + MSW E2E. ✅ Shipped 2026-07-02 (AUD-FE-01).** 3 spec files (login→dashboard, create appointment, create billing invoice) via a shared `loginAs()` fixture; `playwright.config.ts` uses `webServer: pnpm dev` with `VITE_E2E=1` at `http://localhost:5173` (chromium only). Advisory `e2e` CI job (non-blocking). rbac + more flows are cheap follow-ups on the harness.
 - **WS4 — Accessibility audit.** `e2e/accessibility.spec.ts` using `@axe-core/playwright` against the same MSW-mocked frontend. Critical/serious filter only.
 
 ## Phase 7 — Product (post-launch)

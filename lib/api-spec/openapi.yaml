@@ -990,6 +990,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Prescription"
 
+  /prescriptions/{prescriptionId}/dispense:
+    post:
+      operationId: dispensePrescription
+      tags: [prescriptions]
+      summary: Pharmacist marks a prescription as dispensed
+      parameters:
+        - name: prescriptionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Prescription marked dispensed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prescription"
+
   /prescriptions/{prescriptionId}/send-to-pharmacy:
     post:
       operationId: sendPrescriptionToPharmacy
@@ -1030,7 +1049,11 @@ paths:
           in: query
           schema:
             type: string
-            enum: [requested, in_progress, completed]
+            enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of X-ray records
@@ -1190,7 +1213,11 @@ paths:
           in: query
           schema:
             type: string
-            enum: [requested, in_progress, completed]
+            enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of ultrasound records
@@ -1351,6 +1378,10 @@ paths:
           schema:
             type: string
             enum: [requested, in_progress, completed, cancelled]
+        - name: clearanceStatus
+          in: query
+          schema:
+            $ref: "#/components/schemas/ClearanceStatus"
       responses:
         "200":
           description: List of lab tests
@@ -1515,6 +1546,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/Invoice"
 
+  /billing/invoices/{invoiceId}/clearance-override:
+    post:
+      operationId: overrideInvoiceClearance
+      tags: [billing]
+      summary: Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClearanceOverrideBody"
+      responses:
+        "200":
+          description: Orders overridden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearanceOverrideResult"
+
   /billing/invoices/{invoiceId}/pay:
     post:
       operationId: payInvoice
@@ -1539,6 +1595,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Invoice"
+
+  /billing/invoices/{invoiceId}/payments:
+    get:
+      operationId: listInvoicePayments
+      tags: [billing]
+      summary: List the payment ledger and derived balance for an invoice
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Invoice payment ledger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoicePayments"
+    post:
+      operationId: recordInvoicePayment
+      tags: [billing]
+      summary: Record a payment (or negative adjustment/refund) against an invoice
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordPaymentBody"
+      responses:
+        "201":
+          description: Payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentResult"
 
   /billing/daily-summary:
     get:
@@ -1593,15 +1691,23 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of services
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ServiceCatalogItem"
+                $ref: "#/components/schemas/PaginatedServices"
     post:
       operationId: createService
       tags: [billing]
@@ -1693,15 +1799,23 @@ paths:
           schema:
             type: string
             format: date
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of operations
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Operation"
+                $ref: "#/components/schemas/PaginatedOperations"
     post:
       operationId: createOperation
       tags: [operations]
@@ -1781,15 +1895,23 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of inventory items
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/InventoryItem"
+                $ref: "#/components/schemas/PaginatedInventory"
     post:
       operationId: createInventoryItem
       tags: [inventory]
@@ -2041,15 +2163,23 @@ paths:
           required: true
           schema:
             type: integer
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of consents
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Consent"
+                $ref: "#/components/schemas/PaginatedConsents"
     post:
       operationId: grantPatientConsent
       tags: [consent]
@@ -2138,15 +2268,23 @@ paths:
           in: query
           schema:
             type: string
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of break-glass sessions
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BreakGlassSession"
+                $ref: "#/components/schemas/PaginatedBreakGlassSessions"
 
   /break-glass/sessions/{sessionId}/approve:
     post:
@@ -2192,15 +2330,24 @@ paths:
       operationId: listErasureRequests
       tags: [erasure]
       summary: List right-to-erasure requests
+      parameters:
+        - name: cursor
+          in: query
+          description: Opaque cursor (last id from previous page). Omit on the first request.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
       responses:
         "200":
           description: List of erasure requests
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ErasureRequest"
+                $ref: "#/components/schemas/PaginatedErasureRequests"
     post:
       operationId: createErasureRequest
       tags: [erasure]
@@ -2980,8 +3127,95 @@ paths:
         "204":
           description: Report accepted (or feature disabled — always 204)
 
+  # SEARCH
+  /search:
+    get:
+      operationId: globalSearch
+      tags: [search]
+      summary: Global search across patients, appointments, and medical records
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalSearchResults"
+
 components:
   schemas:
+    GlobalSearchResults:
+      type: object
+      properties:
+        patients:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              fullName:
+                type: string
+              fullNameAr:
+                type: string
+                nullable: true
+              mrn:
+                type: string
+              phone:
+                type: string
+                nullable: true
+              dateOfBirth:
+                type: string
+                nullable: true
+            required: [id, fullName, mrn]
+        appointments:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              reason:
+                type: string
+              status:
+                type: string
+              scheduledAt:
+                type: string
+              patientName:
+                type: string
+                nullable: true
+              patientMrn:
+                type: string
+                nullable: true
+            required: [id, reason, status, scheduledAt]
+        records:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              chiefComplaint:
+                type: string
+              createdAt:
+                type: string
+              patientName:
+                type: string
+                nullable: true
+              patientId:
+                type: integer
+            required: [id, chiefComplaint, createdAt, patientId]
+      required: [patients, appointments, records]
+
     HealthStatus:
       type: object
       properties:
@@ -3738,6 +3972,13 @@ components:
         notesAr:
           type: string
           nullable: true
+        dispensedAt:
+          type: string
+          format: date-time
+          nullable: true
+        dispensedById:
+          type: integer
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -3871,7 +4112,15 @@ components:
           nullable: true
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -3881,7 +4130,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, bodyPart, status, createdAt]
+      required: [id, patientId, requestedById, bodyPart, status, clearanceStatus, createdAt]
 
     CreateXrayBody:
       type: object
@@ -3921,7 +4170,7 @@ components:
           type: string
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
         notes:
           type: string
         notesAr:
@@ -3974,7 +4223,15 @@ components:
           nullable: true
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -3984,7 +4241,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, examType, bodyPart, status, createdAt]
+      required: [id, patientId, requestedById, examType, bodyPart, status, clearanceStatus, createdAt]
 
     CreateUltrasoundBody:
       type: object
@@ -4026,7 +4283,7 @@ components:
           type: string
         status:
           type: string
-          enum: [requested, in_progress, completed]
+          enum: [requested, in_progress, completed, cancelled]
         notes:
           type: string
         notesAr:
@@ -4064,6 +4321,14 @@ components:
         status:
           type: string
           enum: [requested, in_progress, completed, cancelled]
+        clearanceStatus:
+          $ref: "#/components/schemas/ClearanceStatus"
+        invoiceItemId:
+          type: integer
+          nullable: true
+        invoiceId:
+          type: integer
+          nullable: true
         notes:
           type: string
           nullable: true
@@ -4076,7 +4341,7 @@ components:
         createdAt:
           type: string
           format: date-time
-      required: [id, patientId, requestedById, testName, status, createdAt]
+      required: [id, patientId, requestedById, testName, status, clearanceStatus, createdAt]
 
     CreateLabTestBody:
       type: object
@@ -4140,6 +4405,10 @@ components:
         status:
           type: string
           enum: [pending, paid, cancelled]
+        kind:
+          type: string
+          enum: [manual, order_basket]
+          description: manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).
         paidAt:
           type: string
           format: date-time
@@ -4151,6 +4420,42 @@ components:
           type: string
           format: date-time
       required: [id, invoiceNumber, patientId, createdById, items, subtotal, discount, total, status, createdAt]
+
+    # Financial clearance of a clinical order (lab/x-ray/ultrasound) — orthogonal
+    # to the order's workflow status (ADR-011). pending = awaiting payment,
+    # workflow blocked; cleared = basket paid; overridden = emergency clearance
+    # (invoice stays pending); expired = never paid within TTL / basket cancelled.
+    ClearanceStatus:
+      type: string
+      enum: [pending, cleared, overridden, expired]
+
+    ClearanceOverrideBody:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 30
+          description: Clinical justification for performing before payment. Audited (EMERGENCY_CLEARANCE_OVERRIDE) and reviewed daily via the reconciliation report.
+      required: [reason]
+
+    ClearanceOverrideResult:
+      type: object
+      properties:
+        overriddenCount:
+          type: integer
+        counts:
+          type: object
+          properties:
+            lab:
+              type: integer
+            xray:
+              type: integer
+            ultrasound:
+              type: integer
+            total:
+              type: integer
+          required: [lab, xray, ultrasound, total]
+      required: [overriddenCount, counts]
 
     InvoiceItem:
       type: object
@@ -4222,6 +4527,84 @@ components:
           type: number
       required: [amountReceived]
 
+    RecordPaymentBody:
+      type: object
+      properties:
+        amount:
+          type: number
+          description: Amount in major units (e.g. 150.00). Negative only when method=adjustment (refund).
+        method:
+          type: string
+          enum: [cash, card, transfer, adjustment]
+        externalRef:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+      required: [amount, method]
+
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+        method:
+          type: string
+          enum: [cash, card, transfer, adjustment]
+        receivedById:
+          type: integer
+        receivedAt:
+          type: string
+          format: date-time
+        externalRef:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+
+    InvoicePayments:
+      type: object
+      properties:
+        invoiceId:
+          type: integer
+        invoiceTotal:
+          type: number
+        amountPaid:
+          type: number
+        balance:
+          type: number
+        status:
+          type: string
+        payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payment"
+
+    PaymentResult:
+      type: object
+      properties:
+        id:
+          type: string
+        invoiceId:
+          type: integer
+        amount:
+          type: number
+        method:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+        invoiceStatus:
+          type: string
+        amountPaid:
+          type: number
+        balance:
+          type: number
+
     DailyBillingSummary:
       type: object
       properties:
@@ -4272,7 +4655,27 @@ components:
               paidAt:        { type: string, format: date-time, nullable: true }
               createdByName: { type: string, nullable: true }
             required: [id, invoiceNumber, total]
-      required: [date, summary, payments]
+        # Emergency-overridden orders whose basket is still unpaid — the admin
+        # follow-up/collection list (ADR-011). Exact by construction (overridden
+        # order AND pending basket), not a date approximation.
+        overridesOutstanding:
+          type: object
+          properties:
+            orderCount:   { type: integer }
+            invoiceCount: { type: integer }
+            total:        { type: number }
+            invoices:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:            { type: integer }
+                  invoiceNumber: { type: string }
+                  patientName:   { type: string, nullable: true }
+                  total:         { type: number }
+                required: [id, invoiceNumber, total]
+          required: [orderCount, invoiceCount, total, invoices]
+      required: [date, summary, payments, overridesOutstanding]
 
     ServiceCatalogItem:
       type: object
@@ -5688,3 +6091,75 @@ components:
         revenueGenerated:
           type: number
       required: [month, totalAppointments, completedAppointments, noShowCount, revenueGenerated]
+
+    PaginatedInventory:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedOperations:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Operation"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedBreakGlassSessions:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BreakGlassSession"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedServices:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceCatalogItem"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedConsents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Consent"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]
+
+    PaginatedErasureRequests:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErasureRequest"
+        nextCursor:
+          type: integer
+          nullable: true
+      required: [data, nextCursor]

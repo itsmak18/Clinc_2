@@ -15,7 +15,7 @@ import type { RealDbHarness } from "./_helpers/realDb";
 import { startRealDb } from "./_helpers/realDb";
 
 let harness: RealDbHarness;
-let executeErasure: typeof import("../services/erasure.service").executeErasure;
+let executeErasure: typeof import("../modules/compliance/erasure.service").executeErasure;
 let db: any;
 let t: any; // table bag
 
@@ -36,7 +36,7 @@ function superAdminReq() {
 
 beforeAll(async () => {
   harness = await startRealDb();
-  ({ executeErasure } = await import("../services/erasure.service"));
+  ({ executeErasure } = await import("../modules/compliance/erasure.service"));
   t = await import("@workspace/db");
   db = t.db;
 

@@ -8,11 +8,15 @@ import { emitToUser } from "./lib/sse";
 import { usersTable } from "@workspace/db";
 import type { AppointmentStatus } from "./lib/appointment-state-machine";
 import type { Request } from "express";
-import { drainAuditOutbox, logAudit } from "./lib/audit";
+import { drainAuditOutbox, logAudit, SYSTEM_USER_ID } from "./lib/audit";
+import { reconcileBreakGlassAuditFallback } from "./lib/break-glass-audit";
+import { reconcileAuditOutboxFallback } from "./lib/audit-outbox-fallback";
 import { recordDailyIntegrity, verifyRecentIntegrity, verifyChainLinkage } from "./lib/audit-integrity";
 import { auditPartitionMonthsRemainingGauge } from "./lib/metrics";
-import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./services/csp-report.service";
-import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./services/imaging-attachments.service";
+import { purgeOldCspReports, DEFAULT_CSP_RETENTION_DAYS } from "./modules/audit/csp-report.service";
+import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./modules/imaging/imaging-attachments.service";
+import { expirePendingClearances } from "./modules/billing";
+import { config } from "./lib/config";
 
 // Tracks every cron task so the graceful-shutdown path can stop them before
 // the DB pool is drained (H7). Without this, an in-flight cron callback could
@@ -20,6 +24,8 @@ import { reconcileOrphanImagingFiles, DEFAULT_ORPHAN_GRACE_HOURS } from "./servi
 const scheduledTasks: ScheduledTask[] = [];
 
 let drainInterval: ReturnType<typeof setInterval> | null = null;
+let bgReconcileInterval: ReturnType<typeof setInterval> | null = null;
+let auditOutboxReconcileInterval: ReturnType<typeof setInterval> | null = null;
 
 /** Start the 5-second audit-outbox drain loop. Idempotent. */
 export function startAuditDrain(): void {
@@ -38,6 +44,126 @@ export function stopAuditDrain(): void {
   logger.info("Audit outbox drain stopped");
 }
 
+/**
+ * Start the 60-second break-glass audit fallback reconcile loop.
+ * Drains any JSONL lines from the local fallback sink into audit_logs and
+ * re-records daily integrity hashes for affected dates. Idempotent.
+ */
+export function startBgAuditReconcile(): void {
+  if (bgReconcileInterval) return;
+  bgReconcileInterval = setInterval(async () => {
+    try {
+      const result = await reconcileBreakGlassAuditFallback();
+      if (result.inserted > 0) {
+        logger.info(result, "bg_break_glass_audit_reconcile_tick");
+      }
+    } catch (err) {
+      logger.warn({ err }, "bg_break_glass_audit_reconcile_tick_failed");
+    }
+  }, 60_000);
+  bgReconcileInterval.unref();
+  logger.info("Break-glass audit fallback reconcile started (60s interval)");
+}
+
+/** Stop the break-glass audit fallback reconcile loop. Idempotent. */
+export function stopBgAuditReconcile(): void {
+  if (!bgReconcileInterval) return;
+  clearInterval(bgReconcileInterval);
+  bgReconcileInterval = null;
+  logger.info("Break-glass audit fallback reconcile stopped");
+}
+
+/**
+ * Start the 60-second audit-outbox write-failure fallback reconcile loop
+ * (AUD-SEAM-01). Drains any JSONL lines from the local fallback sink back
+ * into audit_outbox, where the normal 5s drain + hash-chain path picks them
+ * up like any other event. Idempotent.
+ */
+export function startAuditOutboxReconcile(): void {
+  if (auditOutboxReconcileInterval) return;
+  auditOutboxReconcileInterval = setInterval(async () => {
+    try {
+      const result = await reconcileAuditOutboxFallback();
+      if (result.inserted > 0) {
+        logger.info(result, "audit_outbox_fallback_reconcile_tick");
+      }
+    } catch (err) {
+      logger.warn({ err }, "audit_outbox_fallback_reconcile_tick_failed");
+    }
+  }, 60_000);
+  auditOutboxReconcileInterval.unref();
+  logger.info("Audit-outbox fallback reconcile started (60s interval)");
+}
+
+/** Stop the audit-outbox fallback reconcile loop. Idempotent. */
+export function stopAuditOutboxReconcile(): void {
+  if (!auditOutboxReconcileInterval) return;
+  clearInterval(auditOutboxReconcileInterval);
+  auditOutboxReconcileInterval = null;
+  logger.info("Audit-outbox fallback reconcile stopped");
+}
+
+export interface ClinicRetentionCounts {
+  overdueAuditLogs: number;
+  openErasureRequests: number;
+  softDeletedPatientsOverThirtyDays: number;
+}
+
+/**
+ * V-01: compute the data-retention figures PER CLINIC.
+ *
+ * Prior to the fix this ran as three GLOBAL COUNT(*) queries whose totals were
+ * pushed to every clinic's compliance officers — a cross-tenant leak the instant
+ * a second clinic onboards. Grouping by clinic_id keeps the tenant isolation the
+ * rest of the system enforces (audit_logs / erasure_requests / patients all carry
+ * clinic_id). Bare `db` (NOT runInTenantContext) is intentional: a system
+ * governance job must see every clinic so the caller can route each clinic's
+ * figures to that clinic's own officers.
+ *
+ * Kept as an exported, side-effect-free function (queries only — no SSE, no
+ * logging) so the isolation property (a clinic's entry reflects ONLY its own
+ * rows) is directly testable against a real Postgres.
+ */
+export async function computeRetentionByClinic(): Promise<Map<number, ClinicRetentionCounts>> {
+  const sevenYearsAgo = new Date();
+  sevenYearsAgo.setFullYear(sevenYearsAgo.getFullYear() - 7);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const [overdueByClinic, openByClinic, softDeletedByClinic] = await Promise.all([
+    db
+      .select({ clinicId: auditLogsTable.clinicId, count: sql<number>`count(*)` })
+      .from(auditLogsTable)
+      .where(lt(auditLogsTable.createdAt, sevenYearsAgo))
+      .groupBy(auditLogsTable.clinicId),
+    db
+      .select({ clinicId: erasureRequestsTable.clinicId, count: sql<number>`count(*)` })
+      .from(erasureRequestsTable)
+      .where(eq(erasureRequestsTable.status, "pending"))
+      .groupBy(erasureRequestsTable.clinicId),
+    // V-02: soft-deleted patients older than 30 days — NOT "pending erasure" (the
+    // old name implied an erasure-request join the query never performed).
+    db
+      .select({ clinicId: patientsTable.clinicId, count: sql<number>`count(*)` })
+      .from(patientsTable)
+      .where(lte(patientsTable.deletedAt, thirtyDaysAgo))
+      .groupBy(patientsTable.clinicId),
+  ]);
+
+  const perClinic = new Map<number, ClinicRetentionCounts>();
+  const forClinic = (clinicId: number): ClinicRetentionCounts => {
+    let row = perClinic.get(clinicId);
+    if (!row) {
+      row = { overdueAuditLogs: 0, openErasureRequests: 0, softDeletedPatientsOverThirtyDays: 0 };
+      perClinic.set(clinicId, row);
+    }
+    return row;
+  };
+  for (const r of overdueByClinic)     forClinic(r.clinicId).overdueAuditLogs = Number(r.count ?? 0);
+  for (const r of openByClinic)        forClinic(r.clinicId).openErasureRequests = Number(r.count ?? 0);
+  for (const r of softDeletedByClinic) forClinic(r.clinicId).softDeletedPatientsOverThirtyDays = Number(r.count ?? 0);
+  return perClinic;
+}
+
 // Start cron jobs
 export function startCronJobs() {
   logger.info("Starting background cron jobs...");
@@ -48,47 +174,26 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("0 3 1 * *", async () => {
     logger.info("[Cron] Running Data Retention Report");
     try {
-      const sevenYearsAgo = new Date();
-      sevenYearsAgo.setFullYear(sevenYearsAgo.getFullYear() - 7);
+      const perClinic = await computeRetentionByClinic();
 
-      const [auditOverdue] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(auditLogsTable)
-        .where(lt(auditLogsTable.createdAt, sevenYearsAgo));
+      logger.info(
+        { clinics: perClinic.size, report: Object.fromEntries(perClinic) },
+        "[Cron] Data Retention Report (per-clinic)",
+      );
 
-      const [pendingErasure] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(patientsTable)
-        .where(and(
-          lte(patientsTable.deletedAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
-          // Deleted more than 30 days ago and no executed erasure request
-        ));
-
-      const [openErasureRequests] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(erasureRequestsTable)
-        .where(eq(erasureRequestsTable.status, "pending"));
-
-      const overdueAuditCount = Number(auditOverdue?.count ?? 0);
-      const pendingErasureCount = Number(pendingErasure?.count ?? 0);
-      const openRequestCount = Number(openErasureRequests?.count ?? 0);
-
-      logger.info({
-        overdueAuditLogs: overdueAuditCount,
-        softDeletedPatientsOverThirtyDays: pendingErasureCount,
-        openErasureRequests: openRequestCount,
-      }, "[Cron] Data Retention Report");
-
-      if (overdueAuditCount > 0 || openRequestCount > 0) {
+      // Fan out each clinic's own numbers to that clinic's compliance officers
+      // only. Same-clinic officer query mirrors break-glass.service.ts.
+      for (const [clinicId, counts] of perClinic) {
+        if (counts.overdueAuditLogs === 0 && counts.openErasureRequests === 0) continue;
         const officers = await db
           .select({ id: usersTable.id })
           .from(usersTable)
-          .where(eq(usersTable.role, "compliance_officer"));
+          .where(and(eq(usersTable.clinicId, clinicId), eq(usersTable.role, "compliance_officer")));
 
         for (const officer of officers) {
           emitToUser(officer.id, "retention_report", {
-            overdueAuditLogs: overdueAuditCount,
-            openErasureRequests: openRequestCount,
+            overdueAuditLogs: counts.overdueAuditLogs,
+            openErasureRequests: counts.openErasureRequests,
           });
         }
       }
@@ -179,22 +284,48 @@ export function startCronJobs() {
 
         // F-P1-4: this bulk scheduled→no_show transition is a PHI-adjacent
         // mutation with no request context, so it previously left no audit
-        // trail (§164.312(b) gap). Record it under the system actor (SYSTEM_USER_ID
-        // / SYSTEM_CLINIC_ID via logAudit's no-req fallback). The write is
-        // deliberately cross-tenant (the rule is tenant-uniform); the affected
-        // appointment ids + their clinics are captured in details for review.
-        // One summary entry per run.
-        const systemReq = { headers: {} } as unknown as Request;
-        await logAudit(
-          systemReq,
-          "SYSTEM_NO_SHOW",
-          "appointment",
-          undefined,
-          { count: result.length, appointments: result },
-        );
+        // trail (§164.312(b) gap). Recorded under the system actor, one entry
+        // PER CLINIC attributed to that clinic: a single cross-tenant row
+        // would land under SYSTEM_CLINIC_ID (= clinic 1) with every clinic's
+        // appointment ids in its details — readable by clinic 1's compliance
+        // officers, since audit reads are WHERE-scoped to the caller's clinic.
+        const byClinic = new Map<number, number[]>();
+        for (const r of result) {
+          const ids = byClinic.get(r.clinicId) ?? [];
+          ids.push(r.id);
+          byClinic.set(r.clinicId, ids);
+        }
+        for (const [clinicId, appointmentIds] of byClinic) {
+          const systemReq = { headers: {}, user: { userId: SYSTEM_USER_ID, clinicId } } as unknown as Request;
+          await logAudit(
+            systemReq,
+            "SYSTEM_NO_SHOW",
+            "appointment",
+            undefined,
+            { count: appointmentIds.length, appointmentIds },
+          );
+        }
       }
     } catch (err) {
       logger.error({ err }, "[Cron] Failed to run No-show Auto-Transition");
+    }
+  }));
+
+  // Clearance-gate expiry sweep (hourly at :15 — offset from the :00 no-show
+  // job). Orders that sat clearance_status='pending' past CLEARANCE_TTL_HOURS
+  // expire, their basket charge lines are withdrawn, and an emptied basket is
+  // auto-cancelled. Runs regardless of CLEARANCE_GATE_ENABLED (data plane:
+  // pending rows only exist from flag-ON operation and must still drain after
+  // a rollback); writes one SYSTEM_CLEARANCE_EXPIRED audit per affected
+  // clinic per non-empty run (ADR-011).
+  scheduledTasks.push(cron.schedule("15 * * * *", async () => {
+    try {
+      const { expired, basketsCancelled } = await expirePendingClearances();
+      if (expired > 0) {
+        logger.info({ expired, basketsCancelled }, "[Cron] Clearance expiry sweep complete");
+      }
+    } catch (err) {
+      logger.error({ err }, "[Cron] Clearance expiry sweep failed");
     }
   }));
 
@@ -206,8 +337,7 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("30 3 * * *", async () => {
     logger.info("[Cron] Running CSP report retention purge");
     try {
-      const parsed = Number(process.env.CSP_REPORT_RETENTION_DAYS);
-      const retentionDays = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CSP_RETENTION_DAYS;
+      const retentionDays = config.cspReportRetentionDays || DEFAULT_CSP_RETENTION_DAYS;
       const purged = await purgeOldCspReports(retentionDays);
       logger.info({ purged, retentionDays }, "[Cron] CSP report retention purge complete");
     } catch (err) {
@@ -223,8 +353,7 @@ export function startCronJobs() {
   scheduledTasks.push(cron.schedule("0 4 * * *", async () => {
     logger.info("[Cron] Running imaging orphan-file reconciliation");
     try {
-      const parsed = Number(process.env.IMAGING_ORPHAN_GRACE_HOURS);
-      const graceHours = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ORPHAN_GRACE_HOURS;
+      const graceHours = config.imagingOrphanGraceHours || DEFAULT_ORPHAN_GRACE_HOURS;
       const summary = await reconcileOrphanImagingFiles(graceHours);
       logger.info({ ...summary, graceHours }, "[Cron] Imaging orphan-file reconciliation complete");
     } catch (err) {

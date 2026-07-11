@@ -21,7 +21,7 @@
 #        ./secrets/jwt_public_key            — Ed25519 SPKI PEM (advertised via /.well-known/jwks.json)
 #                                              node -e "const c=require('crypto');const {publicKey}=c.generateKeyPairSync('ed25519',{publicKeyEncoding:{type:'spki',format:'pem'}});process.stdout.write(publicKey)" > ./secrets/jwt_public_key
 #                                              IMPORTANT: jwt_private_key and jwt_public_key must be a matched pair.
-#                                              Use the rotation script to generate both atomically: see SECURITY.md §JWT key rotation.
+#                                              Use the rotation script to generate both atomically: see docs/SECURITY.md §JWT key rotation.
 #   3. TLS termination in front of this stack (see Caddy block below or D1 plan item)
 #
 # Pre-flight validation:
@@ -125,7 +125,9 @@ services:
 
         # Set medicore_app password from Docker secret (not committed to SQL).
         # apk is available in the build target image (same pattern as backup service).
-        apk add --no-cache postgresql-client > /dev/null 2>&1 || true
+        # Pinned to postgresql16-client (matches the postgres:16 server) — see backup
+        # service's identical pin for why (AUD-OPS-03).
+        apk add --no-cache postgresql16-client > /dev/null 2>&1 || true
         APP_PW="$$(cat /run/secrets/app_db_password)"
         psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 \
           -c "ALTER ROLE medicore_app LOGIN PASSWORD '$$APP_PW'"
@@ -134,7 +136,7 @@ services:
         # Pre-cutover smoke gate: verify medicore_app can connect and is a
         # non-superuser (NOSUPERUSER NOBYPASSRLS). If grants are wrong or the
         # role was somehow created as a superuser, this fails migrate → api/worker
-        # never start (cleaner than a crash-loop). See ADR-008-app-db-role.md.
+        # never start (cleaner than a crash-loop). See docs/adr/ADR-008-app-db-role.md.
         PGPASSWORD="$$APP_PW" psql \
           "postgresql://medicore_app@postgres:5432/${POSTGRES_DB}" \
           -v ON_ERROR_STOP=1 \
@@ -259,7 +261,7 @@ services:
   # device fingerprinting only (lib/device-fingerprint.ts).
   api:
     # Rollback support: pin a tagged image in .env (API_IMAGE=registry/medicore-api:<sha>)
-    # for production. Falls back to local build when API_IMAGE is unset. See RUNBOOK.md §1.2.
+    # for production. Falls back to local build when API_IMAGE is unset. See docs/RUNBOOK.md §1.2.
     image: ${API_IMAGE:-medicore-api:latest}
     build:
       context: .
@@ -279,9 +281,20 @@ services:
       # Persisted on the imaging_data volume — read_only rootfs does not apply to
       # mounted volumes. MUST be included in the backup set (see backup service).
       IMAGING_STORAGE_DIR: /data/imaging
-    # imaging_data is writable even though the rootfs is read-only (volume mount).
+      # Break-glass audit fallback sink — append-only JSONL when audit_logs insert fails.
+      # Reconciled back into audit_logs by the 60-second background loop (worker.ts).
+      # MUST be included in the backup set so no emergency-access audit is lost.
+      BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
+      # General audit-outbox write-failure fallback sink (AUD-SEAM-01) — append-
+      # only JSONL when the audit_outbox INSERT itself fails (distinct from the
+      # break-glass sink above). Reconciled back into audit_outbox by the same
+      # 60-second background loop (worker.ts). MUST be included in the backup set.
+      AUDIT_OUTBOX_FALLBACK_DIR: /data/audit-outbox
+    # imaging_data and bg_audit_data are writable even with read-only rootfs (volume mounts).
     volumes:
       - imaging_data:/data/imaging
+      - bg_audit_data:/data/bg-audit
+      - audit_outbox_fallback:/data/audit-outbox
     entrypoint: ["sh", "-c"]
     # ${POSTGRES_USER}/${POSTGRES_DB} interpolated by compose at parse time.
     # $$( ) escapes so command-substitution happens inside the container at run time.
@@ -329,7 +342,11 @@ services:
     # SIGKILL mid-drain. Set to 35s for a 5s margin.
     stop_grace_period: 35s
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:5000/api/health || exit 1"]
+      # Real route is /api/healthz (see health.routes.ts) — /api/health does not
+      # exist and was returning 404 forever, so the container never went healthy
+      # and clinic/prometheus/caddy (depends_on: service_healthy) never started.
+      # Node's global fetch (Node 24) avoids depending on the alpine wget binary.
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -368,11 +385,25 @@ services:
       SESSION_STORE:   redis
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS required}
       DB_POOL_MAX:     ${DB_POOL_MAX:-40}
+      # AUD-OPS-04: worker's /healthz + /metrics listener port — must match
+      # monitoring/prometheus/prometheus.yml's "medicore-worker" scrape target
+      # (worker:5001) and the healthcheck probe below.
+      WORKER_METRICS_PORT: "5001"
       # Same imaging volume as api — the erasure path purges image files, and
       # mounting it keeps the worker able to operate on them if moved here later.
       IMAGING_STORAGE_DIR: /data/imaging
+      # Break-glass audit fallback sink — same volume as api so the 60-second
+      # reconcile loop in the worker drains whichever process wrote to it.
+      BREAK_GLASS_AUDIT_FALLBACK_DIR: /data/bg-audit
+      # General audit-outbox write-failure fallback sink (AUD-SEAM-01) — append-
+      # only JSONL when the audit_outbox INSERT itself fails (distinct from the
+      # break-glass sink above). Reconciled back into audit_outbox by the same
+      # 60-second background loop (worker.ts). MUST be included in the backup set.
+      AUDIT_OUTBOX_FALLBACK_DIR: /data/audit-outbox
     volumes:
       - imaging_data:/data/imaging
+      - bg_audit_data:/data/bg-audit
+      - audit_outbox_fallback:/data/audit-outbox
     entrypoint: ["sh", "-c"]
     command:
       - |
@@ -410,6 +441,18 @@ services:
       pgbouncer:
         condition: service_healthy
     stop_grace_period: 35s
+    # AUD-OPS-04: the worker previously had no healthcheck (no listener existed
+    # to probe). Its raw http.Server (worker.ts) now answers an unauthenticated
+    # /healthz on WORKER_METRICS_PORT — liveness only, no telemetry, same
+    # Node-fetch probe shape as the api healthcheck (no reliance on the alpine
+    # wget binary). Also gives Prometheus's worker:5001/metrics scrape a real
+    # target instead of a permanent ServiceDown false-critical.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     mem_limit: 1g
     cpus: 1.0
     pids_limit: 200
@@ -439,19 +482,17 @@ services:
       api:
         condition: service_healthy
     # In prod, clinic is reachable from Caddy/Traefik only (D1).
-    # If running without an edge proxy, change to "80:80" — but you then lose TLS.
+    # If running without an edge proxy, publish "80:8080" — but you then lose TLS.
     expose:
-      - "80"
+      - "8080"
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 100
+    # nginx-unprivileged starts as UID 101 and listens on 8080 (>1024) — no
+    # capabilities needed (previously CHOWN/SETGID/SETUID for the root→worker
+    # drop plus NET_BIND_SERVICE for :80).
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     logging:
@@ -509,6 +550,13 @@ services:
     restart: always
     environment:
       REDIS_ADDR: "redis://redis:6379"
+      # Redis enforces --requirepass (see redis service above); without this the
+      # exporter authenticates as nobody and either errors or (pre-Redis 6 ACL
+      # semantics) silently returns no data — RedisHighMemory alert goes dark.
+      # Native file-secret support, no shell needed (this image tag is scratch-based).
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
     read_only: true
     cap_drop:
       - ALL
@@ -734,8 +782,11 @@ services:
       - |
         set -eu
         export DATABASE_URL="postgresql://${POSTGRES_USER}:$$(cat /run/secrets/postgres_password)@postgres:5432/${POSTGRES_DB}"
-        # Install gpg + openssh + rsync (image is alpine-based; quick & cached).
-        apk add --no-cache gnupg openssh-client rsync >/dev/null 2>&1 || true
+        # Install postgresql16-client (pg_dump/psql — pinned to the server's major
+        # version to avoid the PG17/18 client `transaction_timeout` incompatibility
+        # backup-verify.mjs already works around) + gpg + openssh + rsync.
+        apk add --no-cache postgresql16-client gnupg openssh-client rsync >/dev/null 2>&1
+        command -v pg_dump >/dev/null || { echo "[backup] FATAL: pg_dump missing after apk add — DR is non-functional"; exit 1; }
         # rsync-over-SSH offsite uploader. {FILE} substituted by backup-verify.mjs.
         # StrictHostKeyChecking=accept-new pins on first use; subsequent mismatches abort.
         if [ -n "$${BACKUP_RSYNC_TARGET:-}" ]; then
@@ -760,6 +811,13 @@ services:
               tar czf "/backups/imaging-$$CURRENT_DAY.tar.gz" -C /data/imaging . 2>/dev/null \
                 && echo "[backup] imaging snapshot OK" || echo "[backup] imaging snapshot skipped (empty?)"
               find /backups -name 'imaging-*.tar.gz' -mtime +$${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
+              # Snapshot the audit-outbox write-failure fallback sink (AUD-SEAM-01)
+              # so an unreconciled JSONL line survives even if the DB is lost too —
+              # in steady state this is near-empty (reconciled + truncated every 60s),
+              # but during a sustained audit-DB outage it can hold real un-drained events.
+              tar czf "/backups/audit-outbox-fallback-$$CURRENT_DAY.tar.gz" -C /data/audit-outbox . 2>/dev/null \
+                && echo "[backup] audit-outbox fallback snapshot OK" || echo "[backup] audit-outbox fallback snapshot skipped (empty?)"
+              find /backups -name 'audit-outbox-fallback-*.tar.gz' -mtime +$${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
               sh /opt/monitoring/backup-metrics.sh || echo "[backup] textfile write failed"
               echo "[backup] Daily backup SUCCESS"
             else
@@ -782,7 +840,13 @@ services:
       - backup_data:/backups
       - backup_metrics:/metrics
       - imaging_data:/data/imaging:ro   # read-only — snapshot the encrypted study files
+      - bg_audit_data:/data/bg-audit:ro # read-only — snapshot break-glass audit fallback sink
+      - audit_outbox_fallback:/data/audit-outbox:ro # read-only — snapshot audit-outbox write-failure fallback sink
       - ./monitoring/backup-metrics.sh:/opt/monitoring/backup-metrics.sh:ro
+      # scripts/ is excluded from the build context (.dockerignore) so the image
+      # never contains backup-verify.mjs — bind-mount it directly. The script
+      # only imports node builtins, so a single-file mount is sufficient.
+      - ./scripts/backup-verify.mjs:/app/scripts/backup-verify.mjs:ro
       # GPG keyring is read-only — the backup container only needs the recipient
       # PUBLIC key to encrypt. The private key lives on the restore host only
       # (see docs/BACKUP_KEY_MANAGEMENT.md). For dev or single-host setups where
@@ -829,6 +893,14 @@ volumes:
   imaging_data:       # Uploaded X-ray / ultrasound image files (AES-256-GCM at rest).
                       # Mounted rw into api+worker, ro into backup. Mount a host
                       # path or NFS in prod for durability beyond container lifetime.
+  bg_audit_data:      # Break-glass audit fallback JSONL sink.
+                      # Mounted rw into api+worker (both may append), ro into backup.
+                      # Reconciled into audit_logs by the 60-second worker loop.
+                      # Mount a host path or NFS for durability beyond container lifetime.
+  audit_outbox_fallback: # General audit-outbox write-failure fallback JSONL sink (AUD-SEAM-01).
+                      # Mounted rw into api+worker (both may append), ro into backup.
+                      # Reconciled into audit_outbox by the 60-second worker loop.
+                      # Mount a host path or NFS for durability beyond container lifetime.
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 # All files: mode 0600 owned by the deploy user. Never check into git.
@@ -841,7 +913,7 @@ volumes:
 #   # JWT key pair — generate both atomically:
 #   node -e "const c=require('crypto');const kp=c.generateKeyPairSync('ed25519',{privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});require('fs').writeFileSync('./secrets/jwt_private_key',kp.privateKey);require('fs').writeFileSync('./secrets/jwt_public_key',kp.publicKey)"
 # Then: chmod 600 ./secrets/*
-# Rotation: see SECURITY.md §"JWT key rotation" and §"Secret rotation".
+# Rotation: see docs/SECURITY.md §"JWT key rotation" and §"Secret rotation".
 secrets:
   postgres_password:
     file: ./secrets/postgres_password

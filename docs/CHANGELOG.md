@@ -1,5 +1,334 @@
 # Changelog
 
+## Clearance gate — max-effort code-review fixes (2026-07-07)
+
+`/code-review max` over the Phase A + schedule working diff surfaced 15 findings (13 confirmed, 2 refuted); all confirmed items fixed:
+
+- **Basket pay/append races (the two review P0s).** `payInvoice` validated `amountReceived` against a pre-transaction snapshot of the invoice total, so a charge appended concurrently (clinician ordering mid-payment) was flipped `cleared` without the collected cash covering it — and conversely a charge could land on an already-paid, frozen basket and strand its order (`pending` clearance on a settled invoice, unpayable and un-overridable). Fix: `lockBasket(tx, clinicId, patientId)` extracted from `findOrCreateBasket`; `payInvoice` and `recordPayment` now run entirely in-tx, take the same per-(clinic,patient) advisory lock for `order_basket` invoices, and re-read the invoice under the lock before validating/settling. `settleInvoiceOrders` is now kind-guarded (manual invoices never scan the three order tables).
+- **Cross-tenant system-audit leak.** The expiry sweep wrote ONE `SYSTEM_CLEARANCE_EXPIRED` row that `buildAuditRow` attributed to `SYSTEM_CLINIC_ID` (= clinic 1) with every clinic's order ids in `details` — readable by clinic 1's compliance officers (audit reads are WHERE-scoped per clinic). Now one row per affected clinic (`user: { userId: SYSTEM_USER_ID, clinicId }`), each carrying only that clinic's orders. Same fix applied to the pre-existing `SYSTEM_NO_SHOW` cron (identical pattern, F-P1-4 follow-up).
+- **Flag semantics made explicit (control vs data plane).** Flipping `CLEARANCE_GATE_ENABLED` off after a flag-ON period used to orphan in-flight pending baskets forever (the sweep early-returned on the flag). Control plane (pending creation, workflow guard, override endpoint) stays flag-gated; data plane (settle-on-pay, expiry sweep) now runs unconditionally — it only touches rows that can exist from flag-ON operation, so it is naturally inert otherwise and drains leftovers after a rollback.
+- **Catalog codes made unique (migration `0043`).** `(clinic_id, code)` had a plain index; duplicate live codes made the auto-charge price nondeterministic (unordered `LIMIT 1`). Now a partial UNIQUE index (`code IS NOT NULL AND deleted_at IS NULL`) + friendly duplicate-code 400 in `createService`/`updateService` + seed skips by code as well as name.
+- **Schedule dialogs close only on success.** `BlockDialog`/`OverrideDialog` closed unconditionally after a fire-and-forget `mutate()`, losing the user's input on a failed save. `useDoctorSchedule` exposes `mutateAsync`-backed `upsertBlock`/`upsertOverride`; submit handlers await and keep the dialog open on error.
+- **Dedup/cleanup.** Server: `clearanceBlocksProgress()` (one guard, was 3 copies), `canRoleSettleInvoiceKind()` policy fn (front_desk rule was in 3 unsynchronized places), `removeOrderCharge` takes the modality (1 detach UPDATE instead of 3), billing barrel trimmed to consumed exports. Frontend: `lib/clearance.ts` (`isClearanceLocked`/`canOverrideClearance`/`canPayInvoiceKind`, was 4 copies), `WEEK_DAYS` hoisted to `lib/datetime.ts` (was 2 copies).
+- **Refuted (no change):** reconciliation `overridesOutstanding` summing full basket totals (documented invoice-level semantic — baskets settle atomically); invoice-number format change unconditional (deliberate collision fix, counter-table based).
+- Known-accepted residue: the expiry sweep still removes charges per order inside one tx (N+1) — hourly cron, bounded by TTL window; batch per table if it ever shows in timings.
+
+## Financial clearance gate — Phase A (ADR-011), flag-OFF (2026-07-05)
+
+No chargeable diagnostic (lab / x-ray / ultrasound) is performed before financial clearance exists. Full design + rationale in `docs/adr/ADR-011-financial-clearance-gate.md`; everything behind `CLEARANCE_GATE_ENABLED` (default OFF, byte-identical off).
+
+- **Schema (migrations 0041 + 0042):** 0041 adds `cancelled` to `xray_status`/`ultrasound_status` (ADD VALUE alone in its own file — imaging orders were previously uncancellable). 0042 adds `clearance_status` enum (`pending|cleared|overridden|expired`, default `cleared` — grandfathers all rows) + `invoice_item_id` FK on the three order tables, `invoices.kind` (`manual|order_basket`), the `invoice_open_basket_uq` partial unique index (one open basket per patient), and a catalog `(clinic_id, code)` index.
+- **Basket + auto-charge:** order create (flag ON) = one `runInTenantContext` tx: order inserted `pending` → per-patient basket found-or-created (serialized by `pg_advisory_xact_lock`; the unique index is the backstop) → `invoice_items` line priced by catalog code (`LAB_DEFAULT`/`XRAY_DEFAULT`/`US_DEFAULT`; `serviceId` populated for the first time; zero/missing price → 0.00 line + `clearance_zero_price_charge` warn). `modules/billing/clearance.service.ts` owns the lifecycle; invoice numbering extracted to `invoice-number.ts`.
+- **Settlement flips clearance in-tx:** `payInvoice` + `recordPayment` (ledger fully covered) call `settleInvoiceOrders` inside the paying tx → linked orders `pending→cleared`. Refund back to pending does NOT un-clear (documented). `cancelInvoice` on a basket expires its pending orders.
+- **Front desk settles baskets (Mike's desk flow):** pay route now allows `front_desk` for `kind='order_basket'` only (service-enforced 403 otherwise) — front desk marks the request paid; the department sees it and knows it may process. Manual invoices keep the original front_desk-creates / billing-settles SoD; the 30s creator≠payer gate is unaffected (basket creator = ordering clinician).
+- **Workflow guard:** `updateLabTest/updateXray/updateUltrasound` reject `in_progress`/`completed` while not cleared/overridden → 409 `CLEARANCE_REQUIRED` (3020, new error class; `asyncHandler` maps it). Cancel always allowed; cancelling a pending order withdraws its line, recomputes totals, auto-cancels an emptied basket, sets clearance `expired`.
+- **Emergency override:** `POST /billing/invoices/:id/clearance-override` (doctor/nurse/admin, reason ≥30, audited `EMERGENCY_CLEARANCE_OVERRIDE`) flips pending orders to `overridden`; invoice STAYS pending. Reconciliation gains `overridesOutstanding` (overridden orders on still-unpaid baskets — the daily review/collection list).
+- **Expiry cron:** hourly `15 * * * *` sweep expires orders pending past `CLEARANCE_TTL_HOURS` (48) + cleans baskets; one `SYSTEM_CLEARANCE_EXPIRED` summary audit per non-empty run. New env: `CLEARANCE_GATE_ENABLED`, `CLEARANCE_TTL_HOURS` (typed config).
+- **API/codegen:** order schemas gain `clearanceStatus` (+`invoiceItemId`/`invoiceId`), imaging enums gain `cancelled`, `Invoice.kind`, `clearanceStatus` list filters, override endpoint + bodies; Orval re-run.
+- **Frontend:** `ClearanceChip` (amber "Awaiting payment" / blue "Emergency override" / rose "Payment expired"; silent when cleared) on Lab/XRay/Ultrasound rows + expanders; status controls locked to cancel-only while unpaid; `OverrideClearanceDialog` (reason ≥30) on the order pages + Billing; Billing shows basket badge + role-aware Pay Now; 9 bilingual i18n keys.
+- **Latent multi-tenant bug fixed en route:** `invoice_number` is globally UNIQUE but counters are per clinic — two clinics collide the moment sequences overlap in a month. Generator now emits `INV-<clinicId>-<YYYYMM>-<seq>`; existing rows keep their old numbers.
+- **Pre-existing broken test fixed:** `audit-system-actor-drain.integration-db.test.ts` statically imported `lib/audit` → eager `@workspace/db` pool at collection (throws without `DATABASE_URL`; with it, drains into the DEV database and rows accumulate across runs). Converted to the house dynamic-import pattern; dev DB scrubbed of 6 stray `seam07-*` rows.
+
+Verified: unit 590/590 (incl. 6 new clearance tests), `clearance-gate.integration-db.test.ts` 6/6 on real Postgres (basket sharing, 3020 guard, front_desk basket-pay + manual-403, override incl. cross-tenant 404, cancel/expiry basket cleanup, parallel-create uniqueness, imaging `cancelled`), full integration-db suite green, typecheck clean, codegen clean. Frontend suite + lint + build in the final verify pass.
+
+## Audit remediation Phase D — supply-chain hardening (F-08); F-05/F-06 dispositions (2026-07-04)
+
+- **F-08 (Low) — digest-pinned base images.** `Dockerfile` (`node:24-alpine`) and `Dockerfile.clinic` (`node:24-alpine` + `nginx:1.27-alpine`) pinned their bases by mutable tag, so the tag could be repointed upstream between builds (non-reproducible + a supply-chain window). All four registry `FROM` lines now pin `@sha256:<digest>` (resolved 2026-07-04). New `ci.yml` lint guard fails any Dockerfile base image that isn't digest-pinned (internal stage refs skipped). Bump via Renovate/Dependabot.
+- **F-05 (Low) — E2E gate: withdrawn.** On inspection the `e2e` job is explicitly labelled *advisory* and runs on **every** push/PR (uploads a Playwright report), so it does not rot silently — it is non-blocking by deliberate design. Promoting it to a required gate would override that intentional choice without evidence the suite is stable; left as-is.
+- **F-06 (Low) — client date TZ: deferred.** `datetime.ts` (`getWeekStart`/`addDays` in browser-local TZ) is part of an **uncommitted** schedule-feature WIP in the working tree. Fixing it now would entangle with in-progress work; deferred until that lands, then compute against the clinic timezone (JWT `timezone` claim) with a TZ-pinned test.
+
+## Audit remediation Phase C — append-only payments ledger (F-02) (2026-07-04)
+
+Previously an invoice had a single `status` (pending → paid) and no record of money actually received — refunds, partial payments, and per-transaction reconciliation were impossible to reconstruct. Added a payments ledger as the financial record of truth. **Scope decision (with Mike):** ledger only; the existing invoice `numeric(10,2)` columns are left as-is — Phase B already made all arithmetic exact, so migrating them to `*_cents` would be pure risk on live money data for zero correctness gain.
+
+- **New `payments` table** (migration `0040`): uuid PK, `amount_cents bigint` (positive = received, negative = refund/adjustment), `method` enum (cash/card/transfer/adjustment), `received_by_id`, `received_at`, `external_ref`, `notes`. **Append-only** — UPDATE/DELETE revoked from `medicore_app` (mirrors `audit_logs`/0026); dormant-0015 tenant `tenant_isolation` RLS policy + `CHECK(clinic_id>0)` + `CHECK(amount_cents<>0)`. Test harness (`_helpers/realDb.ts`) re-revokes after its blanket grant, exactly as it does for audit_logs.
+- **`payments.service.ts` + `payments.routes.ts`**: `POST/GET /billing/invoices/:id/payments`. `recordPayment` inserts a ledger row and derives invoice status from `SUM(amount_cents)` (fully covered → paid; a refund drops it back to pending) inside one `runInTenantContext` tx; guards overpayment and over-refund; refunds must use `adjustment`. Record = billing_manager/admin/super_admin (SoD); view adds front_desk.
+- **Complete ledger**: the fast-payment paths (`createInvoice` markPaid, `payInvoice`) now also write a ledger row atomically, so every paid invoice's ledger sums to its total.
+- **API + frontend**: `openapi.yaml` gains the two endpoints + `RecordPaymentBody`/`Payment`/`InvoicePayments`/`PaymentResult` (codegen re-run). `Billing.tsx` gains a payment-ledger dialog (summary + ledger list + record-payment/refund form, role-gated), 14 new bilingual i18n keys.
+
+Verified on real Postgres: `payments-ledger.integration-db.test.ts` 7/7 (partial→paid, overpay reject, refund→pending, both fast-paths write rows, tenant isolation 404, append-only UPDATE/DELETE denied). Unit 584/584, billing atomicity + clinic-leak integration 4/4, frontend 51/51 (i18n parity), typecheck + lint + migration-drift clean.
+
+## Audit remediation Phase B — money arithmetic hardening (F-01) (2026-07-04)
+
+Invoice money is stored as exact `numeric(10,2)`, but the service layer parsed it with `parseFloat` and summed it with JS floating point — so aggregating many invoices accumulated binary-float error (the `0.1 + 0.2 = 0.30000000000000004` class) and a reconciliation total could drift off the true figure. Fixed by moving all money math into integer cents.
+
+- **New `lib/money.ts`** — `parseMoneyToCents` (exact, no `parseFloat`; string or number), `sumCents`, `formatCents`, `centsToNumber`. 11 unit tests including the `0.1 + 0.2` case and a 1000-item accumulation.
+- **All aggregation/compare converted to cents**: `billing.service.ts` (`createInvoice` subtotal/discount/total, `payInvoice` compare, `getDailySummary`, `getBillingReconciliation`), `dashboard.service.ts` (11 revenue sites — the `Math.round(x*100)/100` float band-aids are now unnecessary and removed), `patients.service.ts` (outstanding balance). `reports.service.ts` reduces are on integer counts, not money — untouched.
+- Storage still `numeric(10,2)` this phase (Phase C migrates to `*_cents`); values are written via `formatCents`, so stored amounts are byte-identical to before for valid inputs — no data change.
+
+Verified: typecheck + lint clean, unit suite 584/584 (+11 money), billing atomicity integration-db 2/2 on real Postgres (createInvoice cents storage end-to-end).
+
+## Audit remediation Phase A — tenant-isolation & audit hotfixes (2026-07-04)
+
+Independent verification audit (2026-07-04) surfaced a cross-tenant leak in a background cron plus two smaller hardening gaps. Phase A of the remediation plan:
+
+- **V-01 (Medium, cross-tenant leak) — Data Retention Report cron.** `cron.ts` computed three GLOBAL `COUNT(*)` figures (overdue audit logs, pending erasure requests) and pushed the system-wide totals to **every** clinic's compliance officers — bypassing the tenant isolation the rest of the system enforces (dormant on single-clinic, a live leak the instant a 2nd clinic onboards). Rewritten to aggregate **per clinic** (`GROUP BY clinic_id`) and fan each clinic's numbers out only to that clinic's officers (same-clinic query mirrors `break-glass.service.ts`). Extracted the computation into an exported, side-effect-free `computeRetentionByClinic()` for testability. New real-Postgres test `retention-report-tenant-isolation.integration-db.test.ts` seeds two clinics with asymmetric counts and proves no clinic sees another's rows.
+- **V-02 (Low) — mislabeled metric.** The same cron's `pendingErasure` figure was actually "soft-deleted patients > 30 days" (the query never joined erasure_requests). Renamed to `softDeletedPatientsOverThirtyDays`; log-only, now per-clinic.
+- **V-03 (Low) — logout revocation fail-open.** On a revocation-store outage, logout cleared the cookie but the token stayed valid to TTL, logged only as `warn`. Now raises to `error`, increments the new `logout_revocation_failures_total` metric, and returns `{ fullyLoggedOut: false }` so the client can react. Tests added to `auth-flow.integration.test.ts`.
+- **F-07 (Medium, prevention) — CI guard for `dbUnsafe`.** New `ci.yml` lint step: every service file importing the raw non-RLS `dbUnsafe` client must carry a `// dbUnsafe:` justification comment (enforces a previously docs-only rule; a forgotten clinic filter on a raw query is the highest-probability future cross-tenant leak). Added the missing justification to `break-glass.service.ts`.
+
+Verified: typecheck + lint clean, F-07 guard green (26 justified importers), V-01 integration-db 3/3 on real Postgres, full unit suite 573/573.
+
+## fph disable-lever hardening (AUD-SEC-07 / F13) (2026-07-02)
+
+The two fingerprint emergency levers were honored in production with no NODE_ENV guard, no TTL, and no metric/alert — an operator (or a stale/leaked env) setting `FINGERPRINT_BINDING=disabled` would silently disable stolen-token-replay protection indefinitely with nothing surfacing it.
+
+- **Centralized** both levers in new `artifacts/api-server/src/lib/fingerprint-lever.ts` (`fingerprintBypassActive()` + `fphGrandfatherActive()`). The kernel (`policy.ts`) and the legacy verifier (`auth.ts`) now call it instead of each re-reading `process.env` inline, so their behavior can't drift. Reads env live (test-mutability), same rationale as `checkMetricsAuth`.
+- **Prod TTL guard (fail-secure):** in production `FINGERPRINT_BINDING=disabled` is honored **only** while `now < FINGERPRINT_BINDING_EXPIRES_AT` (new env var). No TTL or an expired one ⇒ the bypass is refused and fph re-enforces — a forgotten flag re-enables protection on its own instead of staying off forever. Dev/test behavior unchanged (existing "disabled bypasses check" unit test stays green under `NODE_ENV=test`).
+- **Observability:** throttled loud `warn` on every engage / prod-refusal; new `fingerprint_binding_disabled` Prometheus gauge (set at scrape in `renderMetrics`, reflects the TTL-honored effective state) driving a new **`FingerprintBindingDisabled`** critical alert (`> 0 for 5m`) in the `medicore-security-alerts` group.
+- **Grandfather window** (`FPH_GRANDFATHER_UNTIL`) already self-expires by token `iat`; centralized for parity, logic unchanged.
+- Docs: RUNBOOK §5 rewritten to require the TTL, CLAUDE.md env + Security-Architecture row updated. Tests: `fingerprint-lever.test.ts` (8) — prod no-TTL/expired refused, valid-TTL honored, dev honored, grandfather cutoff. Code landed in `d5458e3`.
+
+## Independent architecture audit + Phase 1 remediation (2026-07-02)
+
+Third audit in four days — an independent re-derivation against the live tree (not a copy of the 06-29
+or 07-01 reports), written to [docs/ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md).
+Verdict: strong, boring-in-the-good-way modular monolith (8.5/10 architecture, 9.0/10 security); the
+real risk is an unproven production deployment, not the code. Every finding carries a suggested fix
+(§13b); three genuinely-low-risk ones were actioned same day. One quick-win was retracted mid-execution
+after re-verification — see below, kept in the report for auditability rather than silently dropped.
+
+- **F1 — worker healthcheck gap closed.** The `compose-validate` CI gate (`docker compose config -q` +
+  route-existence check, already blocking in `ci-gate` since the 2026-07-01 `AUD-OPS-01` fix) validated
+  the api container's `/api/*` healthcheck but not the worker's — `worker.ts` runs a raw
+  `http.createServer` with a hardcoded `req.url === "/healthz"` check on port 5001, invisible to the
+  Express-route grep. Extended `.github/workflows/ci.yml`'s existing healthcheck step to also assert the
+  compose worker healthcheck path matches worker.ts's literal string. Dry-run verified locally against
+  the real compose files before landing.
+- **F5 — alerting added for the general audit-outbox fallback path.** `lib/audit-outbox-fallback.ts`
+  (`AUD-SEAM-01`, landed earlier the same day) already counts `audit_outbox_fallback_total` /
+  `_write_failures_total` / `_pending`, but no Prometheus alert consumed them — the break-glass fallback
+  path had full 3-tier alerting, this one (which covers every ordinary PHI read via `logRead`→
+  `logAudit`) had none. Added `AuditOutboxFallbackUsed` / `AuditOutboxFallbackLoss` /
+  `AuditOutboxFallbackBacklog` to `prometheus-alerts.yml`, mirroring the existing
+  `BreakGlassAuditFallback*` block's structure/severity/wording. `AuditOutboxFallbackLoss` (critical) is
+  the alert that makes the "PHI read returns 200 even if the durable sink AND its fallback both fail"
+  gap from the audit visible instead of silent — deliberately does not make reads block on audit-DB
+  health (that would trade availability for a marginal completeness gain).
+- **F9 — retracted, not fixed.** The audit's own draft originally claimed "5 raw `fetch()` calls in
+  `pages/**`" bypassing the generated API client. Re-verifying with a word-boundary grep before touching
+  any code found the match was `refetch(` — TanStack Query's own callback — not `fetch(`. Actual count in
+  `pages/**` is zero; the CI guard already covers both `fetch("/api/…")` and `fetch(apiUrl(…))`. The only
+  2 raw `fetch()` calls in the frontend are in `hooks/auth.tsx` (session-bootstrap on mount + logout,
+  the latter correctly attaching `X-CSRF-Token` by hand) — legitimate exceptions, not migrated.
+- **Deliberately not done:** flattening the nested `Clinic-Hub/Clinic-Hub` root (F11) — touches every CI
+  path, Docker build context, and the `backups`/`storage` symlinks; scoped as its own dedicated,
+  separately-verified change, not bundled with the safe quick wins. The 7-file doctor-schedule WIP
+  already in the working tree was left untouched throughout (not mine to stash/land).
+
+Verification: YAML-parsed both edited files (`ci.yml`: 13 jobs, `compose-validate` step count unchanged,
+still in `ci-gate.needs`; `prometheus-alerts.yml`: 25 rules total, 3 new alert names present, no
+duplicates) and dry-ran the new/existing healthcheck grep logic against the real compose files locally
+— no Docker daemon on this host to run the jobs themselves.
+
+---
+
+## E2E test layer — Playwright + MSW (AUD-FE-01) COMPLETE (2026-07-02)
+
+Closes the last audit High from the 2026-07-01 board review: the frontend had strong unit coverage (51 vitest) but no test exercised a real user flow through the rendered app. Stands up a browser-mocked Playwright harness — no backend/DB needed.
+
+- **Harness** (committed `e31dd39`): `@playwright/test` + `msw` (chromium only). MSW handlers in `artifacts/clinic/src/mocks/{handlers,browser}.ts` with response shapes copied from `lib/api-spec/openapi.yaml` (not guessed). Worker started from `main.tsx` behind an `import.meta.env.VITE_E2E` gate — dynamic-imported and awaited before render, statically dead-code-stripped from prod builds (verified: no MSW symbols in `dist/public/assets`). Runs against `vite dev` (PROD=false) so the app's own prod service worker stays dormant and doesn't collide with MSW's.
+- **Specs** (`e2e/specs/`): 3 critical flows — login→dashboard, create appointment, create billing invoice — driven through a shared `loginAs()` fixture. In-memory session + stores in the handlers make a created row visible to the next list GET (proves create→refetch→render).
+- **CI:** new advisory `e2e` job (chromium install → `test:e2e` → upload report). Deliberately **NOT** in `ci-gate.needs` — runs on every PR, failures visible, but non-blocking so E2E flake never gates a merge. (Supersedes the earlier Phase-5 "no CI" plan.)
+- **Refinement (2026-07-02):** added MSW handlers for the authed shell's background polling (`/api/notifications`, a never-closing `/api/notifications/stream` SSE, `/api/dashboard/front-desk`) — without them these fell through MSW to the dead vite proxy, spamming ECONNREFUSED + a 5s EventSource reconnect storm. Suite now runs clean (10.3s, zero proxy errors).
+
+Verification: **3/3 e2e** · **51/51 vitest** (e2e/ excluded from the vitest glob) · typecheck clean · prod bundle confirmed MSW-free.
+
+---
+
+## Feature-module migration — clinical module + migration COMPLETE (2026-06-29)
+
+Twelfth and final module. **Clinical** = the EHR core: patients, appointments (visit state-machine hub), medical-records, prescriptions, vitals, lab, schedule (+ `schedule.slots` helper), clinic-notices. With this, the backend is fully migrated from technical-layer-first (`routes/` + `services/`) to feature modules under `src/modules/`.
+
+- **Moved** (17 files, `git mv`): 8 routes + 8 services + `schedule.slots.ts`.
+- **The hub, repointed.** `appointments.service.autoAdvanceVisit` is consumed cross-module — the already-migrated **billing** and **imaging** (xray/ultrasound) modules now import `../clinical/appointments.service` (was `../../services/`). Clinical → compliance edges (medical-records→consent; prescriptions→consent+break-glass; lab→break-glass) repointed `../modules/compliance/` → `../compliance/`. Internal siblings (vitals/lab→appointments, schedule→schedule.slots) stay `./`.
+- **Importers repointed:** 3 module files (billing + imaging×2) + 4 tests + a string-path drift-guard (`audit-snapshot.test.ts` reads patients/medical-records/prescriptions sources — repointed the `new URL(...)` literals). Swept `*.service"`, `routes/*"`, and `.service.ts"` string forms.
+- **Barrel + ordering.** [modules/clinical/index.ts](../artifacts/api-server/src/modules/clinical/index.ts) exports 8 authed routers; `routes/index.ts` consumes the barrel, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit · **57/57** clinical integration-db (appointment-lifecycle + vitals-scope + doctor-scope-rls + cross-tenant — exercise the hub, cross-module autoAdvance, doctor-scope, break-glass, tenant isolation end-to-end). Full integration-db suite re-run as capstone.
+
+### Migration end state
+`src/routes/` = `index.ts` only. `src/services/` = shared infra only (`errors.ts`, `email.service.ts`, `sms.service.ts`). 12 feature modules: `audit, billing, clinical, compliance, health, identity, imaging, inventory, notifications, operations, reporting, search`. DB schema stayed in `lib/db` (shared). Lint guards + the OpenAPI⇄route contract test follow `src/modules/**`. Cross-cutting kernel (policy/audit-write/RLS/encryption/runtime) intentionally stayed in `lib/`.
+
+---
+
+## Feature-module migration — health module (2026-06-29)
+
+Eleventh module — **last of the leaves**. **Health** = liveness/readiness (`checkReadiness` probes DB + Redis, shutdown-aware).
+
+- **Moved** (2 files, `git mv`): `routes/health.ts → modules/health/health.routes.ts`; `services/health.service.ts → modules/health/health.service.ts`.
+- **Boundary.** `health.service` ← its route + `health.test.ts` (repointed). `healthRouter` is **anonymous** (public health checks) — kept registered first/early.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Status:** all leaf modules done. Only **clinical** remains (patients, appointments, medical-records, prescriptions, vitals, lab, schedule, clinic-notices). After clinical, `routes/`/`services/` hold only shared infra (`errors.ts`, `email`, `sms`).
+
+---
+
+## Feature-module migration — search module (2026-06-29)
+
+Tenth module. **Search** = global cross-entity search (doctor-scope aware). Self-contained leaf.
+
+- **Moved** (2 files, `git mv`): `routes/search.ts → modules/search/search.routes.ts`; `services/search.service.ts → modules/search/search.service.ts`.
+- **Boundary.** `search.service` ← only its route (swept both `*.service"` and `routes/search"`). No cross-module/test/entrypoint/lib deps, no `process.env`.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** health (leaf), then **clinical last**.
+
+---
+
+## Feature-module migration — notifications module (2026-06-29)
+
+Ninth module. **Notifications** = in-app notification list + the authenticated SSE stream (`GET /notifications/stream`, graceful-drain aware). Self-contained leaf; other modules push events via `lib/sse` `emitToUser`, not this service.
+
+- **Moved** (2 files, `git mv`): `routes/notifications.ts → modules/notifications/notifications.routes.ts`; `services/notifications.service.ts → modules/notifications/notifications.service.ts`.
+- **New lesson — sweep route-file imports, not just `.service`.** Typecheck caught `sse.test.ts` importing the **router** (`../routes/notifications`) to test the SSE endpoint — my importer grep only matched `*.service"`. Repointed to `../modules/notifications/notifications.routes`. Added a proactive sweep for `../routes/<moved>` across all moved modules: no other stragglers. (Folded into the migration checklist for clinical.)
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — operations module (2026-06-29)
+
+Eighth module. **Operations** = OR / procedure scheduling (operation_status state machine, OR-team staff assignment, approval gate). Self-contained leaf.
+
+- **Moved** (2 files, `git mv`): `routes/operations.ts → modules/operations/operations.routes.ts`; `services/operations.service.ts → modules/operations/operations.service.ts`.
+- **Boundary.** `operations.service` ← only its route. No cross-module deps, no test/entrypoint/lib importers, no `process.env`.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Remaining:** notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — audit module (2026-06-29)
+
+Seventh module. **Audit** = the audit-log READ surface (query, per-entity change history, CSV export) + CSP-report ingestion/retention. The audit *write* path (`logAudit → audit_outbox → drain`) intentionally stays in `lib/audit.ts` as platform — this module is the query/ingest side only.
+
+- **Moved** (4 files, `git mv`): `routes/{audit,csp-report}.ts → modules/audit/*.routes.ts`; `services/{audit,csp-report}.service.ts → modules/audit/*.service.ts`.
+- **Importers repointed:** `csp-report.service` ← its route + **cron.ts** (`purgeOldCspReports` retention) + 1 test; `audit.service` ← its route only. Swept lib/+entrypoints up front this time (no surprises).
+- **Ordering preserved.** `cspReportRouter` is **anonymous** (public POST /api/csp-report sink) and stays registered in the anonymous block before the authed routers; `auditRouter` is authed. Barrel-consumed, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ (worker bundles the repointed cron import) · **538/538** unit · **2/2** csp-retention integration-db (cron-driven purge path). No behavior/API/migration change.
+- **Remaining:** operations, notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — compliance module (2026-06-29)
+
+Sixth module. Per the agreed plan, the remaining ~17 routes are being carved into **bounded contexts** (not one "clinical" blob), **leaf modules first so clinical lands last**. Compliance is the first of those leaves — and a deliberately-early one because it's a **lower layer** that clinical + imaging depend on.
+
+- **Moved** (6 files, `git mv`): `routes/{consent,break-glass,erasure}.ts → modules/compliance/*.routes.ts`; `services/{consent,break-glass,erasure}.service.ts → modules/compliance/*.service.ts`.
+- **Widely depended-on — every importer repointed.** `break-glass.service` is consumed by the clinical services still in `services/` (lab, prescriptions), the **already-migrated imaging module** (xray/ultrasound/imaging-attachments → now `../compliance/break-glass.service`), `lib/scope.ts`, and 3 tests; `consent.service` by medical-records + prescriptions + 1 test; `erasure.service` by 2 tests. All updated.
+- **Entrypoint/lib sweep lesson.** Typecheck caught `lib/scope.ts` importing `break-glass.service` — my importer scan had swept services/routes/modules/tests/cron/worker/app/index but **not `lib/`**. Fixed, and noted: future moves (esp. the big clinical one) must sweep `lib/` too. (cron's csp-report dep belongs to the upcoming audit module, untouched here.)
+- **Barrel + ordering.** [modules/compliance/index.ts](../artifacts/api-server/src/modules/compliance/index.ts) exports the 3 authed routers; `routes/index.ts` consumes the barrel, positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **12/12** compliance integration-db (break-glass-audit + erasure + doctor-scope-rls — the last exercises the scope.ts→compliance and imaging→compliance repoints end-to-end). No behavior/API/migration change.
+- **Remaining:** audit, operations, notifications, search, health (leaves), then **clinical last**.
+
+---
+
+## Feature-module migration — reporting module (2026-06-29)
+
+Fifth module (after inventory pilot + identity + billing + imaging). **Reporting** = clinic/per-role dashboards, reports summaries, per-doctor analytics. The cleanest cluster so far.
+
+- **Moved** (6 files, `git mv`): `routes/{dashboard,reports,analytics}.ts → modules/reporting/*.routes.ts`; `services/{dashboard,reports,analytics}.service.ts → modules/reporting/*.service.ts`.
+- **Boundary — fully self-contained.** Each service ← only its own route. **Zero** cross-module service deps, **zero** test importers, **zero** entrypoint importers (swept cron/worker/app/index). No `process.env` reads, no latent lint issues. (`dashboard.service` uses `runtime.cache` for the non-PHI dashboard counts — platform dep, unchanged.)
+- **Barrel + ordering.** [modules/reporting/index.ts](../artifacts/api-server/src/modules/reporting/index.ts) exports the 3 authed routers; `routes/index.ts` consumes the barrel with `router.use()` positions unchanged.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit. No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — imaging module (2026-06-29)
+
+Fourth module (after inventory pilot + identity + billing). **Imaging** = X-ray + ultrasound records and their encrypted file attachments.
+
+- **Moved** (5 files, `git mv`): `routes/{xray,ultrasound}.ts → modules/imaging/*.routes.ts`; `services/{xray,ultrasound,imaging-attachments}.service.ts → modules/imaging/*.service.ts`. `imaging-attachments` has no own route — its upload/stream/delete handlers mount on the xray + ultrasound routers.
+- **Boundary.** xray/ultrasound services ← only their own routes; `imaging-attachments.service` ← both routes (intra-cluster) + 3 tests + **cron.ts** (`reconcileOrphanImagingFiles`). Cross-module fan-out (transitional, via `../../services/`): all three reach `break-glass.service` (emergency PHI read); xray/ultrasound also reach `appointments.service` (autoAdvanceVisit).
+- **Entrypoint sweep.** cron.ts's import of `imaging-attachments.service` was repointed — a reminder to sweep cron/worker/app/index, not just routes/services/tests, when moving a module.
+- **3 tests repointed** (`imaging-attachments`, `imaging-orphan-reconcile`, `imaging-quota`).
+- **Latent lint issue fixed.** Linting the moved files exposed a **misplaced `eslint-disable-next-line`** in `imaging-attachments.service`: a comment-continuation line sat between the directive and the `process.env.IMAGING_CLINIC_QUOTA_BYTES` read, so the directive disabled the wrong line (the read stayed an error; the directive reported "unused"). This is an *intentional* direct env read (must re-read at call time — the imaging-quota test overrides the var after import, and `config` is frozen at load); the directive was repositioned to actually cover the read. Third never-linted issue surfaced by the migration.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **14/14** imaging integration-db (attachments + orphan-reconcile + quota, incl. the env-override quota path). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — billing module (2026-06-29)
+
+Third module of the restructure (after inventory pilot + identity). **Billing** = invoicing (incl. the atomic `createInvoice` transaction shipped earlier today) + the services price catalog.
+
+- **Moved** (4 files, `git mv`): `routes/{billing,services-catalog}.ts → modules/billing/*.routes.ts`; `services/{billing,services-catalog}.service.ts → modules/billing/*.service.ts`.
+- **Boundary.** `billing.service` ← only its route; `services-catalog.service` ← its route + 1 test. Fan-out: `billing.service` keeps a **cross-module** dep on `appointments.service` (`autoAdvanceVisit`) via `../../services/appointments.service` — appointments migrates with the clinical module later; this transitional cross-module import is expected.
+- **Barrel + ordering.** [modules/billing/index.ts](../artifacts/api-server/src/modules/billing/index.ts) exports both (authed) routers; `routes/index.ts` consumes the barrel with `router.use()` positions unchanged.
+- **1 test repointed** (`services-catalog.integration-db`). Billing itself is driven via the API in tests (cross-tenant, clinic-id-default-leak, billing-invoice-atomicity), so no service-import repointing needed there.
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors — no latent process.env this time) · `build` ✓ · **538/538** unit · **10/10** billing integration-db (invoice-atomicity + services-catalog + clinic-id-default-leak). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated.
+
+---
+
+## Feature-module migration — identity module (2026-06-29)
+
+Second module of the restructure (after the inventory pilot), and the first real one. **Identity** = auth, users, device-trust (+ verification), password-reset, jwks. Chosen next per the migration plan despite being the highest-complexity module (auth-adjacent, anonymous-route ordering, most intra-cluster deps) — proven self-contained first: **no service outside the cluster imports any of them**, so blast radius is bounded.
+
+- **Moved** (10 files, `git mv`, history preserved): `routes/{auth,users,devices,password-reset,jwks}.ts → modules/identity/*.routes.ts`; `services/{auth,users,device-trust,device-verification,password-reset}.service.ts → modules/identity/*.service.ts`. Intra-cluster imports became siblings (`./device-trust.service` etc.); platform imports went one level deeper.
+- **`email.service` deliberately NOT moved** — it's shared infra (only identity happens to use it today). Identity references it cross-module via `../../services/email.service`; it will land in the platform/notifications layer later.
+- **Barrel + ordering.** [modules/identity/index.ts](../artifacts/api-server/src/modules/identity/index.ts) exports the 5 routers; `routes/index.ts` imports them from the barrel but **keeps every `router.use()` in its original position**, so the critical anonymous-before-authed registration order (devices/password-reset/jwks/auth before the authed routers) is unchanged.
+- **3 test files repointed** to `../modules/identity/*` (`login-mint.integration-db`, `phase2.flagON.integration`, `users.service.privesc`).
+- **Latent bug surfaced + fixed.** Widening lint to `src/modules` (services were *never* linted before — old script was `eslint src/routes` only) caught two pre-existing `process.env.APP_PUBLIC_URL` reads in `device-verification.service` + `password-reset.service` that violate the "env only through lib/config" rule. Both now use the already-defined `config.appPublicUrl`. (This is the second guard found to have been unrun on services, after the RLS guard — the inventory PR widened the script; this PR is the first to actually exercise it on real violations.)
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ (0 errors) · `build` ✓ · **538/538** unit · **2/2** `login-mint` integration-db (real login flow through the moved auth.service). No behavior/API/migration change.
+- **Docs:** FOLDER_STRUCTURE modules block updated. CLAUDE.md "Adding a New Route" convention still deferred until the pattern is adopted across enough modules.
+
+---
+
+## Feature-module migration — inventory pilot (2026-06-29)
+
+First step of the technical-layer → feature-module restructure (org-scalability: stop every feature PR colliding on shared `routes/index.ts`, `services/`, etc.). **Inventory** is the pilot — a leaf module with zero cross-service deps — moved end to end to prove the pattern + tooling before touching higher-risk modules. One module per PR; clinical last.
+
+- **Move.** `git mv routes/inventory.ts → modules/inventory/inventory.routes.ts`, `services/inventory.service.ts → modules/inventory/inventory.service.ts` (history preserved). Relative imports rewritten (one level deeper; route→service is now a sibling `./inventory.service`).
+- **Barrel.** New [modules/inventory/index.ts](../artifacts/api-server/src/modules/inventory/index.ts) is the module's only public surface (`export inventoryRouter`). `routes/index.ts` imports it from `../modules/inventory`; **registration position unchanged** (anonymous-first ordering preserved). Deep cross-module imports are to be lint-blocked once ≥2 modules exist.
+- **Lint guards follow the files.** [eslint.config.mjs](../artifacts/api-server/eslint.config.mjs) route-boundary + RLS-backstop globs extended to `src/modules/**/*.routes.ts` / `src/modules/**/*.service.ts`; `lint` script widened to `eslint src/routes src/modules`. (Note: the script previously only scanned `src/routes`, so the services RLS guard was configured-but-unrun — modules are now actually linted.)
+- **Contract test future-proofed.** [contract-routes.test.ts](../artifacts/api-server/src/tests/contract-routes.test.ts) scanned only `routes/`; now walks `modules/**/*.routes.ts` recursively too, so the OpenAPI⇄route guard follows files for every later module move (this was the one test the move broke).
+- **CODEOWNERS seeded.** [.github/CODEOWNERS](../.github/CODEOWNERS) added (fully commented until real team handles exist) establishing per-module ownership + a single owner for the cross-cutting platform kernel (do not split it across modules).
+- **Verification:** typecheck ✓ · `eslint src/routes src/modules` ✓ · `build` (esbuild bundle) ✓ · **538/538** unit. No behavior change, no API/contract change, no migration.
+- **Deferred (pending go/no-go on the pattern):** CLAUDE.md "Adding a New Route/Page/Feature" + Feature Checklist still describe the `routes/`+`services/` layout — left unchanged until the module pattern is adopted across enough modules to make it the canonical path.
+
+---
+
+## Invoice create made atomic (2026-06-29)
+
+**Bug:** `billing.service.createInvoice()` wrote the invoice header and its line items as two separate `db.insert` statements with **no enclosing transaction**. A DB error on the line-items insert (or a crash between the two) left an **orphan invoice header with zero line items** — and a burned per-clinic invoice-sequence number — silently corrupting daily reconciliation.
+
+- **Fix.** The patient check + per-clinic counter increment + header insert + line-items insert now run inside a single `runInTenantContext(req.user!, async (tx) => …)` transaction (the pattern already used by `getInvoice`/`erasure.service`). The create now commits or rolls back as a unit, and gains the **RLS tenant backstop** on every write. `generateInvoiceNumber()` takes the caller's `tx` so the counter increment shares the transaction. Pure validation (item shape, discount bounds) runs *before* the tx so a bad request never opens one or burns a sequence number. `logAudit`/`autoAdvanceVisit` stay **after** the commit — audit remains on the outbox path (never block the write on audit-DB health), and a rolled-back create never emits a `CREATE` for an invoice that does not exist.
+- **Regression test.** New [billing-invoice-atomicity.integration-db.test.ts](../artifacts/api-server/src/tests/billing-invoice-atomicity.integration-db.test.ts) reproduces the exact "header ok, items fail" shape: an item with `quantity = 3_000_000_000` passes route (`zod.number()`) + service (`int().positive()`) validation but overflows the `invoice_items.quantity` int4 column *after* the header insert. Asserts the request fails (5xx, not 201), **no** new invoice/items rows persist, and a normal invoice still succeeds afterward (counter left usable).
+- **Scope note.** Surfaced by the 2026-06-29 architecture review. The review's other Phase-1 candidates were dropped against the repo's own ADRs: jti single-use is deliberately dormant scaffolding ([ADR-007](adr/ADR-007-jti-replay-defense-scope.md) — consuming the session jti would 401 the 2nd privileged action in a session), and RLS is already production-active ([ADR-008](adr/ADR-008-app-db-role.md)). Audit-write atomicity left out of scope (deliberate outbox decoupling).
+- **Verification:** typecheck + `eslint` clean; **538/538** backend unit; **28/28** integration-db (cross-tenant + clinic-id-default-leak, both of which drive `createInvoice`); **2/2** new atomicity regression. No migration, no API/contract change, no breaking change.
+
+---
+
+## Architecture audit P1+P2 + WIP landing (2026-06-29)
+
+**Architecture audit (8.5→9.0/10):** principal-level audit identified 5 actionable findings, all fixed this sprint.
+
+- **P2a — thin controller restored.** `routes/billing.ts` 30-char cancellation-reason rule moved into `cancelInvoice()` service. All 31 route files now have zero business logic.
+- **P2b — last 2 raw `fetch()` calls eliminated.** [DischargeSheet.tsx](../artifacts/clinic/src/components/DischargeSheet.tsx) migrated to `useGetAppointmentDischarge` (pre-existing hook). [GlobalSearch.tsx](../artifacts/clinic/src/components/GlobalSearch.tsx) migrated to `useGlobalSearch` — a new `GET /search` OpenAPI path was added + codegen run so the contract is fully typed end-to-end. No more raw `fetch()` in the frontend.
+- **P2c — `i18n.tsx` monolith split.** 2169-line EN+AR dictionary extracted into [hooks/locales/en.ts](../artifacts/clinic/src/hooks/locales/en.ts) and [hooks/locales/ar.ts](../artifacts/clinic/src/hooks/locales/ar.ts); `i18n.tsx` reduced to 47 lines. EN/AR parity still guarded by `i18n.test.ts`.
+- **P1 — typed config module.** New [lib/config.ts](../artifacts/api-server/src/lib/config.ts) centralizes all ~50 env-var reads with typed defaults. Migrated all 32 files. ESLint `no-restricted-properties` guard added — severity is now `"error"` (blocks CI). `process.env` reads outside `lib/config.ts` are a compile-time lint failure as of this commit.
+
+**Break-glass audit durability:** applied uniformly across 15+ clinical services:
+- `void logAudit` / `void logRead` → `await` everywhere — fire-and-forget calls were silently swallowing errors and producing out-of-order rows.
+- Break-glass events (`BREAK_GLASS_ACCESS`, `BREAK_GLASS_ACTIVATED`, etc.) upgraded from the best-effort 5-retry outbox to `auditBreakGlass()` — writes directly to `audit_logs` (synchronous, durable) with a JSONL fallback file if the DB is degraded. Access proceeds; event is never silently lost (HIPAA §164.312(a)(2)(ii)).
+- `bg_audit_data` Docker volume added to `docker-compose.prod.yml` — mounted rw into api+worker (both may write fallback), ro into backup.
+- New tests: `break-glass-audit.test.ts` (unit, fallback logic), `break-glass-audit.integration-db.test.ts` (real-PG durability proof).
+
+**Prescription dispensing (migration 0039):** adds `dispensed_at timestamp` + `dispensed_by_id int FK→users` to `prescriptions`. New `POST /prescriptions/:id/dispense` (roles: pharmacist, admin, super_admin) — pharmacist marks Rx dispensed. Existing rows unaffected (nullable).
+
+**CSP unification:** `vite.config.ts` DEV_CSP and STRICT_CSP now derived from the same `cspDirectives` object that helmet uses (`lib/csp.ts`). Eliminates the duplicate hardcoded CSP string that could diverge from the backend policy.
+
+**DENY role contracts:** new describe block in `route-access.contract.test.ts` asserts 403 for roles that must never reach audit-logs, medical-records, billing/invoices, or inventory. Catches SoD drift at CI time.
+
+**Auth type hardening:** `requireRole(...roles: UserRole[])` typed as a union literal instead of `string` — typos caught at compile time.
+
+**Dep security bumps + CVE overrides:** picomatch ≥2.3.2 (CVE-2026-33671/33672 ReDoS/injection), brace-expansion ≥2.0.3 (CVE-2026-33750 OOM), path-to-regexp ≥8.4.0 (GHSA-j3q9-mxjg-w52f ReDoS), undici ≥7.28.0, @opentelemetry/core ≥1.30.0.
+
+**Mockup-sandbox removed.** `artifacts/mockup-sandbox/` deleted — dev-only scratchpad, never deployed, excluded from Docker builds.
+
+**Test results:** 538/538 backend, 51/51 frontend, typecheck + lint (0 errors) + build all green.
+
+---
+
 ## Full Arabic coverage + choose-your-language printing + login language toggle (2026-06-23)
 
 Two staff-reported gaps: (1) switching the UI to Arabic still left whole screens in English, and (2) printed papers were English-only. Root cause for (1): the `translations` dictionary was complete (en/ar parity), but several screens had English **hardcoded in JSX** and never went through `useI18n()` — worst offender was [Triage.tsx](../artifacts/clinic/src/pages/Triage.tsx), the **nurse landing page** (`getLandingRoute("nurse") → /triage`), which was almost entirely un-internationalized.
@@ -441,7 +770,7 @@ Fixed a latent response-shape regression on the five doctor-bound clinical **lis
 
 ## Principal zero-trust re-audit — 8.4/10, no open criticals; jti control found unarmed (2026-06-14)
 
-Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `../HANDOFF.md`.
+Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `HANDOFF.md`.
 
 - **20 security/architecture claims VERIFIED first-hand** (auth kernel, dormant RLS + `medicore_app`, break-glass read-only `0024`, AES-256-GCM prod-fail-closed, batched audit outbox, **daily** integrity verification wired in `cron.ts:127-142`, ESLint service/route + raw-`db` boundary, login CSRF-exempt-by-design).
 - **F-Z1 (Medium, net-new) — jti replay defense is UNARMED:** `policy.ts:169` checks `isJtiUsed()` but **nothing in prod calls `markJtiUsed()`** (grep: stores+tests only) → protects zero live routes. ADR-007 acknowledges "latent." Decide arm-vs-remove (→ ADR-014).
@@ -814,7 +1143,7 @@ Closes the four operational gaps that left the platform blind in production. All
 - After each successful run, `monitoring/backup-metrics.sh` writes `backup_last_success_timestamp_seconds` to a shared `backup_metrics` volume for the future node_exporter textfile collector.
 - New alerts in `prometheus-alerts.yml`: `BackupStale` (>26 h since success, critical) and `BackupMissingTextfile` (>6 h absent series, warning).
 
-### Rollback procedure ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [.github/workflows/ci.yml](Clinic-Hub/.github/workflows/ci.yml), [RUNBOOK.md](Clinic-Hub/RUNBOOK.md))
+### Rollback procedure ([docker-compose.prod.yml](Clinic-Hub/docker-compose.prod.yml), [.github/workflows/ci.yml](Clinic-Hub/.github/workflows/ci.yml), [RUNBOOK.md](Clinic-Hub/docs/RUNBOOK.md))
 - `api` and `worker` services now resolve `image: ${API_IMAGE:-medicore-api:latest}` / `${WORKER_IMAGE:-${API_IMAGE:-medicore-api:latest}}`, keeping `build:` as a fallback. Deploys flip the tag in `.env` and `docker compose up -d --no-build`.
 - CI gained an `Emit deploy tag` step on main that writes `API_IMAGE=registry/medicore-api:<short-sha>` to the GitHub Actions step summary — copy-paste into `.env` to deploy. PRs skip this step.
 - RUNBOOK §10 (Deployment & Rollback) documents the env-snapshot workflow, migration-direction check (Drizzle has no down migrations — rolling back a destructive migration is roll-forward-hotfix or restore-from-backup), and explicitly notes blue-green is deferred to D2.

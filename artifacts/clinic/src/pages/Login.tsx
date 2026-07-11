@@ -10,8 +10,10 @@ import { Eye, EyeOff, Zap, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-// ── Dev-only quick-login chips ───────────────────────────────────────────────
-const SEED_ACCOUNTS = [
+const IS_DEV = import.meta.env.MODE !== "production";
+
+// ── Dev-only quick-login chips (never compiled into production builds) ────────
+const SEED_ACCOUNTS = IS_DEV ? [
   { username: "superadmin",   password: "admin123",   label: "SuperAdmin" },
   { username: "admin",        password: "admin123",   label: "Admin" },
   { username: "dr_ahmed",     password: "doctor123",  label: "Dr Ahmed" },
@@ -23,9 +25,7 @@ const SEED_ACCOUNTS = [
   { username: "compliance",   password: "comply123",  label: "Compliance" },
   { username: "billing_mgr",  password: "billing123", label: "Billing" },
   { username: "pharmacist1",  password: "pharma123",  label: "Pharmacist" },
-] as const;
-
-const IS_DEV = import.meta.env.MODE !== "production";
+] : [];
 
 export default function Login() {
   const [, setLocation] = useLocation();

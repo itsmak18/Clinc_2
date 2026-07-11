@@ -5,6 +5,38 @@
  * Clinic Management System API
  * OpenAPI spec version: 0.1.0
  */
+export type GlobalSearchResultsPatientsItem = {
+  id: number;
+  fullName: string;
+  fullNameAr?: string | null;
+  mrn: string;
+  phone?: string | null;
+  dateOfBirth?: string | null;
+};
+
+export type GlobalSearchResultsAppointmentsItem = {
+  id: number;
+  reason: string;
+  status: string;
+  scheduledAt: string;
+  patientName?: string | null;
+  patientMrn?: string | null;
+};
+
+export type GlobalSearchResultsRecordsItem = {
+  id: number;
+  chiefComplaint: string;
+  createdAt: string;
+  patientName?: string | null;
+  patientId: number;
+};
+
+export interface GlobalSearchResults {
+  patients: GlobalSearchResultsPatientsItem[];
+  appointments: GlobalSearchResultsAppointmentsItem[];
+  records: GlobalSearchResultsRecordsItem[];
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -368,6 +400,17 @@ export const XrayRecordStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
+} as const;
+
+export type ClearanceStatus =
+  (typeof ClearanceStatus)[keyof typeof ClearanceStatus];
+
+export const ClearanceStatus = {
+  pending: "pending",
+  cleared: "cleared",
+  overridden: "overridden",
+  expired: "expired",
 } as const;
 
 export interface XrayRecord {
@@ -386,6 +429,9 @@ export interface XrayRecord {
   report?: string | null;
   reportAr?: string | null;
   status: XrayRecordStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -412,6 +458,9 @@ export interface LabTest {
   results?: string | null;
   resultsAr?: string | null;
   status: LabTestStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   orderGroupId?: string | null;
@@ -518,6 +567,8 @@ export interface Prescription {
   medications: Medication[];
   notes?: string | null;
   notesAr?: string | null;
+  dispensedAt?: string | null;
+  dispensedById?: number | null;
   createdAt: string;
 }
 
@@ -536,6 +587,16 @@ export const InvoiceStatus = {
   cancelled: "cancelled",
 } as const;
 
+/**
+ * manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011).
+ */
+export type InvoiceKind = (typeof InvoiceKind)[keyof typeof InvoiceKind];
+
+export const InvoiceKind = {
+  manual: "manual",
+  order_basket: "order_basket",
+} as const;
+
 export interface Invoice {
   id: number;
   invoiceNumber: string;
@@ -547,6 +608,8 @@ export interface Invoice {
   discount: number;
   total: number;
   status: InvoiceStatus;
+  /** manual = staff-created (POS/ad-hoc); order_basket = system-created per-patient basket of clinical-order auto-charges (ADR-011). */
+  kind?: InvoiceKind;
   paidAt?: string | null;
   notes?: string | null;
   createdAt: string;
@@ -692,6 +755,7 @@ export const UpdateXrayBodyStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UpdateXrayBody {
@@ -714,6 +778,7 @@ export const UltrasoundRecordStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UltrasoundRecord {
@@ -733,6 +798,9 @@ export interface UltrasoundRecord {
   report?: string | null;
   reportAr?: string | null;
   status: UltrasoundRecordStatus;
+  clearanceStatus: ClearanceStatus;
+  invoiceItemId?: number | null;
+  invoiceId?: number | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -756,6 +824,7 @@ export const UpdateUltrasoundBodyStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export interface UpdateUltrasoundBody {
@@ -800,6 +869,26 @@ export interface UpdateLabTestBody {
   notesAr?: string;
 }
 
+export interface ClearanceOverrideBody {
+  /**
+   * Clinical justification for performing before payment. Audited (EMERGENCY_CLEARANCE_OVERRIDE) and reviewed daily via the reconciliation report.
+   * @minLength 30
+   */
+  reason: string;
+}
+
+export type ClearanceOverrideResultCounts = {
+  lab: number;
+  xray: number;
+  ultrasound: number;
+  total: number;
+};
+
+export interface ClearanceOverrideResult {
+  overriddenCount: number;
+  counts: ClearanceOverrideResultCounts;
+}
+
 export interface InvoiceItemInput {
   description: string;
   quantity: number;
@@ -835,6 +924,63 @@ export interface PayInvoiceBody {
   amountReceived: number;
 }
 
+export type RecordPaymentBodyMethod =
+  (typeof RecordPaymentBodyMethod)[keyof typeof RecordPaymentBodyMethod];
+
+export const RecordPaymentBodyMethod = {
+  cash: "cash",
+  card: "card",
+  transfer: "transfer",
+  adjustment: "adjustment",
+} as const;
+
+export interface RecordPaymentBody {
+  /** Amount in major units (e.g. 150.00). Negative only when method=adjustment (refund). */
+  amount: number;
+  method: RecordPaymentBodyMethod;
+  externalRef?: string | null;
+  notes?: string | null;
+}
+
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+
+export const PaymentMethod = {
+  cash: "cash",
+  card: "card",
+  transfer: "transfer",
+  adjustment: "adjustment",
+} as const;
+
+export interface Payment {
+  id?: string;
+  amount?: number;
+  method?: PaymentMethod;
+  receivedById?: number;
+  receivedAt?: string;
+  externalRef?: string | null;
+  notes?: string | null;
+}
+
+export interface InvoicePayments {
+  invoiceId?: number;
+  invoiceTotal?: number;
+  amountPaid?: number;
+  balance?: number;
+  status?: string;
+  payments?: Payment[];
+}
+
+export interface PaymentResult {
+  id?: string;
+  invoiceId?: number;
+  amount?: number;
+  method?: string;
+  receivedAt?: string;
+  invoiceStatus?: string;
+  amountPaid?: number;
+  balance?: number;
+}
+
 export interface DailyBillingSummary {
   date: string;
   totalRevenue: number;
@@ -864,10 +1010,25 @@ export type BillingReconciliationPaymentsItem = {
   createdByName?: string | null;
 };
 
+export type BillingReconciliationOverridesOutstandingInvoicesItem = {
+  id: number;
+  invoiceNumber: string;
+  patientName?: string | null;
+  total: number;
+};
+
+export type BillingReconciliationOverridesOutstanding = {
+  orderCount: number;
+  invoiceCount: number;
+  total: number;
+  invoices: BillingReconciliationOverridesOutstandingInvoicesItem[];
+};
+
 export interface BillingReconciliation {
   date: string;
   summary: BillingReconciliationSummary;
   payments: BillingReconciliationPaymentsItem[];
+  overridesOutstanding: BillingReconciliationOverridesOutstanding;
 }
 
 export interface ServiceCatalogItem {
@@ -1749,6 +1910,36 @@ export interface DoctorTrendPoint {
   revenueGenerated: number;
 }
 
+export interface PaginatedInventory {
+  data: InventoryItem[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedOperations {
+  data: Operation[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedBreakGlassSessions {
+  data: BreakGlassSession[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedServices {
+  data: ServiceCatalogItem[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedConsents {
+  data: Consent[];
+  nextCursor: number | null;
+}
+
+export interface PaginatedErasureRequests {
+  data: ErasureRequest[];
+  nextCursor: number | null;
+}
+
 export type ListUsersParams = {
   role?: ListUsersRole;
   isActive?: boolean;
@@ -1834,6 +2025,7 @@ export type SendPrescriptionToPharmacy200 = {
 export type ListXrayImagesParams = {
   patientId?: number;
   status?: ListXrayImagesStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListXrayImagesStatus =
@@ -1843,6 +2035,7 @@ export const ListXrayImagesStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export type GetXrayImageFileParams = {
@@ -1855,6 +2048,7 @@ export type GetXrayImageFileParams = {
 export type ListUltrasoundRecordsParams = {
   patientId?: number;
   status?: ListUltrasoundRecordsStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListUltrasoundRecordsStatus =
@@ -1864,6 +2058,7 @@ export const ListUltrasoundRecordsStatus = {
   requested: "requested",
   in_progress: "in_progress",
   completed: "completed",
+  cancelled: "cancelled",
 } as const;
 
 export type GetUltrasoundImageFileParams = {
@@ -1876,6 +2071,7 @@ export type GetUltrasoundImageFileParams = {
 export type ListLabTestsParams = {
   patientId?: number;
   status?: ListLabTestsStatus;
+  clearanceStatus?: ClearanceStatus;
 };
 
 export type ListLabTestsStatus =
@@ -1915,12 +2111,28 @@ export type GetBillingReconciliationParams = {
 export type ListServicesParams = {
   category?: string;
   includeInactive?: boolean;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListOperationsParams = {
   status?: ListOperationsStatus;
   dateFrom?: string;
   dateTo?: string;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListOperationsStatus =
@@ -1937,6 +2149,14 @@ export type ListInventoryItemsParams = {
   search?: string;
   lowStock?: boolean;
   expired?: boolean;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ListNotificationsParams = {
@@ -1953,9 +2173,39 @@ export type ListAuditLogsParams = {
   offset?: number;
 };
 
+export type ListPatientConsentsParams = {
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
+};
+
 export type ListBreakGlassSessionsParams = {
   patientId?: number;
   active?: string;
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
+};
+
+export type ListErasureRequestsParams = {
+  /**
+   * Opaque cursor (last id from previous page). Omit on the first request.
+   */
+  cursor?: string;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
 };
 
 export type ExecuteErasure200 = {
@@ -2073,3 +2323,11 @@ export type SubmitCspReportBodyOne = { [key: string]: unknown };
 export type SubmitCspReportBodyTwoItem = { [key: string]: unknown };
 
 export type SubmitCspReportBodyThree = { [key: string]: unknown };
+
+export type GlobalSearchParams = {
+  /**
+   * @minLength 2
+   * @maxLength 100
+   */
+  q: string;
+};

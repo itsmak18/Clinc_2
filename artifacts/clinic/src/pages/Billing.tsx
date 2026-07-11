@@ -1,18 +1,21 @@
 import { useState } from "react";
-import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListServices, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListServicesQueryKey } from "@workspace/api-client-react";
+import { useListInvoices, useCreateInvoice, usePayInvoice, useGetDailyBillingSummary, useListPatients, useListServices, useListInvoicePayments, useRecordInvoicePayment, getListInvoicesQueryKey, getGetDailyBillingSummaryQueryKey, getListPatientsQueryKey, getListServicesQueryKey, getListInvoicePaymentsQueryKey } from "@workspace/api-client-react";
 import { useI18n } from "@/hooks/i18n";
+import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import DataTable from "@/components/DataTable";
 import SearchSelect from "@/components/SearchSelect";
 import PatientSearchSelect from "@/components/PatientSearchSelect";
 import StatusBadge from "@/components/StatusBadge";
+import OverrideClearanceDialog from "@/components/OverrideClearanceDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, formatCurrency } from "@/lib/api";
-import { Plus, DollarSign, Trash2, Printer } from "lucide-react";
+import { canOverrideClearance, canPayInvoiceKind } from "@/lib/clearance";
+import { Plus, DollarSign, Trash2, Printer, Receipt, ShieldAlert } from "lucide-react";
 import { openPrintWindow, invoiceHtml } from "@/lib/print";
 import { usePrintLang } from "@/hooks/printLang";
 
@@ -22,9 +25,26 @@ export default function Billing() {
   const { t, language } = useI18n();
   const choosePrintLang = usePrintLang();
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  // Recording payments is billing_manager/admin/super_admin (SoD) — front_desk can
+  // view the ledger but not record; the API enforces this regardless.
+  const canRecordPayment = !!user && ["super_admin", "admin", "billing_manager"].includes(user.role);
+  // Emergency clearance override — clinical roles + admin (API-enforced too).
+  const canOverride = canOverrideClearance(user?.role);
+  // Pay Now: billing roles settle everything; front_desk settles ORDER BASKETS
+  // only (marks lab/imaging orders paid → departments may process). API-enforced.
+  const canPayInvoice = (inv: { kind?: string }) =>
+    !!user &&
+    ["super_admin", "admin", "billing_manager", "front_desk"].includes(user.role) &&
+    canPayInvoiceKind(user.role, inv.kind);
   const [showCreate, setShowCreate] = useState(false);
+  const [overrideInvoiceId, setOverrideInvoiceId] = useState<number | null>(null);
   const [showPay, setShowPay] = useState<number | null>(null);
+  const [showLedger, setShowLedger] = useState<number | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethod, setPayMethod] = useState("cash");
+  const [payNote, setPayNote] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
@@ -38,7 +58,8 @@ export default function Billing() {
   const { data: invoices, isLoading } = useListInvoices(params, { query: { queryKey: getListInvoicesQueryKey(params) } });
   const { data: dailySummary } = useGetDailyBillingSummary({ date: today }, { query: { queryKey: getGetDailyBillingSummaryQueryKey({ date: today }) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
-  const { data: services } = useListServices({}, { query: { queryKey: getListServicesQueryKey({}) } });
+  const { data: servicesResp } = useListServices({}, { query: { queryKey: getListServicesQueryKey({}) } });
+  const services = servicesResp?.data ?? [];
 
   const subtotal = items.reduce((s, i) => s + i.total, 0);
   const total = subtotal - parseFloat(discount || "0");
@@ -96,6 +117,25 @@ export default function Billing() {
         setShowPay(null);
         toast({ title: t("paymentRecorded") });
       },
+    },
+  });
+
+  // Payment ledger for the invoice open in the ledger dialog.
+  const { data: ledger } = useListInvoicePayments(showLedger ?? 0, {
+    query: { enabled: showLedger !== null, queryKey: getListInvoicePaymentsQueryKey(showLedger ?? 0) },
+  });
+
+  const recordMutation = useRecordInvoicePayment({
+    mutation: {
+      onSuccess: () => {
+        if (showLedger !== null) queryClient.invalidateQueries({ queryKey: getListInvoicePaymentsQueryKey(showLedger) });
+        queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDailyBillingSummaryQueryKey() });
+        setPayAmount("");
+        setPayNote("");
+        toast({ title: t("paymentRecorded") });
+      },
+      onError: () => toast({ title: t("failed"), variant: "destructive" }),
     },
   });
 
@@ -157,7 +197,12 @@ export default function Billing() {
           })}
           emptyMessage={t("noInvoices")}
           columns={[
-            { key: "num",     header: t("invoiceNumber"), render: inv => <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{inv.invoiceNumber}</span> },
+            { key: "num",     header: t("invoiceNumber"), render: inv => (
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-xs font-semibold text-[var(--teal-700)]">{inv.invoiceNumber}</span>
+                {(inv as any).kind === "order_basket" && <span className="badge badge-teal text-[10px]">{t("orderBasket")}</span>}
+              </div>
+            ) },
             { key: "patient", header: t("patient"),       render: inv => <span className="font-medium text-[13px] text-[var(--ink)]">{inv.patient?.fullName || `#${inv.patientId}`}</span> },
             { key: "total",   header: t("total"),         render: inv => <span className="font-semibold text-[13px] text-[var(--ink)]">${formatCurrency(Number(inv.total))}</span> },
             { key: "status",  header: t("status"),        render: inv => <StatusBadge status={inv.status} /> },
@@ -167,13 +212,33 @@ export default function Billing() {
               header: t("actions"),
               render: inv => (
                 <div className="flex items-center gap-1.5">
-                  {inv.status === "pending" && (
+                  {inv.status === "pending" && canPayInvoice(inv as any) && (
                     <button
                       className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1 text-[var(--teal-700)]"
                       onClick={e => { e.stopPropagation(); setShowPay(inv.id); setAmountReceived(String(inv.total)); }}
                       data-testid={`button-pay-${inv.id}`}
                     >
                       <DollarSign className="w-3 h-3" />{t("payNow")}
+                    </button>
+                  )}
+                  {inv.status === "pending" && (inv as any).kind === "order_basket" && canOverride && (
+                    <button
+                      className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--amber-700)]"
+                      onClick={e => { e.stopPropagation(); setOverrideInvoiceId(inv.id); }}
+                      title={t("emergencyOverride")}
+                      data-testid={`button-override-${inv.id}`}
+                    >
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {inv.status !== "cancelled" && (
+                    <button
+                      className="btn btn-ghost btn-sm h-7 w-7 p-0 text-[var(--ink-muted)]"
+                      onClick={e => { e.stopPropagation(); setShowLedger(inv.id); }}
+                      title={t("payments")}
+                      data-testid={`button-ledger-${inv.id}`}
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
                     </button>
                   )}
                   <button
@@ -190,6 +255,12 @@ export default function Billing() {
           ]}
         />
       </div>
+
+      <OverrideClearanceDialog
+        invoiceId={overrideInvoiceId}
+        onOpenChange={o => { if (!o) setOverrideInvoiceId(null); }}
+        onDone={() => queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() })}
+      />
 
       {/* Create Invoice */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
@@ -307,6 +378,96 @@ export default function Billing() {
               >
                 {payMutation.isPending ? t("loading") : t("confirm")}
               </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment ledger — view payments + record partial payment / refund */}
+      <Dialog open={showLedger !== null} onOpenChange={o => { if (!o) { setShowLedger(null); setPayAmount(""); setPayNote(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>{t("paymentLedger")}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("total")}</p>
+                <p className="text-sm font-semibold text-[var(--ink)]">${formatCurrency(ledger?.invoiceTotal ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("amountPaid")}</p>
+                <p className="text-sm font-semibold text-[var(--teal-700)]">${formatCurrency(ledger?.amountPaid ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("balanceDue")}</p>
+                <p className="text-sm font-semibold text-[var(--amber-700)]">${formatCurrency(ledger?.balance ?? 0)}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-[var(--line)] pt-2 space-y-1 max-h-48 overflow-y-auto">
+              {(ledger?.payments ?? []).length === 0 && (
+                <p className="text-xs text-[var(--ink-muted)] text-center py-2">{t("noPayments")}</p>
+              )}
+              {(ledger?.payments ?? []).map((p, idx) => {
+                const method = p.method ?? "cash";
+                const amt = p.amount ?? 0;
+                return (
+                  <div key={p.id ?? idx} className="flex items-center justify-between text-xs" data-testid={`payment-row-${p.id ?? idx}`}>
+                    <span className="text-[var(--ink-muted)]">
+                      {t(`payMethod${method.charAt(0).toUpperCase()}${method.slice(1)}` as any)}{p.receivedAt ? ` · ${formatDate(p.receivedAt)}` : ""}
+                    </span>
+                    <span className={`font-medium ${amt < 0 ? "text-[var(--rose-500)]" : "text-[var(--ink)]"}`}>
+                      ${formatCurrency(amt)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {canRecordPayment && ledger?.status !== "cancelled" && (
+              <div className="border-t border-[var(--line)] pt-3 space-y-2">
+                <Label className="text-xs font-semibold">{t("recordPayment")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    className="h-8 text-sm flex-1"
+                    type="number"
+                    placeholder={t("paymentAmount")}
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    data-testid="input-payment-amount"
+                  />
+                  <Select value={payMethod} onValueChange={setPayMethod}>
+                    <SelectTrigger className="h-8 text-sm w-32" data-testid="select-payment-method"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">{t("payMethodCash")}</SelectItem>
+                      <SelectItem value="card">{t("payMethodCard")}</SelectItem>
+                      <SelectItem value="transfer">{t("payMethodTransfer")}</SelectItem>
+                      <SelectItem value="adjustment">{t("payMethodAdjustment")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Input
+                  className="h-8 text-sm"
+                  placeholder={t("paymentNote")}
+                  value={payNote}
+                  onChange={e => setPayNote(e.target.value)}
+                  data-testid="input-payment-note"
+                />
+                <p className="text-[11px] text-[var(--ink-muted)]">{t("refundHint")}</p>
+                <div className="flex justify-end">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    disabled={recordMutation.isPending || !payAmount}
+                    onClick={() => showLedger !== null && recordMutation.mutate({ invoiceId: showLedger, data: { amount: parseFloat(payAmount), method: payMethod as any, notes: payNote || undefined } })}
+                    data-testid="button-record-payment"
+                  >
+                    {recordMutation.isPending ? t("loading") : t("recordPayment")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <button className="btn btn-outline btn-sm" onClick={() => setShowLedger(null)}>{t("close")}</button>
             </div>
           </div>
         </DialogContent>

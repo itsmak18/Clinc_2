@@ -46,7 +46,7 @@ beforeAll(async () => {
   seed = await seedCrossTenant(harness.db);
 
   const db = (await import("@workspace/db")) as any;
-  ({ uploadAttachment } = await import("../services/imaging-attachments.service"));
+  ({ uploadAttachment } = await import("../modules/imaging/imaging-attachments.service"));
   ({ ValidationError } = await import("../services/errors"));
   await import("../app");
 

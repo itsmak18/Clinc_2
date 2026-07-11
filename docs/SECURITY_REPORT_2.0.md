@@ -85,6 +85,8 @@ An operator following the documented retirement checklist verifies only the five
 - Add `vitals.vitals` and `imaging_attachments` to the step-5 migration list and the step-6 retirement check. Note the imaging check differs in form — it verifies the `enc_kid` column on `imaging_attachments` (and re-encrypts the on-disk files), not a `LIKE 'enc:v…'` scan of a text column.
 - Adopt a standing rule mirroring the existing erasure discipline ("new PHI table ⇒ extend `executeErasure`"): **new field-encrypted column or file ⇒ extend the `SECURITY.md` rotation + retirement list**.
 
+**Status:** ✅ Fixed 2026-06-25 in `docs/SECURITY.md` — steps 5 & 6 and the secret-table descriptor now include `vitals.vitals` and `imaging_attachments` (with a per-class retirement check), and the standing rule is documented inline. *(Uncommitted.)*
+
 ---
 
 ### Low / informational (defense-in-depth — not vulnerabilities)
@@ -94,7 +96,7 @@ An operator following the documented retirement checklist verifies only the five
 | **L1** | `artifacts/api-server/src/lib/csp.ts:23` | `imgSrc` still allows `https:`. Study images are now served same-origin via the authenticated download endpoint, so `https:` is no longer needed and can be dropped to shrink the exfil surface. Keep `data:` for inline. |
 | **L2** | `artifacts/clinic/src/lib/print.ts:398` | `invoiceHtml` interpolates `${it.quantity}` (and `${i+1}`) without `escapeHtml`. Typed `number` + server-validated, so not exploitable, but it is the one dynamic value in the file not honoring its own "escape every dynamic value" contract. Wrap for consistency. |
 | **L3** | `artifacts/api-server/src/services/imaging-attachments.service.ts:134` | `caption` is stored unbounded while `fileName` is capped at 120 chars. Cap `caption` length too. |
-| **L4** | `SECURITY.md:10` | Invariant #2 still grants doctors access "(or if explicitly marked as global)" — `isGlobal`/`globalReason` were removed in migration 0011 (zero matches in schema/service), so it documents a removed scope-bypass. Delete the parenthetical; also widen the doctor-scope list (now: records, prescriptions, lab, x-ray, ultrasound, vitals, appointments — not just records + prescriptions). |
+| **L4** ✅ | `docs/SECURITY.md:10` | Invariant #2 granted doctors access "(or if explicitly marked as global)" — `isGlobal`/`globalReason` were removed in migration 0011 (zero matches in schema/service), so it documented a removed scope-bypass. **Fixed 2026-06-25:** parenthetical removed and the doctor-scope list widened (records, prescriptions, lab, x-ray, ultrasound, vitals, appointments + read-only break-glass). *(Uncommitted.)* |
 
 ---
 
@@ -121,9 +123,9 @@ This review deep-read the high-risk surfaces and pattern-swept the remainder; it
 
 ## 6. Score rationale (8.5 / 10)
 
-Security engineering of the reviewed changes is ~9 — mature, defense-in-depth, fail-closed, with real RLS tenant isolation, correct AES-256-GCM, a hardened file-upload path, a strong CSP, parameterized SQL, escaped XSS sinks, and an append-only audit chain. The deliverable is pulled to **8.5** by Issue 1 (a real upgrade-breaking migration whose security-adjacent hotfix reintroduces a tenant-isolation footgun, *masked* by the test harness) plus the three low nits and honest coverage limits.
+Security engineering of the reviewed changes is ~9 — mature, defense-in-depth, fail-closed, with real RLS tenant isolation, correct AES-256-GCM, a hardened file-upload path, a strong CSP, parameterized SQL, escaped XSS sinks, and an append-only audit chain. The deliverable is pulled to **8.5** by Issue 1 (a real upgrade-breaking migration whose security-adjacent hotfix reintroduces a tenant-isolation footgun, *masked* by the test harness) and Issue 2 (a `SECURITY.md` rotation-runbook gap that can orphan PHI under a retired key), plus four low nits and honest coverage limits.
 
-**Path to ~9.5:** fix 0035 with a backfill + a *seeded-before-migrate* upgrade test, and close L1–L3.
+**Path to ~9.5:** fix 0035 with a backfill + a *seeded-before-migrate* upgrade test, correct the `SECURITY.md` rotation/retirement list (Issue 2), and close L1–L4.
 
 ---
 
@@ -131,9 +133,11 @@ Security engineering of the reviewed changes is ~9 — mature, defense-in-depth,
 
 - [ ] **Issue 1** — rewrite `0035_noisy_violations.sql` as nullable → backfill → `SET NOT NULL`; decide ownership of pre-existing global catalog rows.
 - [ ] **Issue 1 (test)** — add an upgrade test that seeds `services_catalog` *before* migrating.
+- [x] **Issue 2** — added `vitals.vitals` + `imaging_attachments` to `docs/SECURITY.md` rotation (step 5) and retirement-verification (step 6) lists + the standing rule. *(Fixed 2026-06-25, uncommitted.)*
 - [ ] **L1** — drop `https:` from CSP `imgSrc`.
 - [ ] **L2** — `escapeHtml` the numeric interpolations in `invoiceHtml`.
 - [ ] **L3** — bound `caption` length in `uploadAttachment`.
+- [x] **L4** — deleted the stale "(or if explicitly marked as global)" clause in `docs/SECURITY.md` invariant #2 and widened the doctor-scope list. *(Fixed 2026-06-25, uncommitted.)*
 
 ---
 

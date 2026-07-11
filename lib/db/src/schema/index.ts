@@ -31,4 +31,5 @@ export * from "./doctor_patients";
 export * from "./audit_integrity";
 export * from "./clinic_notices";
 export * from "./clinic_invoice_counters";
+export * from "./payments";
 export * from "./sequences";

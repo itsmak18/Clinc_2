@@ -4,6 +4,7 @@ import { and, lt, or, isNull, lte, eq, inArray } from "drizzle-orm";
 import type { Request } from "express";
 import { logger } from "./logger";
 import { auditLogWriteFailuresTotal, auditOutboxDepthGauge, auditSystemActorTotal } from "./metrics";
+import { appendAuditOutboxFallback } from "./audit-outbox-fallback";
 
 // Sentinel userId for events emitted without an authenticated request context
 // (cron drains, system-initiated retries, internal jobs). Negative values
@@ -22,12 +23,59 @@ export const SYSTEM_USER_ID = -1;
 // not present here because there's no user to leak to).
 export const SYSTEM_CLINIC_ID = 1;
 
+/**
+ * audit_logs.user_id FKs to users.id (per-partition constraint
+ * audit_logs_part_user_id_fkey); audit_outbox has no such FK. SYSTEM_USER_ID
+ * (-1) is a valid outbox value (no user to leak to, per the comment above)
+ * but has no matching users row, so it must never be written verbatim into
+ * audit_logs — every drain attempt for a system event would otherwise fail
+ * the FK, retry 5x, exhaust, and permanently lose that audit entry (AUD-SEAM-07,
+ * 2026-07-02: this silently broke the hourly SYSTEM_NO_SHOW audit trail).
+ * The column is nullable specifically to represent "no user / system actor";
+ * map any non-positive id to NULL whenever crossing into audit_logs.
+ */
+export function toAuditLogUserId(userId: number | null | undefined): number | null {
+  return userId != null && userId > 0 ? userId : null;
+}
+
 export async function logRead(req: Request, entityType: string, entityId?: string | number) {
   return logAudit(req, "READ", entityType, entityId);
 }
 
 export async function logDenied(req: Request, entityType: string, entityId: string | number, reason: string) {
   return logAudit(req, "DENIED", entityType, entityId, { reason });
+}
+
+/**
+ * Build the shared row object used by both the outbox insert (logAudit) and the
+ * direct audit_logs insert (auditBreakGlass). Exported so break-glass-audit.ts
+ * can reuse the exact same field-building logic without duplication.
+ */
+export function buildAuditRow(
+  req: Request,
+  action: string,
+  entityType: string,
+  entityId?: string | number,
+  details?: object | null,
+  beforeState?: object | null,
+  afterState?: object | null,
+) {
+  const user = req.user;
+  const userId: number = user?.userId ?? SYSTEM_USER_ID;
+  const clinicId: number = user?.clinicId ?? SYSTEM_CLINIC_ID;
+  return {
+    clinicId,
+    userId,
+    action,
+    entityType,
+    entityId: entityId != null ? String(entityId) : null,
+    ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
+    userAgent: (req.headers["user-agent"] as string | undefined) ?? null,
+    details: details ?? null,
+    beforeState: beforeState ?? null,
+    afterState: afterState ?? null,
+    requestId: req.id != null ? String(req.id) : null,
+  };
 }
 
 export async function logAudit(
@@ -44,8 +92,6 @@ export async function logAudit(
   // `audit_system_actor_total` indicates a call path that's emitting audit
   // events without an authenticated user — investigate the source.
   const user = req.user;
-  const userId = user?.userId ?? SYSTEM_USER_ID;
-  const clinicId = user?.clinicId ?? SYSTEM_CLINIC_ID;
   if (!user) {
     auditSystemActorTotal.labels(action, entityType).inc();
     logger.warn(
@@ -53,27 +99,31 @@ export async function logAudit(
       "audit_system_actor_used",
     );
   }
+  // `row` is declared here (not just inside the try) so the catch block can
+  // still reach it for the fallback write below — but building it happens
+  // INSIDE the try, matching the original behavior: if buildAuditRow itself
+  // throws (e.g. a malformed req object missing .headers), that must still be
+  // caught here exactly as before, not propagate as an uncaught rejection.
+  let row: ReturnType<typeof buildAuditRow> | undefined;
   try {
-    await db.insert(auditOutboxTable).values({
-      clinicId,
-      userId,
-      action,
-      entityType,
-      entityId: entityId != null ? String(entityId) : null,
-      ipAddress: req.ip || req.socket?.remoteAddress || "unknown",
-      userAgent: req.headers["user-agent"] || null,
-      details: details ?? null,
-      beforeState: beforeState ?? null,
-      afterState: afterState ?? null,
-      requestId: req.id != null ? String(req.id) : null,
-    });
+    row = buildAuditRow(req, action, entityType, entityId, details, beforeState, afterState);
+    await db.insert(auditOutboxTable).values(row);
   } catch (err) {
-    // Outbox insert failed — the audit event is lost. Count it and log.
+    // Outbox insert failed. Count it, log it, and durably capture the event
+    // in the local fallback sink (AUD-SEAM-01) so it is never silently lost —
+    // mirrors the break-glass fallback pattern, reconciled back into
+    // audit_outbox on a 60s interval (see audit-outbox-fallback.ts). If row
+    // construction itself is what threw, there is nothing to persist to the
+    // fallback sink (row is undefined) — same no-crash, counted-and-logged
+    // outcome as before this change.
     auditLogWriteFailuresTotal.labels(action, entityType).inc();
     logger.error(
-      { err, action, entityType, entityId, userId, requestId: req.id != null ? String(req.id) : null },
+      { err, action, entityType, entityId, userId: user?.userId ?? SYSTEM_USER_ID, requestId: req.id != null ? String(req.id) : null },
       "audit_outbox_write_failed",
     );
+    if (row) {
+      appendAuditOutboxFallback(row, action, entityType);
+    }
   }
 }
 
@@ -115,7 +165,7 @@ export async function drainAuditOutbox(): Promise<void> {
     try {
       const logsToInsert = rows.map(row => ({
         clinicId: row.clinicId,
-        userId: row.userId ?? undefined,
+        userId: toAuditLogUserId(row.userId), // AUD-SEAM-07: SYSTEM_USER_ID(-1) has no users row → NULL
         action: row.action,
         entityType: row.entityType,
         entityId: row.entityId ?? null,
@@ -126,14 +176,19 @@ export async function drainAuditOutbox(): Promise<void> {
         afterState: row.afterState ?? null,
         requestId: row.requestId ?? null,
       }));
-
-      // Round-trip 1: Batch Insert
-      await db.insert(auditLogsTable).values(logsToInsert);
-
-      // Round-trip 2: Batch Delete
       const rowIds = rows.map(row => row.id);
-      await db.delete(auditOutboxTable).where(inArray(auditOutboxTable.id, rowIds));
-      
+
+      // AUD-SEAM-05: insert + delete wrapped in one transaction. Previously
+      // these were two independent statements — a crash between them (insert
+      // committed, delete never ran) left the same rows in audit_outbox, so
+      // the next drain tick re-inserted them into audit_logs as duplicates,
+      // corrupting the hash-chain's per-day row count. Now both commit or
+      // neither does; a re-drain after a crash is a no-op retry, not a dup.
+      await db.transaction(async (tx) => {
+        await tx.insert(auditLogsTable).values(logsToInsert);
+        await tx.delete(auditOutboxTable).where(inArray(auditOutboxTable.id, rowIds));
+      });
+
       logger.info({ count: rows.length }, "audit_outbox_drain_batch_success");
     } catch (batchErr) {
       // Fallback path: one of the rows failed. Process individually to isolate the issue.
@@ -141,20 +196,23 @@ export async function drainAuditOutbox(): Promise<void> {
 
       for (const row of rows) {
         try {
-          await db.insert(auditLogsTable).values({
-            clinicId: row.clinicId,
-            userId: row.userId ?? undefined,
-            action: row.action,
-            entityType: row.entityType,
-            entityId: row.entityId ?? null,
-            ipAddress: row.ipAddress,
-            userAgent: row.userAgent ?? null,
-            details: row.details ?? null,
-            beforeState: row.beforeState ?? null,
-            afterState: row.afterState ?? null,
-            requestId: row.requestId ?? null,
+          // Same atomicity reasoning as the batch path above.
+          await db.transaction(async (tx) => {
+            await tx.insert(auditLogsTable).values({
+              clinicId: row.clinicId,
+              userId: toAuditLogUserId(row.userId), // AUD-SEAM-07: SYSTEM_USER_ID(-1) has no users row → NULL
+              action: row.action,
+              entityType: row.entityType,
+              entityId: row.entityId ?? null,
+              ipAddress: row.ipAddress,
+              userAgent: row.userAgent ?? null,
+              details: row.details ?? null,
+              beforeState: row.beforeState ?? null,
+              afterState: row.afterState ?? null,
+              requestId: row.requestId ?? null,
+            });
+            await tx.delete(auditOutboxTable).where(eq(auditOutboxTable.id, row.id));
           });
-          await db.delete(auditOutboxTable).where(eq(auditOutboxTable.id, row.id));
         } catch (err) {
           const nextAttempts = row.attempts + 1;
           const backoffMs = BACKOFF_MS[Math.min(row.attempts, BACKOFF_MS.length - 1)];

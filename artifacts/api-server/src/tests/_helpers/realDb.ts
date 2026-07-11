@@ -119,6 +119,10 @@ async function provision(superUri: string): Promise<{
         WHERE p.relname = 'audit_logs'
       LOOP EXECUTE format('REVOKE UPDATE, DELETE ON %I FROM ${APP_ROLE}', part); END LOOP;
     END $$;
+    -- payments is append-only too (migration 0040, mirrors audit_logs). The blanket
+    -- GRANT above re-granted UPDATE/DELETE; re-apply the revoke so the ledger stays
+    -- immutable in tests, exactly as the prod migrate container's 0040 leaves it.
+    REVOKE UPDATE, DELETE ON payments FROM ${APP_ROLE};
   `);
 
   const u = new URL(superUri);

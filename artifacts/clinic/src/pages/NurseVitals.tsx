@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/auth";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateTime } from "@/lib/api";
+import { PRIORITY_TONE } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,9 +65,6 @@ const STATUS_CLASS: Record<VitalStatus, string> = {
   critical: "border-[var(--rose-500)] text-[var(--rose-500)] focus-visible:outline-[var(--rose-500)]",
 };
 
-const PRIORITY_TONE: Record<string, string> = {
-  critical: "badge-rose", urgent: "badge-sand", normal: "badge-blue",
-};
 
 export default function NurseVitals() {
   const { t } = useI18n();

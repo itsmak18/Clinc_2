@@ -28,6 +28,8 @@ import type {
   BillingDashboard,
   BillingReconciliation,
   BreakGlassSession,
+  ClearanceOverrideBody,
+  ClearanceOverrideResult,
   ClinicNotice,
   ComplianceDashboard,
   Consent,
@@ -76,6 +78,8 @@ import type {
   GetScheduleWeekParams,
   GetUltrasoundImageFileParams,
   GetXrayImageFileParams,
+  GlobalSearchParams,
+  GlobalSearchResults,
   GrantConsentBody,
   HealthStatus,
   ImageUploadBody,
@@ -84,6 +88,7 @@ import type {
   InventoryItem,
   InventoryTransaction,
   Invoice,
+  InvoicePayments,
   LabTest,
   ListAppointmentsParams,
   ListAuditLogsParams,
@@ -91,12 +96,14 @@ import type {
   ListClinicNoticesParams,
   ListDoctorAnalytics200,
   ListDoctorAnalyticsParams,
+  ListErasureRequestsParams,
   ListInventoryItemsParams,
   ListInvoicesParams,
   ListLabTestsParams,
   ListMedicalRecordsParams,
   ListNotificationsParams,
   ListOperationsParams,
+  ListPatientConsentsParams,
   ListPatientsParams,
   ListPrescriptionsParams,
   ListServicesParams,
@@ -112,15 +119,23 @@ import type {
   Operation,
   OperationsReport,
   PaginatedAppointments,
+  PaginatedBreakGlassSessions,
   PaginatedClinicNotices,
+  PaginatedConsents,
+  PaginatedErasureRequests,
+  PaginatedInventory,
+  PaginatedOperations,
   PaginatedPatients,
+  PaginatedServices,
   Patient,
   PatientFlow,
   PatientSummary,
   PayInvoiceBody,
+  PaymentResult,
   PendingVerificationResponse,
   PharmacistDashboard,
   Prescription,
+  RecordPaymentBody,
   ReportWasntMe200,
   ResetPassword200,
   ResetPasswordBody,
@@ -4278,6 +4293,90 @@ export function useGetPrescription<
 }
 
 /**
+ * @summary Pharmacist marks a prescription as dispensed
+ */
+export const getDispensePrescriptionUrl = (prescriptionId: number) => {
+  return `/api/prescriptions/${prescriptionId}/dispense`;
+};
+
+export const dispensePrescription = async (
+  prescriptionId: number,
+  options?: RequestInit,
+): Promise<Prescription> => {
+  return customFetch<Prescription>(getDispensePrescriptionUrl(prescriptionId), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDispensePrescriptionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dispensePrescription>>,
+    TError,
+    { prescriptionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dispensePrescription>>,
+  TError,
+  { prescriptionId: number },
+  TContext
+> => {
+  const mutationKey = ["dispensePrescription"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dispensePrescription>>,
+    { prescriptionId: number }
+  > = (props) => {
+    const { prescriptionId } = props ?? {};
+
+    return dispensePrescription(prescriptionId, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DispensePrescriptionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dispensePrescription>>
+>;
+
+export type DispensePrescriptionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Pharmacist marks a prescription as dispensed
+ */
+export const useDispensePrescription = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dispensePrescription>>,
+    TError,
+    { prescriptionId: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dispensePrescription>>,
+  TError,
+  { prescriptionId: number },
+  TContext
+> => {
+  return useMutation(getDispensePrescriptionMutationOptions(options));
+};
+
+/**
  * @summary Send a prescription to the clinic's pharmacists (in-app notification)
  */
 export const getSendPrescriptionToPharmacyUrl = (prescriptionId: number) => {
@@ -6421,6 +6520,97 @@ export const useUpdateInvoice = <
 };
 
 /**
+ * @summary Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+ */
+export const getOverrideInvoiceClearanceUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/clearance-override`;
+};
+
+export const overrideInvoiceClearance = async (
+  invoiceId: number,
+  clearanceOverrideBody: ClearanceOverrideBody,
+  options?: RequestInit,
+): Promise<ClearanceOverrideResult> => {
+  return customFetch<ClearanceOverrideResult>(
+    getOverrideInvoiceClearanceUrl(invoiceId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(clearanceOverrideBody),
+    },
+  );
+};
+
+export const getOverrideInvoiceClearanceMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    TError,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+  TError,
+  { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+  TContext
+> => {
+  const mutationKey = ["overrideInvoiceClearance"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> }
+  > = (props) => {
+    const { invoiceId, data } = props ?? {};
+
+    return overrideInvoiceClearance(invoiceId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OverrideInvoiceClearanceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>
+>;
+export type OverrideInvoiceClearanceMutationBody =
+  BodyType<ClearanceOverrideBody>;
+export type OverrideInvoiceClearanceMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Emergency clearance override — unblock a basket's pending orders without payment (clinical roles; audited; invoice stays pending)
+ */
+export const useOverrideInvoiceClearance = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+    TError,
+    { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof overrideInvoiceClearance>>,
+  TError,
+  { invoiceId: number; data: BodyType<ClearanceOverrideBody> },
+  TContext
+> => {
+  return useMutation(getOverrideInvoiceClearanceMutationOptions(options));
+};
+
+/**
  * @summary Mark invoice as paid and generate receipt
  */
 export const getPayInvoiceUrl = (invoiceId: number) => {
@@ -6505,6 +6695,182 @@ export const usePayInvoice = <
   TContext
 > => {
   return useMutation(getPayInvoiceMutationOptions(options));
+};
+
+/**
+ * @summary List the payment ledger and derived balance for an invoice
+ */
+export const getListInvoicePaymentsUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/payments`;
+};
+
+export const listInvoicePayments = async (
+  invoiceId: number,
+  options?: RequestInit,
+): Promise<InvoicePayments> => {
+  return customFetch<InvoicePayments>(getListInvoicePaymentsUrl(invoiceId), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListInvoicePaymentsQueryKey = (invoiceId: number) => {
+  return [`/api/billing/invoices/${invoiceId}/payments`] as const;
+};
+
+export const getListInvoicePaymentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInvoicePayments>>,
+  TError = ErrorType<unknown>,
+>(
+  invoiceId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInvoicePayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListInvoicePaymentsQueryKey(invoiceId);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listInvoicePayments>>
+  > = ({ signal }) =>
+    listInvoicePayments(invoiceId, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!invoiceId,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInvoicePayments>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListInvoicePaymentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInvoicePayments>>
+>;
+export type ListInvoicePaymentsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List the payment ledger and derived balance for an invoice
+ */
+
+export function useListInvoicePayments<
+  TData = Awaited<ReturnType<typeof listInvoicePayments>>,
+  TError = ErrorType<unknown>,
+>(
+  invoiceId: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listInvoicePayments>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListInvoicePaymentsQueryOptions(invoiceId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Record a payment (or negative adjustment/refund) against an invoice
+ */
+export const getRecordInvoicePaymentUrl = (invoiceId: number) => {
+  return `/api/billing/invoices/${invoiceId}/payments`;
+};
+
+export const recordInvoicePayment = async (
+  invoiceId: number,
+  recordPaymentBody: RecordPaymentBody,
+  options?: RequestInit,
+): Promise<PaymentResult> => {
+  return customFetch<PaymentResult>(getRecordInvoicePaymentUrl(invoiceId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recordPaymentBody),
+  });
+};
+
+export const getRecordInvoicePaymentMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    TError,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recordInvoicePayment>>,
+  TError,
+  { invoiceId: number; data: BodyType<RecordPaymentBody> },
+  TContext
+> => {
+  const mutationKey = ["recordInvoicePayment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> }
+  > = (props) => {
+    const { invoiceId, data } = props ?? {};
+
+    return recordInvoicePayment(invoiceId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecordInvoicePaymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recordInvoicePayment>>
+>;
+export type RecordInvoicePaymentMutationBody = BodyType<RecordPaymentBody>;
+export type RecordInvoicePaymentMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Record a payment (or negative adjustment/refund) against an invoice
+ */
+export const useRecordInvoicePayment = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordInvoicePayment>>,
+    TError,
+    { invoiceId: number; data: BodyType<RecordPaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recordInvoicePayment>>,
+  TError,
+  { invoiceId: number; data: BodyType<RecordPaymentBody> },
+  TContext
+> => {
+  return useMutation(getRecordInvoicePaymentMutationOptions(options));
 };
 
 /**
@@ -6735,8 +7101,8 @@ export const getListServicesUrl = (params?: ListServicesParams) => {
 export const listServices = async (
   params?: ListServicesParams,
   options?: RequestInit,
-): Promise<ServiceCatalogItem[]> => {
-  return customFetch<ServiceCatalogItem[]>(getListServicesUrl(params), {
+): Promise<PaginatedServices> => {
+  return customFetch<PaginatedServices>(getListServicesUrl(params), {
     ...options,
     method: "GET",
   });
@@ -7167,8 +7533,8 @@ export const getListOperationsUrl = (params?: ListOperationsParams) => {
 export const listOperations = async (
   params?: ListOperationsParams,
   options?: RequestInit,
-): Promise<Operation[]> => {
-  return customFetch<Operation[]>(getListOperationsUrl(params), {
+): Promise<PaginatedOperations> => {
+  return customFetch<PaginatedOperations>(getListOperationsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -7522,8 +7888,8 @@ export const getListInventoryItemsUrl = (params?: ListInventoryItemsParams) => {
 export const listInventoryItems = async (
   params?: ListInventoryItemsParams,
   options?: RequestInit,
-): Promise<InventoryItem[]> => {
-  return customFetch<InventoryItem[]>(getListInventoryItemsUrl(params), {
+): Promise<PaginatedInventory> => {
+  return customFetch<PaginatedInventory>(getListInventoryItemsUrl(params), {
     ...options,
     method: "GET",
   });
@@ -8589,22 +8955,47 @@ export function useGetAuditLogsByEntity<
 /**
  * @summary List a patient's consents
  */
-export const getListPatientConsentsUrl = (patientId: number) => {
-  return `/api/patients/${patientId}/consents`;
+export const getListPatientConsentsUrl = (
+  patientId: number,
+  params?: ListPatientConsentsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/patients/${patientId}/consents?${stringifiedParams}`
+    : `/api/patients/${patientId}/consents`;
 };
 
 export const listPatientConsents = async (
   patientId: number,
+  params?: ListPatientConsentsParams,
   options?: RequestInit,
-): Promise<Consent[]> => {
-  return customFetch<Consent[]>(getListPatientConsentsUrl(patientId), {
-    ...options,
-    method: "GET",
-  });
+): Promise<PaginatedConsents> => {
+  return customFetch<PaginatedConsents>(
+    getListPatientConsentsUrl(patientId, params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
 };
 
-export const getListPatientConsentsQueryKey = (patientId: number) => {
-  return [`/api/patients/${patientId}/consents`] as const;
+export const getListPatientConsentsQueryKey = (
+  patientId: number,
+  params?: ListPatientConsentsParams,
+) => {
+  return [
+    `/api/patients/${patientId}/consents`,
+    ...(params ? [params] : []),
+  ] as const;
 };
 
 export const getListPatientConsentsQueryOptions = <
@@ -8612,6 +9003,7 @@ export const getListPatientConsentsQueryOptions = <
   TError = ErrorType<unknown>,
 >(
   patientId: number,
+  params?: ListPatientConsentsParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listPatientConsents>>,
@@ -8624,12 +9016,12 @@ export const getListPatientConsentsQueryOptions = <
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
   const queryKey =
-    queryOptions?.queryKey ?? getListPatientConsentsQueryKey(patientId);
+    queryOptions?.queryKey ?? getListPatientConsentsQueryKey(patientId, params);
 
   const queryFn: QueryFunction<
     Awaited<ReturnType<typeof listPatientConsents>>
   > = ({ signal }) =>
-    listPatientConsents(patientId, { signal, ...requestOptions });
+    listPatientConsents(patientId, params, { signal, ...requestOptions });
 
   return {
     queryKey,
@@ -8657,6 +9049,7 @@ export function useListPatientConsents<
   TError = ErrorType<unknown>,
 >(
   patientId: number,
+  params?: ListPatientConsentsParams,
   options?: {
     query?: UseQueryOptions<
       Awaited<ReturnType<typeof listPatientConsents>>,
@@ -8666,7 +9059,11 @@ export function useListPatientConsents<
     request?: SecondParameter<typeof customFetch>;
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListPatientConsentsQueryOptions(patientId, options);
+  const queryOptions = getListPatientConsentsQueryOptions(
+    patientId,
+    params,
+    options,
+  );
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -8964,8 +9361,8 @@ export const getListBreakGlassSessionsUrl = (
 export const listBreakGlassSessions = async (
   params?: ListBreakGlassSessionsParams,
   options?: RequestInit,
-): Promise<BreakGlassSession[]> => {
-  return customFetch<BreakGlassSession[]>(
+): Promise<PaginatedBreakGlassSessions> => {
+  return customFetch<PaginatedBreakGlassSessions>(
     getListBreakGlassSessionsUrl(params),
     {
       ...options,
@@ -9214,41 +9611,66 @@ export const useRevokeBreakGlass = <
 /**
  * @summary List right-to-erasure requests
  */
-export const getListErasureRequestsUrl = () => {
-  return `/api/erasure-requests`;
+export const getListErasureRequestsUrl = (
+  params?: ListErasureRequestsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/erasure-requests?${stringifiedParams}`
+    : `/api/erasure-requests`;
 };
 
 export const listErasureRequests = async (
+  params?: ListErasureRequestsParams,
   options?: RequestInit,
-): Promise<ErasureRequest[]> => {
-  return customFetch<ErasureRequest[]>(getListErasureRequestsUrl(), {
-    ...options,
-    method: "GET",
-  });
+): Promise<PaginatedErasureRequests> => {
+  return customFetch<PaginatedErasureRequests>(
+    getListErasureRequestsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
 };
 
-export const getListErasureRequestsQueryKey = () => {
-  return [`/api/erasure-requests`] as const;
+export const getListErasureRequestsQueryKey = (
+  params?: ListErasureRequestsParams,
+) => {
+  return [`/api/erasure-requests`, ...(params ? [params] : [])] as const;
 };
 
 export const getListErasureRequestsQueryOptions = <
   TData = Awaited<ReturnType<typeof listErasureRequests>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listErasureRequests>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: ListErasureRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listErasureRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getListErasureRequestsQueryKey();
+  const queryKey =
+    queryOptions?.queryKey ?? getListErasureRequestsQueryKey(params);
 
   const queryFn: QueryFunction<
     Awaited<ReturnType<typeof listErasureRequests>>
-  > = ({ signal }) => listErasureRequests({ signal, ...requestOptions });
+  > = ({ signal }) =>
+    listErasureRequests(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof listErasureRequests>>,
@@ -9269,15 +9691,18 @@ export type ListErasureRequestsQueryError = ErrorType<unknown>;
 export function useListErasureRequests<
   TData = Awaited<ReturnType<typeof listErasureRequests>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<
-    Awaited<ReturnType<typeof listErasureRequests>>,
-    TError,
-    TData
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListErasureRequestsQueryOptions(options);
+>(
+  params?: ListErasureRequestsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listErasureRequests>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListErasureRequestsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
@@ -12574,3 +12999,97 @@ export const useSubmitCspReport = <
 > => {
   return useMutation(getSubmitCspReportMutationOptions(options));
 };
+
+/**
+ * @summary Global search across patients, appointments, and medical records
+ */
+export const getGlobalSearchUrl = (params: GlobalSearchParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/search?${stringifiedParams}`
+    : `/api/search`;
+};
+
+export const globalSearch = async (
+  params: GlobalSearchParams,
+  options?: RequestInit,
+): Promise<GlobalSearchResults> => {
+  return customFetch<GlobalSearchResults>(getGlobalSearchUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGlobalSearchQueryKey = (params?: GlobalSearchParams) => {
+  return [`/api/search`, ...(params ? [params] : [])] as const;
+};
+
+export const getGlobalSearchQueryOptions = <
+  TData = Awaited<ReturnType<typeof globalSearch>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GlobalSearchParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof globalSearch>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGlobalSearchQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof globalSearch>>> = ({
+    signal,
+  }) => globalSearch(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof globalSearch>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GlobalSearchQueryResult = NonNullable<
+  Awaited<ReturnType<typeof globalSearch>>
+>;
+export type GlobalSearchQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Global search across patients, appointments, and medical records
+ */
+
+export function useGlobalSearch<
+  TData = Awaited<ReturnType<typeof globalSearch>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GlobalSearchParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof globalSearch>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGlobalSearchQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

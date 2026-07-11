@@ -7,9 +7,10 @@
 // `stubbed: true`. The device-trust service must treat a stubbed response
 // as a no-op fallback — never assume the user actually received an SMS.
 
-import pino from "pino";
+import { logger } from "../lib/logger";
+import { config } from "../lib/config";
 
-const log = pino({ name: "sms" });
+const log = logger.child({ module: "sms" });
 
 export interface SmsMessage {
   to: string;
@@ -24,11 +25,11 @@ export interface SmsSendResult {
 }
 
 export async function sendSms(msg: SmsMessage): Promise<SmsSendResult> {
-  const provider = process.env.SMS_PROVIDER;
+  const provider = config.smsProvider;
 
   if (!provider) {
     log.warn(
-      { to: msg.to, tag: msg.tag, body_preview: msg.body.slice(0, 40) },
+      { phone: msg.to, tag: msg.tag },
       "sms_stubbed_no_provider",
     );
     return { ok: true, detail: "stubbed (no SMS_PROVIDER)", stubbed: true };
@@ -37,9 +38,9 @@ export async function sendSms(msg: SmsMessage): Promise<SmsSendResult> {
   // Twilio is the only provider we wire on first pass. Add more branches as
   // the platform team picks one.
   if (provider === "twilio") {
-    const sid = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    const from = process.env.TWILIO_FROM_NUMBER;
+    const sid = config.twilioAccountSid;
+    const token = config.twilioAuthToken;
+    const from = config.twilioFromNumber;
     if (!sid || !token || !from) {
       log.error("sms_twilio_missing_credentials");
       return { ok: false, detail: "twilio_credentials_missing", stubbed: false };
@@ -59,7 +60,7 @@ export async function sendSms(msg: SmsMessage): Promise<SmsSendResult> {
       );
       if (!res.ok) {
         const body = await res.text();
-        log.error({ status: res.status, body }, "sms_send_failed");
+        log.error({ status: res.status }, "sms_send_failed");
         return { ok: false, detail: `${res.status}: ${body}`, stubbed: false };
       }
       const payload = (await res.json()) as { sid?: string };
