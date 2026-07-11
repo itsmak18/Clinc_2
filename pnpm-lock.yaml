@@ -37,10 +37,10 @@ catalogs:
       specifier: ^0.545.0
       version: 0.545.0
     react:
-      specifier: 19.1.0
+      specifier: ^19.1.0
       version: 19.1.0
     react-dom:
-      specifier: 19.1.0
+      specifier: ^19.1.0
       version: 19.1.0
     tailwind-merge:
       specifier: ^3.6.0
@@ -63,16 +63,6 @@ catalogs:
 
 overrides:
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
-  '@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-freebsd-ia32': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-freebsd-x64': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-linux-arm': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-linux-arm64': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-linux-ia32': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-sunos-x64': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-win32-ia32': '-'
-  '@expo/ngrok-bin>@expo/ngrok-bin-win32-x64': '-'
   '@opentelemetry/core': '>=2.8.0'
   cookie-signature: ^1.2.2
   esbuild: 0.27.3

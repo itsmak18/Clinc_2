@@ -82,7 +82,7 @@ The two fingerprint emergency levers were honored in production with no NODE_ENV
 ## Independent architecture audit + Phase 1 remediation (2026-07-02)
 
 Third audit in four days — an independent re-derivation against the live tree (not a copy of the 06-29
-or 07-01 reports), written to [docs/ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md).
+or 07-01 reports), written to [docs/audits/ARCHITECTURE_AUDIT_2026-07-02.md](audits/ARCHITECTURE_AUDIT_2026-07-02.md).
 Verdict: strong, boring-in-the-good-way modular monolith (8.5/10 architecture, 9.0/10 security); the
 real risk is an unproven production deployment, not the code. Every finding carries a suggested fix
 (§13b); three genuinely-low-risk ones were actioned same day. One quick-win was retracted mid-execution
@@ -378,7 +378,7 @@ The doctor's **My Orders** list ([DoctorOrders.tsx](../artifacts/clinic/src/page
 
 ## Security review remediation - admin->super_admin privesc + metrics/login/SSE/billing (2026-06-22)
 
-Full-repository security review (findings: [AUDIT_FINDINGS_2026-06-22.md](AUDIT_FINDINGS_2026-06-22.md)). One HIGH + four lower items, **all fixed this pass**; api-server **509/509 tests green**, tsc 0 errors. The HIGH is new (not in the zero-trust campaign below).
+Full-repository security review (findings: [AUDIT_FINDINGS_2026-06-22.md](audits/AUDIT_FINDINGS_2026-06-22.md)). One HIGH + four lower items, **all fixed this pass**; api-server **509/509 tests green**, tsc 0 errors. The HIGH is new (not in the zero-trust campaign below).
 
 - **F-1 (HIGH) - admin->super_admin account takeover, fixed.** `resetPassword`/`updateUser`/`deleteUser`/`toggleShift` ([users.service.ts](../artifacts/api-server/src/services/users.service.ts)) had no guard on the *target's* role, and `requireStepUp` is a no-op while `PHASE2_STEP_UP_ENABLED` is off - so an `admin` could reset a same-clinic `super_admin`'s password and log in as them (seed co-locates both in one clinic). Added pure exported `canManageTarget(actorRole, targetRole)` enforced in all four mutators (resolve target role before mutating; emit `ESCALATION_DENIED` on deny). Only super_admin may act on a super_admin; admin keeps full management of all other roles. Regression test [users.service.privesc.test.ts](../artifacts/api-server/src/tests/users.service.privesc.test.ts) (8) asserts the privileged write never runs when blocked.
 - **F-2 (Low-Med) - `/metrics` fail-closed + constant-time compare.** [app.ts](../artifacts/api-server/src/app.ts): served metrics with no auth when `METRICS_TOKEN` was unset; now 404s in production when unset and uses `timingSafeEqual` for the bearer check.
@@ -770,7 +770,7 @@ Fixed a latent response-shape regression on the five doctor-bound clinical **lis
 
 ## Principal zero-trust re-audit — 8.4/10, no open criticals; jti control found unarmed (2026-06-14)
 
-Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `HANDOFF.md`.
+Independent whole-system re-audit under a zero-trust documentation policy (code is evidence, docs are not): 3 read-only explore passes + first-hand re-verification of ~12 load-bearing files. Corroborates the existing honest scorecard. Full report: [AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md](audits/AUDIT_FINDINGS_2026-06-14_PRINCIPAL.md); handoff + approved remediation plan: `HANDOFF.md`.
 
 - **20 security/architecture claims VERIFIED first-hand** (auth kernel, dormant RLS + `medicore_app`, break-glass read-only `0024`, AES-256-GCM prod-fail-closed, batched audit outbox, **daily** integrity verification wired in `cron.ts:127-142`, ESLint service/route + raw-`db` boundary, login CSRF-exempt-by-design).
 - **F-Z1 (Medium, net-new) — jti replay defense is UNARMED:** `policy.ts:169` checks `isJtiUsed()` but **nothing in prod calls `markJtiUsed()`** (grep: stores+tests only) → protects zero live routes. ADR-007 acknowledges "latent." Decide arm-vs-remove (→ ADR-014).
@@ -825,7 +825,7 @@ No code changed (verification + doc only).
 
 ## Audit Phase 7 — re-verified the "complete" sign-off (2026-06-07)
 
-Applied the same scrutiny that exposed Phase 6's hollow "complete" to Phase 7. **Security is sound — no live vuln found** — but the sign-off's evidence was inaccurate. Findings in `docs/AUDIT_FINDINGS_2026-06-07_PHASE7.md`.
+Applied the same scrutiny that exposed Phase 6's hollow "complete" to Phase 7. **Security is sound — no live vuln found** — but the sign-off's evidence was inaccurate. Findings in `docs/audits/AUDIT_FINDINGS_2026-06-07_PHASE7.md`.
 
 - **F-P7-2 (MEDIUM) — RBAC parity "PASS" cited a non-existent test.** The doc credited `route-access.contract.test.ts`; that file doesn't exist, and the real `route-access.test.ts` only checks client-side consistency, never client↔server parity. Spot-checked the 4 sensitive routes manually (users/audit/analytics/settings) → no authz gap (backend is the real gate; `/analytics` is gated in the service layer — `analytics.service.ts:323`/`:290-294` — not the route). The actual parity contract test still needs writing (the non-regressable fix). INFO: add a route-layer `authGate` on `/analytics` for defense-in-depth.
 - **F-P7-3 (LOW) — "zero innerHTML" was false.** `DischargeSheet.tsx:98` writes `${el.innerHTML}`. Safe (React-rendered subtree, auto-escaped, no `dangerouslySetInnerHTML`), but the cited `escapeHtml/safeUrl` evidence was wrong — real safety = React escaping.
@@ -849,7 +849,7 @@ Cleared the "close regardless of phase order" backlog from `AUDIT_PLAN_PHASE_5-8
 
 ## Audit Phase 6 — observability second pass: alert delivery was inert (2026-06-07)
 
-Re-audited the deployment/observability stack against the "documented-active but inert" class (cf. F-01, F-P4-1). The first Phase 6 pass (F-P6-1..4) fixed script portability + added an SSE alert but did not audit the alert *delivery* path or process *liveness*. Five new findings; CRITICAL + HIGH + MEDIUM fixed. Evidence in `docs/AUDIT_FINDINGS_2026-06-07_PHASE6.md`.
+Re-audited the deployment/observability stack against the "documented-active but inert" class (cf. F-01, F-P4-1). The first Phase 6 pass (F-P6-1..4) fixed script portability + added an SSE alert but did not audit the alert *delivery* path or process *liveness*. Five new findings; CRITICAL + HIGH + MEDIUM fixed. Evidence in `docs/audits/AUDIT_FINDINGS_2026-06-07_PHASE6.md`.
 
 - **F-P6-5 (CRITICAL) — Alertmanager delivered ZERO alert emails.** `alertmanager.yml` used `${SMTP_*}`/`${ALERT_EMAIL_TO}` and compose passed them as `environment:` vars, but Alertmanager does **not** env-expand its config file (prometheus/alertmanager#2818) and there was no `envsubst` entrypoint — so `smtp_smarthost` was the literal `"${SMTP_SMARTHOST}"` and every alert (incl. `AuditLogPermanentLoss`, `AuditIntegrityMismatch`, `BackupStale`) fired in the UI but reached no human. CLAUDE.md even enshrined the false belief. **Fix (Mike's call: hardcode + `_file`):** non-secret SMTP fields hardcoded in `alertmanager.yml`; password via `smtp_auth_password_file: /run/secrets/smtp_auth_password`; new `smtp_auth_password` Docker secret; dropped the inert `environment:` block; corrected CLAUDE.md.
 - **F-P6-6 (HIGH) — no process-down alert.** Added `ServiceDown` (`up{job=~"medicore-api|medicore-worker"}==0`, critical). A full crash serves zero requests, so `HighErrorRate` (a ratio) could never fire — a dead process paged no one.
@@ -965,7 +965,7 @@ Closes the two launch-blocker findings from the 2026-06-03 production audit (Pha
 
 - **F-P1-1 (CRITICAL) — booking no longer broken by FORCE-RLS.** Migration 0022 put `FORCE ROW LEVEL SECURITY` + a non-dormant policy on `doctor_schedules`/`schedule_overrides`, but `lib/schedule-validator.ts` read them via `dbUnsafe` (no tenant context) → RLS hid every row → every appointment create/reschedule failed `409 "No schedule for this day"`. Fixed by running the validator's reads inside `runInTenantContext`: `checkDoctorAvailability(actor, doctorId, scheduledDate, existingTx?)` opens a tenant context (or reuses the caller's `tx` in `updateAppointment` to avoid a nested transaction). Callers updated in `appointments.service.ts`. Regression test added to `cross-tenant.integration-db.test.ts` (`[BOOKING]`: same-clinic booking succeeds; no-schedule day still 409).
 - **F-P2-1 (MEDIUM–HIGH) — break-glass now delivers clinical PHI.** Break-glass granted app-layer access but migration 0017's `RESTRICTIVE doctor_scope` RLS still hid the 5 doctor-bound clinical tables, so emergency access surfaced demographics only. Fixed with a **patient-scoped, read-only** bypass: migration **0024** extends the 0017 `USING` clause with `OR patient_id = ANY(app.break_glass_patient_ids)` (CSV GUC; `WITH CHECK` unchanged so break-glass cannot write); `runInTenantContext(user, fn, { breakGlassPatientIds })` sets the GUC; `break-glass.service.getActiveBreakGlassPatientIds()` + `scope.ts` (`getDoctorListScope`, break-glass-aware `assertMedicalRecordInScope`) drive it; all 5 doctor-scoped services (medical-records, lab, xray, ultrasound, prescriptions) wire list + getById to pass the GUC and audit `BREAK_GLASS_ACCESS`. Tests: `scope.test.ts` +1, `doctor-scope-rls.integration-db.test.ts` +4 (bypass works, read-only, no over-grant).
-- Verification: api-server unit suite **475/475** green, monorepo typecheck + lint clean. **Integration-db tests not executed in the fix session (no Docker)** — run `pnpm --filter @workspace/api-server run test:integration-db` before merge to runtime-verify the 0024 RLS bypass and the booking regression. Changes are in the working tree, uncommitted. Detail in [AUDIT_FINDINGS_2026-06-03_PHASE1.md](AUDIT_FINDINGS_2026-06-03_PHASE1.md) / [PHASE2](AUDIT_FINDINGS_2026-06-03_PHASE2.md).
+- Verification: api-server unit suite **475/475** green, monorepo typecheck + lint clean. **Integration-db tests not executed in the fix session (no Docker)** — run `pnpm --filter @workspace/api-server run test:integration-db` before merge to runtime-verify the 0024 RLS bypass and the booking regression. Changes are in the working tree, uncommitted. Detail in [AUDIT_FINDINGS_2026-06-03_PHASE1.md](audits/AUDIT_FINDINGS_2026-06-03_PHASE1.md) / [PHASE2](audits/AUDIT_FINDINGS_2026-06-03_PHASE2.md).
 
 ## Compliance UIs + change-history (Consent, Break-Glass, Erasure, before→after) (2026-06-02)
 

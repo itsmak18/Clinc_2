@@ -3,7 +3,7 @@
 **Date:** 2026-07-01 · **Branch:** `security/search-doctor-scope` · **HEAD:** `525ed2d`
 **Method:** 7 independent specialist agents (Security, Database/RLS, DevOps/Infra/DR, Compliance/Privacy, Backend/API, Frontend/Testing, Resilience/Seams) reading the real implementation, validated by executing the test/build pipeline, then a Red Team disprove-pass with ADR re-validation. Evidence-first: every finding carries a `file:line` anchor; uncertainty is reported as uncertainty.
 
-**Full per-finding evidence + Improvement-Engine blocks:** see `docs/audit/appendix/*.md`.
+**Full per-finding evidence + Improvement-Engine blocks:** see `docs/audits/appendix-2026-07-01/*.md`.
 
 ---
 
@@ -101,7 +101,7 @@ Debt is **low in the application core** and **concentrated at the deployment bou
 | **AUD-OPS-03** | Backup container lacks `postgresql-client` → `pg_dump`/`psql` absent → **cannot dump or restore** even if OPS-02 is fixed. | **FIXED** (`c1941f1`) | incl. above (P0) |
 | **AUD-DB-05** / SEAM-03 | Cross-tenant isolation under PgBouncer pooling: code-level (a)–(d) all verified; end-to-end connection-reuse probe **not run** (no Docker). Reported "consistent-with-fine on inspection, **not proven**." | **PROVEN** (`c1941f1`) — real-Postgres forced-reuse test, not a mock | 30 min to run integration-db under Docker |
 
-OPS-02 + OPS-03 shipped together (a fixed script still fails at the dump step without the client). Exact diffs in `appendix/devops-infra-dr.md`.
+OPS-02 + OPS-03 shipped together (a fixed script still fails at the dump step without the client). Exact diffs in `appendix-2026-07-01/devops-infra-dr.md`.
 
 ---
 
@@ -301,14 +301,14 @@ Ship sequence: fix the three P0s → `compose up` on staging → run integration
 
 | Domain | File | Findings |
 |---|---|---|
-| Security & Auth | `appendix/security.md` | AUD-SEC-01…08, HIST |
-| Database & RLS | `appendix/database-rls.md` | AUD-DB-01…16 (incl. AUD-DB-PGB / DB-05) |
-| DevOps / Infra / DR | `appendix/devops-infra-dr.md` | AUD-OPS-01…17 |
-| Compliance & Privacy | `appendix/compliance-privacy.md` | AUD-CMP-01…09 |
-| Backend / API / Quality | `appendix/backend-api-quality.md` | AUD-API-01…14 |
-| Frontend & Testing/QA | `appendix/frontend-testing.md` | AUD-FE-01…08 |
-| Resilience / Seams | `appendix/resilience-seams.md` | AUD-SEAM-01…06, REVJTI |
-| Red Team validation | `appendix/redteam-validation.md` | dispositions, ADR re-check, coverage gaps |
+| Security & Auth | `appendix-2026-07-01/security.md` | AUD-SEC-01…08, HIST |
+| Database & RLS | `appendix-2026-07-01/database-rls.md` | AUD-DB-01…16 (incl. AUD-DB-PGB / DB-05) |
+| DevOps / Infra / DR | `appendix-2026-07-01/devops-infra-dr.md` | AUD-OPS-01…17 |
+| Compliance & Privacy | `appendix-2026-07-01/compliance-privacy.md` | AUD-CMP-01…09 |
+| Backend / API / Quality | `appendix-2026-07-01/backend-api-quality.md` | AUD-API-01…14 |
+| Frontend & Testing/QA | `appendix-2026-07-01/frontend-testing.md` | AUD-FE-01…08 |
+| Resilience / Seams | `appendix-2026-07-01/resilience-seams.md` | AUD-SEAM-01…06, REVJTI |
+| Red Team validation | `appendix-2026-07-01/redteam-validation.md` | dispositions, ADR re-check, coverage gaps |
 
 ---
 
@@ -359,7 +359,7 @@ forward-references here.
   the mid-transaction-rollback path. Ran green on local PostgreSQL 18 (not the CI's postgres:16 —
   noted as a minor caveat, not a full substitute).
 - **`AUD-SEAM-01`** (High, §5) — durable local JSONL fallback for outbox-write failures, mirroring
-  the existing break-glass sink pattern. Full detail: `appendix/resilience-seams.md`.
+  the existing break-glass sink pattern. Full detail: `appendix-2026-07-01/resilience-seams.md`.
 - **`AUD-SEAM-05`** (Medium, §6) — drain insert+delete wrapped in one `db.transaction`. Proven with
   a real-Postgres forced-failure test (`REVOKE DELETE`), not just a mock.
 - **`AUD-OPS-04`** (High, §5) — worker now has a real `/healthz`+`/metrics` HTTP listener (shared
@@ -382,7 +382,7 @@ any audit event with no authenticated request — concretely, the hourly `SYSTEM
 no matching `users` row, and the drain passed it through unmapped. Every system-actor audit event
 was silently failing this FK, retrying 5×, exhausting, and firing `AuditLogPermanentLoss` — the
 F-P1-4 `SYSTEM_NO_SHOW` audit trail this exact cron was built to close never actually landed.
-**Full finding + fix: `appendix/resilience-seams.md` §AUD-SEAM-07.**
+**Full finding + fix: `appendix-2026-07-01/resilience-seams.md` §AUD-SEAM-07.**
 
 Fix: new `toAuditLogUserId()` helper remaps any non-positive id to `NULL` (the column's intended
 "system actor" meaning) at all 4 `audit_logs` insert sites. No schema change. Proven with a
