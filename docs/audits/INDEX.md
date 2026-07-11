@@ -20,7 +20,7 @@ Naming: `<TYPE>_<YYYY-MM-DD>[_SCOPE].md`.
 | 2026-06-29 | [ARCHITECTURE_AUDIT_2026-06-29](ARCHITECTURE_AUDIT_2026-06-29.md) | Architecture | 8.5/10 | Superseded by 07-02 |
 | 2026-07-01 | [ENGINEERING_AUDIT_2026-07-01](ENGINEERING_AUDIT_2026-07-01.md) (+ [appendix-2026-07-01/](appendix-2026-07-01/)) | Engineering board | 82/100 | See 07-02/07-07 supersessions |
 | 2026-07-02 | [ARCHITECTURE_AUDIT_2026-07-02](ARCHITECTURE_AUDIT_2026-07-02.md) | Independent verification | strong; prod-run risk | Prod end-to-end run: **OPEN** → plan Phase 0.3 |
-| 2026-07-07 | [ARCHITECTURE_AUDIT_2026-07-07_STRUCTURE](ARCHITECTURE_AUDIT_2026-07-07_STRUCTURE.md) | Structure review | 8/10 conditional | Tracked item-by-item in [IMPROVEMENT_PLAN_2026-07-08](../IMPROVEMENT_PLAN_2026-07-08.md); Phase 0 done except 0.3; Phase 1 in progress |
+| 2026-07-07 | [ARCHITECTURE_AUDIT_2026-07-07_STRUCTURE](ARCHITECTURE_AUDIT_2026-07-07_STRUCTURE.md) | Structure review | 8/10 conditional | Tracked item-by-item in [IMPROVEMENT_PLAN_2026-07-08](../IMPROVEMENT_PLAN_2026-07-08.md); Phase 0 done except 0.3; **Phase 1 complete 2026-07-11** (1.6 no-op generate clean, drift+codegen CI gates verified live and hardened with `--fail-if-no-match`; 1.7b → ADR-012; 1.7c folds into 0.3 = standing item 1) |
 | 2026-07-08 | [FRONTEND_REVIEW_2026-07-08](FRONTEND_REVIEW_2026-07-08.md) | Frontend code-level | forms + copy-paste debt | Open → plan Phase 4 (revised) |
 | — | [AUDIT_REPORT](AUDIT_REPORT.md), [SECURITY_REPORT_2.0](SECURITY_REPORT_2.0.md) | Early reports | historical | Superseded |
 

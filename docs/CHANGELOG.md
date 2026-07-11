@@ -1,6 +1,14 @@
 # Changelog
 
-## Clearance gate — max-effort code-review fixes (2026-07-07)
+## Improvement plan Phase 1 complete — 1.6/1.7 verification + CI filter hardening (2026-07-11)
+
+Closes the remaining Phase 1 items of `IMPROVEMENT_PLAN_2026-07-08` (1.1–1.5 landed in the previous hygiene commit):
+
+- **1.6 — migration snapshot sanity: verified clean.** No-op `drizzle-kit generate` against snapshot 0043 reports "No schema changes" — the missing intermediate snapshots (0010–17, 0020–21, 0024–26, 0028) are benign for generate/migrate (drizzle diffs the schema against the *latest* snapshot only; `migrate` reads `.sql` + `_journal.json`, not snapshots). No reconciliation needed before the next schema change. The `--name <slug>` naming policy was already recorded in `CONVENTIONS.md`.
+- **1.7(a) — codegen drift gate: already exists.** `ci.yml` has a `codegen-drift` job (regenerates via orval, `git diff --quiet` on both generated dirs) and it is required by the final `ci-ok` gate. Audit flag resolved with evidence — nothing to add.
+- **1.7(b) — client-side validation: decided, ADR-012.** `@workspace/api-zod` is server-only; the clinic frontend ships no Zod at all and renders the server's 400 envelope. `ADR-012-client-trusts-server-validation.md` records why (single lockstep client, one validation surface, no drift possible) and the rule for Phase 4 forms work: if a form needs inline validation, import the generated schema — never hand-write a parallel one.
+- **1.7(c) — flag 3 (prod-run risk):** already tracked as audits-INDEX standing item 1; closes with the Phase 0.3 rehearsal, not before.
+- **CI hardening — `--fail-if-no-match` on all 9 `pnpm --filter` calls in `ci.yml`.** Found while verifying the drift job: `pnpm --filter <no-match> run <script>` exits **0** with "No projects matched the filters" — a typo'd package name turns any filtered CI job (lint, test, both drift checks, integration-db, e2e) into a permanently-green no-op. `--fail-if-no-match` (verified locally on pnpm 10.33: bad filter → exit 1, incl. `exec`) makes that failure loud. Same inert-guard class as the Alertmanager env-expand finding (Phase 6).
 
 `/code-review max` over the Phase A + schedule working diff surfaced 15 findings (13 confirmed, 2 refuted); all confirmed items fixed:
 

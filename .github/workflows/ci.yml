@@ -56,7 +56,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run ESLint on routes
-        run: pnpm --filter @workspace/api-server run lint
+        run: pnpm --fail-if-no-match --filter @workspace/api-server run lint
 
       # Cross-module barrel guard for src/lib + src/middlewares (2026-07-02
       # architecture audit, F4/F6). The `lint` script above only points ESLint at
@@ -180,10 +180,10 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Validate error code registry
-        run: pnpm --filter @workspace/api-server run validate:errors
+        run: pnpm --fail-if-no-match --filter @workspace/api-server run validate:errors
 
       - name: Run unit tests
-        run: pnpm --filter @workspace/api-server run test
+        run: pnpm --fail-if-no-match --filter @workspace/api-server run test
 
       - name: Upload coverage report
         if: always()
@@ -295,9 +295,9 @@ jobs:
 
       - name: Check for uncommitted migration drift
         run: |
-          pnpm --filter @workspace/db run db:generate
+          pnpm --fail-if-no-match --filter @workspace/db run db:generate
           if ! git diff --quiet lib/db/migrations/; then
-            echo "::error::Schema drift detected — run 'pnpm --filter @workspace/db run db:generate' and commit the new migration file."
+            echo "::error::Schema drift detected — run 'pnpm --fail-if-no-match --filter @workspace/db run db:generate' and commit the new migration file."
             git diff --name-only lib/db/migrations/
             exit 1
           fi
@@ -326,9 +326,9 @@ jobs:
 
       - name: Check for uncommitted codegen drift
         run: |
-          pnpm --filter @workspace/api-spec run codegen
+          pnpm --fail-if-no-match --filter @workspace/api-spec run codegen
           if ! git diff --quiet lib/api-client-react/src/generated/ lib/api-zod/src/generated/; then
-            echo "::error::Codegen drift — run 'pnpm --filter @workspace/api-spec run codegen' and commit the regenerated files (never hand-edit src/generated)."
+            echo "::error::Codegen drift — run 'pnpm --fail-if-no-match --filter @workspace/api-spec run codegen' and commit the regenerated files (never hand-edit src/generated)."
             git diff --name-only lib/api-client-react/src/generated/ lib/api-zod/src/generated/
             exit 1
           fi
@@ -361,7 +361,7 @@ jobs:
         run: docker pull postgres:16-alpine
 
       - name: Run integration tests against testcontainers Postgres
-        run: pnpm --filter @workspace/api-server run test:integration-db
+        run: pnpm --fail-if-no-match --filter @workspace/api-server run test:integration-db
 
   # ── 9. Frontend Tests ─────────────────────────────────────────────────────────
   # Vitest + jsdom: pure-logic route-access matrix, i18n key parity (bilingual
@@ -384,7 +384,7 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Run frontend tests
-        run: pnpm --filter @workspace/clinic run test
+        run: pnpm --fail-if-no-match --filter @workspace/clinic run test
 
   # ── E2E Tests (Playwright + MSW, AUD-FE-01) ──────────────────────────────────
   # Deliberately advisory, NOT in ci-gate's needs: below. E2E suites are more
@@ -411,10 +411,10 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install Playwright browsers (chromium only)
-        run: pnpm --filter @workspace/clinic exec playwright install --with-deps chromium
+        run: pnpm --fail-if-no-match --filter @workspace/clinic exec playwright install --with-deps chromium
 
       - name: Run E2E suite
-        run: pnpm --filter @workspace/clinic run test:e2e
+        run: pnpm --fail-if-no-match --filter @workspace/clinic run test:e2e
 
       - name: Upload Playwright report
         if: always()
