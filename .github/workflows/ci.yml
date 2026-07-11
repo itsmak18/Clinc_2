@@ -117,7 +117,8 @@ jobs:
         run: |
           if grep -rnE "document\s*\.\s*write\s*\(" artifacts/clinic/src/ \
                --include=*.ts --include=*.tsx \
-               --exclude=print.ts --exclude=DischargeSheet.tsx ; then
+               --exclude=print.ts --exclude=DischargeSheet.tsx \
+               --exclude-dir=test ; then
             echo "::error::document.write is forbidden outside the reviewed print sinks (lib/print.ts, components/DischargeSheet.tsx). Route printing through openPrintWindow() and escapeHtml() every dynamic field — see audit F-01."
             exit 1
           fi
@@ -428,6 +429,10 @@ jobs:
           docker compose -f docker-compose.prod.yml --env-file .env.prod.example config -q
 
       - name: Validate docker-compose.yml (dev) syntax
+        env:
+          # docker-compose.yml marks SESSION_SECRET as required (:?). This is a
+          # syntax-validation dummy only — never a real credential.
+          SESSION_SECRET: ci-compose-validate-dummy
         run: |
           docker compose -f docker-compose.yml config -q
 

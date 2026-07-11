@@ -19,12 +19,5 @@
     "typescript": "~5.9.2",
     "prettier": "^3.8.1",
     "@types/node": "catalog:"
-  },
-  "pnpm": {
-    "overrides": {
-      "cookie-signature": "^1.2.2",
-      "qs": ">=6.15.2",
-      "@opentelemetry/core": ">=2.8.0"
-    }
   }
 }

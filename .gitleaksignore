@@ -1,0 +1,10 @@
+# gitleaks false-positive allowlist (fingerprint format: commit:file:rule:line)
+#
+# Each entry MUST have a justification. Never allowlist a real credential —
+# rotate it instead (see docs/SECURITY.md).
+
+# Audit-report prose in the devops appendix: the flagged line is a Markdown
+# finding description (compose healthcheck cascade analysis), not a key.
+# Verified 2026-07-11: `git show c4a69aeb:docs/audit/appendix/devops-infra-dr.md`
+# line 34 contains no secret material.
+c4a69aebd4a66530b3998ac50f286493256a5f21:docs/audit/appendix/devops-infra-dr.md:generic-api-key:34

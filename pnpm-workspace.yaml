@@ -80,7 +80,22 @@ overrides:
   "@expo/ngrok-bin>@expo/ngrok-bin-win32-x64": "-"
   # GHSA-8988-4f7v-96qf OpenTelemetry Core unbounded memory — production OTEL dep (was >=1.30.0)
   "@opentelemetry/core": ">=2.8.0"
+  # cookie-signature timing-safe compare — production runtime via cookie-parser
+  # (moved from root package.json pnpm.overrides 2026-07-11: when both files declare
+  # overrides, package.json wins and this whole block is silently ignored — root
+  # cause of the inert esbuild/path-to-regexp/picomatch pins. Root package.json
+  # pnpm block removed; this file is now the single source of truth.)
+  cookie-signature: "^1.2.2"
   esbuild: "0.27.3"
+  # GHSA-q3j6-qgpj-74h6 (path traversal) + GHSA-v39h-62p7-jpjc (host confusion) —
+  # dev-only: orval>@scalar/openapi-parser>ajv>fast-uri
+  fast-uri: ">=3.1.2"
+  # GHSA-hmw2-7cc7-3qxx (CRLF injection) — dev-only: @types/supertest>@types/superagent>form-data
+  form-data: ">=4.0.6"
+  # GHSA-22p9-wv53-3rq4 (quadratic scan loop) — dev-only: orval>typedoc>markdown-it>linkify-it
+  linkify-it: ">=5.0.1"
+  # GHSA-r5fr-rjxr-66jc (_.template code injection) — dev-only: testcontainers>archiver>archiver-utils>lodash
+  lodash: ">=4.18.0"
   # CVE-2026-33750 (brace-expansion hang/OOM) — brace-expansion <2.0.3
   "minimatch>brace-expansion": ">=2.0.3"
   # GHSA-j3q9-mxjg-w52f (path-to-regexp ReDoS/DoS) — production: express>router uses this
