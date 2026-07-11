@@ -123,7 +123,9 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "80:80"
+      # Container listens on 8080 (nginx-unprivileged runs as non-root and
+      # cannot bind <1024); host keeps plain 80.
+      - "80:8080"
 
 volumes:
   postgres_data:

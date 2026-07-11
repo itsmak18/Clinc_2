@@ -96,6 +96,8 @@ overrides:
   linkify-it: ">=5.0.1"
   # GHSA-r5fr-rjxr-66jc (_.template code injection) — dev-only: testcontainers>archiver>archiver-utils>lodash
   lodash: ">=4.18.0"
+  # CVE-2026-41907 / GHSA-w5hq-g745-h8pq (v3/v5/v6 buffer bounds) — production: node-cron>uuid@8.x
+  uuid: ">=11.1.1"
   # CVE-2026-33750 (brace-expansion hang/OOM) — brace-expansion <2.0.3
   "minimatch>brace-expansion": ">=2.0.3"
   # GHSA-j3q9-mxjg-w52f (path-to-regexp ReDoS/DoS) — production: express>router uses this

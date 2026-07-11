@@ -482,19 +482,17 @@ services:
       api:
         condition: service_healthy
     # In prod, clinic is reachable from Caddy/Traefik only (D1).
-    # If running without an edge proxy, change to "80:80" — but you then lose TLS.
+    # If running without an edge proxy, publish "80:8080" — but you then lose TLS.
     expose:
-      - "80"
+      - "8080"
     mem_limit: 128m
     cpus: 0.5
     pids_limit: 100
+    # nginx-unprivileged starts as UID 101 and listens on 8080 (>1024) — no
+    # capabilities needed (previously CHOWN/SETGID/SETUID for the root→worker
+    # drop plus NET_BIND_SERVICE for :80).
     cap_drop:
       - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
-      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
     logging:
