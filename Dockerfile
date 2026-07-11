@@ -51,5 +51,10 @@ ENV NODE_ENV=production
 ENV PORT=5000
 EXPOSE 5000
 
+# Compose healthchecks override this; declared so the image is self-sufficient
+# when run outside compose (Trivy DS-0026).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD node -e "fetch('http://localhost:5000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 # SIGTERM is forwarded by Docker stop — the server handles it for graceful shutdown
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]
