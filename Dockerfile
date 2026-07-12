@@ -37,8 +37,12 @@ FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432
 WORKDIR /app
 
 # bcrypt uses a pre-compiled .node addon — copy it from the build stage.
-# node_modules/bcrypt is the only non-bundled runtime dep.
+# bcrypt 6 loads its prebuilt binding through node-gyp-build at require()
+# time, so that loader must ship too (api crashed MODULE_NOT_FOUND without
+# it — 2026-07 prod rehearsal catch #3). These are the only two non-bundled
+# runtime deps.
 COPY --from=build /app/node_modules/bcrypt ./node_modules/bcrypt
+COPY --from=build /app/node_modules/node-gyp-build ./node_modules/node-gyp-build
 
 # Copy the bundled application (index.mjs + pino worker shims written by esbuild-plugin-pino)
 COPY --from=build /app/artifacts/api-server/dist ./dist

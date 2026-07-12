@@ -42,28 +42,35 @@ export async function recordFailure(key: string): Promise<void> {
   const windowStart = new Date(now.getTime() - WINDOW_MS);
   const lockoutUntil = new Date(now.getTime() + LOCKOUT_MS);
 
-  // Single atomic upsert — avoids read-then-write race condition
+  // Single atomic upsert — avoids read-then-write race condition.
+  // Every date param carries an explicit ::timestamptz cast: inside CASE
+  // branches (mixed with NULL) Postgres cannot infer the parameter type from
+  // the target column and defaults to text — "column locked_until is of type
+  // timestamp with time zone but expression is of type text". Only reproduces
+  // through PgBouncer's prepared-statement handling, so unit + direct-PG
+  // integration tests passed while the prod stack 500'd on every login
+  // (2026-07 prod rehearsal catch #7).
   await db.execute(sql`
     INSERT INTO login_attempts (key, count, first_seen, locked_until, updated_at)
-    VALUES (${key}, 1, ${now}, NULL, ${now})
+    VALUES (${key}, 1, ${now}::timestamptz, NULL, ${now}::timestamptz)
     ON CONFLICT (key) DO UPDATE SET
       count = CASE
-        WHEN login_attempts.first_seen < ${windowStart} THEN 1
+        WHEN login_attempts.first_seen < ${windowStart}::timestamptz THEN 1
         ELSE login_attempts.count + 1
       END,
       first_seen = CASE
-        WHEN login_attempts.first_seen < ${windowStart} THEN ${now}
+        WHEN login_attempts.first_seen < ${windowStart}::timestamptz THEN ${now}::timestamptz
         ELSE login_attempts.first_seen
       END,
       locked_until = CASE
         WHEN (CASE
-          WHEN login_attempts.first_seen < ${windowStart} THEN 1
+          WHEN login_attempts.first_seen < ${windowStart}::timestamptz THEN 1
           ELSE login_attempts.count + 1
         END) >= ${MAX_ATTEMPTS}
-        THEN ${lockoutUntil}
+        THEN ${lockoutUntil}::timestamptz
         ELSE NULL
       END,
-      updated_at = ${now}
+      updated_at = ${now}::timestamptz
   `);
 }
 

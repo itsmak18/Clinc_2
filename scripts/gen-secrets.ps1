@@ -1,4 +1,4 @@
-# gen-secrets.ps1 — generate the ./secrets/* files docker-compose.prod.yml expects.
+﻿# gen-secrets.ps1 — generate the ./secrets/* files docker-compose.prod.yml expects.
 # Idempotent: only creates files that don't already exist (never overwrites — so it
 # won't clobber keys you've escrowed). Run from repo root:  .\scripts\gen-secrets.ps1
 #
@@ -29,6 +29,14 @@ $randHex = { param($p) node -e "process.stdout.write(require('crypto').randomByt
 New-Secret "postgres_password"     $randB64
 New-Secret "app_db_password"       $randB64
 New-Secret "redis_password"        $randB64
+
+# redis_exporter needs the password as a JSON map {"redis://addr":"pw"} - its
+# REDIS_PASSWORD_FILE parses JSON, not a raw secret (rehearsal catch #4).
+# Regenerate this whenever redis_password rotates.
+New-Secret "redis_exporter_passwords" { param($p)
+  $pw = (Get-Content (Join-Path $secrets "redis_password") -Raw).Trim()
+  ("{{`"redis://redis:6379`":`"{0}`"}}" -f $pw) | Out-File -FilePath $p -Encoding ascii -NoNewline
+}
 New-Secret "session_secret"        $randHex
 New-Secret "field_encryption_key"  $randHex
 New-Secret "metrics_token"         $randHex

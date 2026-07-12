@@ -4,8 +4,10 @@ FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432
 RUN corepack enable
 WORKDIR /app
 
-# Copy workspace manifests (layer-cached until they change)
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+# Copy workspace manifests (layer-cached until they change).
+# tsconfig.base.json: artifacts/clinic/tsconfig.json extends it and vite's
+# esbuild transform resolves the chain at build time (rehearsal catch #2).
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY lib/api-client-react/package.json ./lib/api-client-react/
 COPY artifacts/clinic/package.json     ./artifacts/clinic/
 RUN pnpm install --frozen-lockfile --ignore-scripts --node-linker=hoisted
@@ -13,6 +15,13 @@ RUN pnpm install --frozen-lockfile --ignore-scripts --node-linker=hoisted
 # Copy source (api-client-react is imported by clinic)
 COPY lib/api-client-react/ ./lib/api-client-react/
 COPY artifacts/clinic/     ./artifacts/clinic/
+
+# vite.config.ts imports the CSP single-source-of-truth from api-server
+# (cspDirectives/cspMetaString → auth-constants; chain ends there). Without
+# these two files the clinic image cannot build at all — caught by the
+# 2026-07 prod rehearsal.
+COPY artifacts/api-server/src/lib/csp.ts            ./artifacts/api-server/src/lib/csp.ts
+COPY artifacts/api-server/src/lib/auth-constants.ts ./artifacts/api-server/src/lib/auth-constants.ts
 
 # Vite build — outputs to artifacts/clinic/dist/public/
 RUN pnpm --filter @workspace/clinic run build
@@ -35,8 +44,11 @@ USER nginx
 
 # Compose healthchecks override this; declared so the image is self-sufficient
 # when run outside compose (Trivy DS-0026).
+# 127.0.0.1, not localhost: busybox wget resolves localhost to ::1 first and
+# nginx here listens on IPv4 only — the probe permanently failed as unhealthy
+# while the container served traffic fine (rehearsal catch #8).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD wget -qO- http://localhost:8080/ >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1
 
 EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]

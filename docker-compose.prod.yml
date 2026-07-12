@@ -181,13 +181,15 @@ services:
     command:
       - |
         set -eu
-        # Build MD5 userlist for medicore_app from the Docker secret.
-        # Format: "username" "md5<md5(password + username)>"
-        # The MD5 is computed over the concatenation of password + username
-        # (Postgres wire-protocol convention).
+        # Userlist for medicore_app from the Docker secret, PLAINTEXT form.
+        # Postgres 16 stores role passwords as scram-sha-256; PgBouncer can only
+        # answer the server's SCRAM challenge when it knows the actual password —
+        # an md5-hashed userlist entry fails with "cannot do SCRAM authentication:
+        # wrong password type" (2026-07 prod rehearsal catch #5; the md5 variant
+        # of this block had never successfully connected). The plaintext lives in
+        # container-local /tmp, same trust domain as /run/secrets itself.
         APP_PW="$$(cat /run/secrets/app_db_password)"
-        HASH=$$(printf '%s' "$${APP_PW}medicore_app" | md5sum | cut -d' ' -f1)
-        printf '"medicore_app" "md5%s"\n' "$$HASH" > /tmp/userlist.txt
+        printf '"medicore_app" "%s"\n' "$$APP_PW" > /tmp/userlist.txt
 
         # Generate runtime pgbouncer.ini referencing the secret-derived userlist.
         cat > /tmp/pgbouncer.ini <<PGBCONF
@@ -197,9 +199,18 @@ services:
         [pgbouncer]
         listen_port = 6432
         listen_addr = *
-        auth_type = md5
+        # SCRAM both directions: clients (api/worker) authenticate to PgBouncer
+        # with SCRAM, PgBouncer authenticates to Postgres 16 with SCRAM using
+        # the plaintext userlist entry above.
+        auth_type = scram-sha-256
         auth_file = /tmp/userlist.txt
         pool_mode = transaction
+        # node-postgres issues extended-protocol prepared statements; under
+        # transaction pooling PgBouncer must track them across server handoffs
+        # or every parameterized query fails (rehearsal catch #6 — the drizzle
+        # login_attempts upsert 500'd while plain psql worked). Requires
+        # PgBouncer >= 1.21.
+        max_prepared_statements = 200
         default_pool_size = $${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
         reserve_pool_size = 5
         reserve_pool_timeout = 3
@@ -553,10 +564,13 @@ services:
       # Redis enforces --requirepass (see redis service above); without this the
       # exporter authenticates as nobody and either errors or (pre-Redis 6 ACL
       # semantics) silently returns no data — RedisHighMemory alert goes dark.
-      # Native file-secret support, no shell needed (this image tag is scratch-based).
-      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      # REDIS_PASSWORD_FILE expects a JSON map {"redis://addr":"password"}, NOT
+      # the raw password (exporter crash-looped on the raw file — 2026-07 prod
+      # rehearsal catch #4). gen-secrets.ps1 writes the map form alongside the
+      # raw secret; image stays scratch-based (no shell wrapper needed).
+      REDIS_PASSWORD_FILE: /run/secrets/redis_exporter_passwords
     secrets:
-      - redis_password
+      - redis_exporter_passwords
     read_only: true
     cap_drop:
       - ALL
@@ -917,6 +931,11 @@ volumes:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  # JSON map {"redis://redis:6379":"<redis_password>"} — the format
+  # redis_exporter's REDIS_PASSWORD_FILE actually parses. Written by
+  # gen-secrets.ps1 from the raw redis_password.
+  redis_exporter_passwords:
+    file: ./secrets/redis_exporter_passwords
   # Runtime app role password. api + worker connect as medicore_app using this
   # secret (F-01 fix). Generate: openssl rand -base64 48 | tr -d '\n' > ./secrets/app_db_password
   # The migrate container sets this password on the medicore_app role after migrations run.
