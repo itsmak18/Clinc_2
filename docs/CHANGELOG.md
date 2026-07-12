@@ -1,5 +1,18 @@
 # Changelog
 
+## Department payment visibility — own-line charge + queue tabs (2026-07-12)
+
+Implements `docs/CLEARANCE_VISIBILITY_PLAN_2026-07-11.md` (ADR-011 §10). The lab/x-ray/ultrasound user can now answer "process it, or send the patient to pay?" from the queue row:
+
+- **Own-line charge on order rows (D1 — owner constraint).** Lab/XRay/Ultrasound list+detail responses gain `charge: { amountCents } | null` — the order's own `quantity × unit_price` from the invoice line it already joins, and **nothing else**: no invoice totals, basket balance, payment history, or other departments' lines. `GET /billing/invoices*` unchanged (departments still 403). No new joins — two columns widened on the existing `invoice_items` LEFT JOIN; cents via `lib/money.ts` (`orderChargeFromLine`).
+- **ClearanceChip v2.** Green ✓ "Paid — $150.00" (positive go-signal; only on gate-managed rows, so pre-gate/flag-OFF rows stay silent), amber "Awaiting payment — $150.00" (tooltip: collect at front desk), blue "Emergency override — amount still owed", rose "Payment expired". No partially-paid state in departments — per-order truth is `clearance_status`; partial nuance stays on Billing.
+- **Queue tabs** on the three department pages: All (default — no surprise row-hiding) / Ready to process (`cleared,overridden`) / Awaiting payment (`pending`). Backed by the `clearanceStatus` filter now accepting a validated comma list (`parseClearanceStatusFilter` — unknown values 400, never silently dropped); shared `CLEARANCE_QUEUE_TABS` in `lib/clearance.ts`.
+- **Spec/codegen:** `OrderCharge` schema (nullable via property-site `allOf` — orval emits invalid TS for `nullable` on a named object schema), comma-list pattern on the three query params.
+- **i18n:** 4 new EN/AR keys (`paidAmount`, `collectAtFrontDesk`, `overrideAmountOwed`, `readyToProcess`).
+- **Tests:** chip state-matrix (8 render tests incl. AR + pre-gate-silent contract); `parseClearanceStatusFilter`/`orderChargeFromLine` units; integration-db #11 proves the D1 rule end-to-end — a second order on the same basket does NOT change the first row's amount (own line ≠ basket total), department roles stay 403 on `/billing/invoices`, and a partial payment changes nothing the department sees.
+
+Verified: typecheck ✓, unit 594/594, frontend 59/59, clearance-gate integration 7/7 on real Postgres (full suite in the branch verify pass), codegen clean.
+
 ## Clearance gate — max-effort code-review fixes (2026-07-07)
 
 `/code-review max` over the Phase A + schedule working diff surfaced 15 findings (13 confirmed, 2 refuted); all confirmed items fixed:

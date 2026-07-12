@@ -27,5 +27,7 @@ export {
   appendOrderCharge,
   removeOrderCharge,
   clearanceBlocksProgress,
+  parseClearanceStatusFilter,
+  orderChargeFromLine,
   expirePendingClearances,
 } from "./clearance.service";

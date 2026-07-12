@@ -11,7 +11,7 @@ import { getActiveBreakGlassPatientIds } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError, ClearanceRequiredError } from "../../services/errors";
 import { autoAdvanceVisit } from "../clinical";
-import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress } from "../billing";
+import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress, parseClearanceStatusFilter, orderChargeFromLine } from "../billing";
 import type { AuthRequest } from "../../middlewares/auth";
 
 export async function listUltrasounds(
@@ -20,7 +20,7 @@ export async function listUltrasounds(
 ) {
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(ultrasoundRecordsTable.deletedAt), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
-  if (params.clearanceStatus) conditions.push(eq(ultrasoundRecordsTable.clearanceStatus, params.clearanceStatus as any));
+  if (params.clearanceStatus) conditions.push(inArray(ultrasoundRecordsTable.clearanceStatus, parseClearanceStatusFilter(params.clearanceStatus)));
 
   let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
@@ -61,6 +61,9 @@ export async function listUltrasounds(
       clearanceStatus: ultrasoundRecordsTable.clearanceStatus,
       invoiceItemId: ultrasoundRecordsTable.invoiceItemId,
       invoiceId: invoiceItemsTable.invoiceId,
+      // Own-line price only (visibility plan D1) — folded into `charge` below.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
       notes: ultrasoundRecordsTable.notes,
       notesAr: ultrasoundRecordsTable.notesAr,
       createdAt: ultrasoundRecordsTable.createdAt,
@@ -76,9 +79,13 @@ export async function listUltrasounds(
     { breakGlassPatientIds },
   );
 
-  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  await logAudit(req, "READ_LIST", "ultrasound", undefined, { count: rows.length });
-  return { data: rows, nextCursor };
+  const data = rows.map(({ chargeQuantity, chargeUnitPrice, ...row }) => ({
+    ...row,
+    charge: orderChargeFromLine(chargeQuantity, chargeUnitPrice),
+  }));
+  const nextCursor = data.length === lim ? data[data.length - 1].id : null;
+  await logAudit(req, "READ_LIST", "ultrasound", undefined, { count: data.length });
+  return { data, nextCursor };
 }
 
 export async function createUltrasound(
@@ -134,12 +141,20 @@ export async function getUltrasound(req: AuthRequest, id: number) {
     ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
     : [];
 
-  const record = await runInTenantContext(req.user!, async (tx) => {
+  const found = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(ultrasoundRecordsTable.id, id), eq(ultrasoundRecordsTable.clinicId, req.user!.clinicId)];
-    const [row] = await tx.select().from(ultrasoundRecordsTable).where(and(...conditions));
+    const [row] = await tx.select({
+      record: ultrasoundRecordsTable,
+      // Own-line price only (visibility plan D1) — never invoice totals.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
+    }).from(ultrasoundRecordsTable)
+      .leftJoin(invoiceItemsTable, eq(ultrasoundRecordsTable.invoiceItemId, invoiceItemsTable.id))
+      .where(and(...conditions));
     return row;
   }, { breakGlassPatientIds });
-  if (!record) throw new NotFoundError("ultrasound record", id);
+  if (!found) throw new NotFoundError("ultrasound record", id);
+  const record = { ...found.record, charge: orderChargeFromLine(found.chargeQuantity, found.chargeUnitPrice) };
 
   if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);

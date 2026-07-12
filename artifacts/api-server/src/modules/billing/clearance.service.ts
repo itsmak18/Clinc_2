@@ -74,6 +74,42 @@ export function clearanceBlocksProgress(newStatus: string | undefined, clearance
   return !!newStatus && CLEARANCE_BLOCKED_STATUSES.includes(newStatus) && !CLEARANCE_OK.includes(clearanceStatus);
 }
 
+const CLEARANCE_FILTER_VALUES = ["pending", "cleared", "overridden", "expired"] as const;
+export type ClearanceFilterStatus = (typeof CLEARANCE_FILTER_VALUES)[number];
+
+/**
+ * Parse the `clearanceStatus` list-filter query param shared by the three
+ * order list endpoints. Accepts a single value or a comma list
+ * ("cleared,overridden" — the department "ready to process" tab). Unknown
+ * values are a 400, never silently dropped (validate-don't-transform).
+ */
+export function parseClearanceStatusFilter(raw: string): ClearanceFilterStatus[] {
+  const values = raw.split(",").map((v) => v.trim()).filter(Boolean);
+  if (values.length === 0) {
+    throw new ValidationError("clearanceStatus: empty filter");
+  }
+  for (const v of values) {
+    if (!(CLEARANCE_FILTER_VALUES as readonly string[]).includes(v)) {
+      throw new ValidationError(`clearanceStatus: unknown value '${v}'`);
+    }
+  }
+  return values as ClearanceFilterStatus[];
+}
+
+/**
+ * Own-line charge exposed on department order rows (clearance-visibility plan
+ * D1): the order's own `quantity × unit_price` and NOTHING else — no invoice
+ * totals, basket balance, or payment history. Department roles may see what
+ * the request they received costs, not the patient's wider bill.
+ */
+export function orderChargeFromLine(
+  quantity: number | null,
+  unitPrice: string | null,
+): { amountCents: number } | null {
+  if (quantity == null || unitPrice == null) return null;
+  return { amountCents: quantity * parseMoneyToCents(unitPrice) };
+}
+
 /**
  * Serialize basket mutations per (clinic, patient) with a transaction-scoped
  * advisory lock, held until the caller's tx ends. EVERY writer that appends

@@ -23,7 +23,7 @@ import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
 import { xrayTemplates, type ReportTemplate } from "@/lib/reportTemplates";
 import { Plus, FileImage, Printer, ChevronDown, ChevronUp, ShieldCheck, Trash2, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isClearanceLocked, canOverrideClearance } from "@/lib/clearance";
+import { isClearanceLocked, canOverrideClearance, CLEARANCE_QUEUE_TABS } from "@/lib/clearance";
 
 const IMAGING_STATUSES = ["requested", "in_progress", "completed"] as const;
 const FILTER_STATUSES = [...IMAGING_STATUSES, "cancelled"] as const;
@@ -62,6 +62,7 @@ export default function XRay() {
   const canEdit = EDIT_ROLES.includes(user?.role ?? "");
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
+  const [clearanceTab, setClearanceTab] = useState("");
   const [search, setSearch] = useState("");
   const [showArCreate, setShowArCreate] = useState(false);
   const [showArReport, setShowArReport] = useState(false);
@@ -85,7 +86,7 @@ export default function XRay() {
   const [impressionAr, setImpressionAr] = useState("");
   const [reportStatus, setReportStatus] = useState("in_progress");
 
-  const filterParams = { status: filterStatus as any || undefined };
+  const filterParams = { status: filterStatus as any || undefined, clearanceStatus: clearanceTab || undefined };
   const { data: xrays, isLoading } = useListXrayImages(filterParams, { query: { queryKey: getListXrayImagesQueryKey(filterParams) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
 
@@ -207,6 +208,22 @@ export default function XRay() {
             {FILTER_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
           </SelectContent>
         </Select>
+        {/* Payment-clearance queue tabs (visibility plan): default All — the
+            guard blocks unpaid work regardless; tabs only focus the view. */}
+        <div className="flex items-center gap-1" role="tablist" aria-label={t("awaitingPayment")}>
+          {CLEARANCE_QUEUE_TABS.map(tab => (
+            <button
+              key={tab.value}
+              role="tab"
+              aria-selected={clearanceTab === tab.value}
+              className={cn("btn btn-sm h-8 text-xs px-2.5", clearanceTab === tab.value ? "btn-primary" : "btn-outline")}
+              onClick={() => setClearanceTab(tab.value)}
+              data-testid={`tab-clearance-${tab.value || "all"}`}
+            >
+              {t(tab.labelKey as any)}
+            </button>
+          ))}
+        </div>
         {openCount > 0 && (
           <span className="badge badge-rose text-[11px]">{openCount} {t("pending")}</span>
         )}
@@ -231,7 +248,7 @@ export default function XRay() {
                 {(row.patient as any)?.dateOfBirth && <div><span className="text-[var(--ink-muted)]">{t("dateOfBirth")}: </span><span className="text-[var(--ink)]">{formatDate((row.patient as any).dateOfBirth)}</span></div>}
                 {(row.patient as any)?.gender && <div><span className="text-[var(--ink-muted)]">{t("gender")}: </span><span className="text-[var(--ink)] capitalize">{(row.patient as any).gender}</span></div>}
                 {row.requestedBy?.fullName && <div><span className="text-[var(--ink-muted)]">{t("requestedBy")}: </span><span className="text-[var(--ink)]">{row.requestedBy.fullName}</span></div>}
-                <ClearanceChip status={(row as any).clearanceStatus} />
+                <ClearanceChip status={(row as any).clearanceStatus} charge={(row as any).charge} />
                 {(row as any).clearanceStatus === "pending" && (row as any).invoiceId && canOverrideClearance(user?.role) && (
                   <button
                     className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1"
@@ -384,7 +401,7 @@ export default function XRay() {
             { key: "status",    header: t("status"),       render: x => (
               <div className="flex flex-col items-start gap-1">
                 <StatusBadge status={x.status} />
-                <ClearanceChip status={(x as any).clearanceStatus} />
+                <ClearanceChip status={(x as any).clearanceStatus} charge={(x as any).charge} />
               </div>
             ) },
             {

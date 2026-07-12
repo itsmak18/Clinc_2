@@ -11,7 +11,7 @@ import { getActiveBreakGlassPatientIds } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError, ClearanceRequiredError } from "../../services/errors";
 import { autoAdvanceVisit } from "./appointments.service";
-import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress } from "../billing";
+import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress, parseClearanceStatusFilter, orderChargeFromLine } from "../billing";
 import type { AuthRequest } from "../../middlewares/auth";
 
 export async function listLabTests(
@@ -20,7 +20,7 @@ export async function listLabTests(
 ) {
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(labTestsTable.deletedAt), eq(labTestsTable.clinicId, req.user!.clinicId)];
-  if (params.clearanceStatus) conditions.push(eq(labTestsTable.clearanceStatus, params.clearanceStatus as any));
+  if (params.clearanceStatus) conditions.push(inArray(labTestsTable.clearanceStatus, parseClearanceStatusFilter(params.clearanceStatus)));
 
   let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
@@ -56,6 +56,10 @@ export async function listLabTests(
       // Basket invoice backing the auto-charge — lets the UI open the emergency
       // override / payment flow straight from the order row (ADR-011).
       invoiceId: invoiceItemsTable.invoiceId,
+      // Own-line price only (visibility plan D1) — folded into `charge` below;
+      // invoice totals/balance are deliberately NOT selected.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
       notes: labTestsTable.notes,
       notesAr: labTestsTable.notesAr,
       orderGroupId: labTestsTable.orderGroupId,
@@ -72,9 +76,13 @@ export async function listLabTests(
     { breakGlassPatientIds },
   );
 
-  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  await logAudit(req, "READ_LIST", "lab_test", undefined, { count: rows.length });
-  return { data: rows, nextCursor };
+  const data = rows.map(({ chargeQuantity, chargeUnitPrice, ...row }) => ({
+    ...row,
+    charge: orderChargeFromLine(chargeQuantity, chargeUnitPrice),
+  }));
+  const nextCursor = data.length === lim ? data[data.length - 1].id : null;
+  await logAudit(req, "READ_LIST", "lab_test", undefined, { count: data.length });
+  return { data, nextCursor };
 }
 
 export async function createLabTest(
@@ -135,12 +143,20 @@ export async function getLabTest(req: AuthRequest, testId: number) {
     ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
     : [];
 
-  const test = await runInTenantContext(req.user!, async (tx) => {
+  const found = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(labTestsTable.id, testId), eq(labTestsTable.clinicId, req.user!.clinicId)];
-    const [row] = await tx.select().from(labTestsTable).where(and(...conditions));
+    const [row] = await tx.select({
+      test: labTestsTable,
+      // Own-line price only (visibility plan D1) — never invoice totals.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
+    }).from(labTestsTable)
+      .leftJoin(invoiceItemsTable, eq(labTestsTable.invoiceItemId, invoiceItemsTable.id))
+      .where(and(...conditions));
     return row;
   }, { breakGlassPatientIds });
-  if (!test) throw new NotFoundError("lab test", testId);
+  if (!found) throw new NotFoundError("lab test", testId);
+  const test = { ...found.test, charge: orderChargeFromLine(found.chargeQuantity, found.chargeUnitPrice) };
 
   if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);

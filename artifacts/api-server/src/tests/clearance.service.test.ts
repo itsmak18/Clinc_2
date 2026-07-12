@@ -60,7 +60,7 @@ vi.mock("@workspace/db", () => {
   return __m;
 });
 
-import { overrideInvoiceClearance, expirePendingClearances } from "../modules/billing/clearance.service";
+import { overrideInvoiceClearance, expirePendingClearances, parseClearanceStatusFilter, orderChargeFromLine } from "../modules/billing/clearance.service";
 
 const fakeReq = { user: { userId: 7, username: "dr", role: "doctor", clinicId: 3 }, headers: {} } as any;
 const LONG_REASON = "Patient in acute respiratory distress — imaging needed before payment.";
@@ -88,6 +88,34 @@ describe("clearance gate — flag OFF", () => {
       errorDef: expect.objectContaining({ code: 3021 }),
     });
     expect(mockDb.select).not.toHaveBeenCalled();
+  });
+});
+
+describe("parseClearanceStatusFilter", () => {
+  it("accepts a single value and a comma list", () => {
+    expect(parseClearanceStatusFilter("pending")).toEqual(["pending"]);
+    expect(parseClearanceStatusFilter("cleared,overridden")).toEqual(["cleared", "overridden"]);
+    expect(parseClearanceStatusFilter(" cleared , overridden ")).toEqual(["cleared", "overridden"]);
+  });
+
+  it("rejects unknown values and empty filters (400, not silent drop)", () => {
+    expect(() => parseClearanceStatusFilter("paidish")).toThrowError(/unknown value/);
+    expect(() => parseClearanceStatusFilter("cleared,nope")).toThrowError(/unknown value/);
+    expect(() => parseClearanceStatusFilter(",")).toThrowError(/empty/);
+  });
+});
+
+describe("orderChargeFromLine (visibility plan D1 — own line only)", () => {
+  it("computes quantity × unit price in cents", () => {
+    expect(orderChargeFromLine(1, "150.00")).toEqual({ amountCents: 15000 });
+    expect(orderChargeFromLine(2, "0.30")).toEqual({ amountCents: 60 });
+    expect(orderChargeFromLine(1, "0.00")).toEqual({ amountCents: 0 });
+  });
+
+  it("returns null for pre-gate rows (no joined line)", () => {
+    expect(orderChargeFromLine(null, null)).toBeNull();
+    expect(orderChargeFromLine(1, null)).toBeNull();
+    expect(orderChargeFromLine(null, "150.00")).toBeNull();
   });
 });
 

@@ -281,6 +281,10 @@ clearance_status:   pending → cleared | overridden | expired  ← ORTHOGONAL f
                                                             auto-charge on the basket; workflow progress
                                                             (in_progress/completed) is 409/3020-blocked until
                                                             paid ('cleared') or clinically overridden.
+                                                            Department rows expose `charge:{amountCents}|null` —
+                                                            the order's OWN line only, NEVER invoice/basket
+                                                            totals (ADR-011 §10, owner rule). List filter
+                                                            `clearanceStatus` takes a comma list; bad value 400.
 operation_status:   scheduled → in_progress → completed | cancelled
 notification_type:  patient_arrived | lab_ready | xray_ready | ultrasound_ready | general
 ```

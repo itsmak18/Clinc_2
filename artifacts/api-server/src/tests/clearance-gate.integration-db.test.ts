@@ -19,7 +19,11 @@
  *  8. the expiry sweep expires stale pending orders and cleans their baskets;
  *  9. concurrency: two parallel creates for one patient yield exactly ONE open
  *     basket (invoice_open_basket_uq race);
- * 10. imaging enum accepts 'cancelled' (migration 0041).
+ * 10. imaging enum accepts 'cancelled' (migration 0041);
+ * 11. department visibility (plan D1): order rows expose ONLY their own line
+ *     charge (never basket totals), the comma clearance filter works, unknown
+ *     values 400, department roles stay locked out of /billing/invoices, and
+ *     partial payments change nothing the department sees.
  *
  * Flag-OFF byte-identical behavior is proven by the entire pre-existing suite
  * (runs with the flag unset).
@@ -285,6 +289,84 @@ describe("clearance gate end-to-end (real Postgres)", () => {
 
     const [after] = await harness.db.select().from(invoicesTable).where(eq(invoicesTable.id, basket.id));
     expect(after.status).toBe("cancelled");
+  });
+
+  it("department visibility (plan D1): rows expose ONLY the own-line charge; comma filter works; partial payment changes nothing the department sees", async () => {
+    const doctorCookie = await cookieFor(seed.doctorB, "doctor");
+    const adminCookie = await cookieFor(seed.superAdminB, "super_admin");
+
+    // Two orders, two modalities, ONE basket (lab 150.00 + xray 100.00 = 250.00).
+    const labRes = await createLabOrder(doctorCookie, seed.patientB.id, seed.doctorB.id, "Ferritin");
+    expect(labRes.status).toBe(201);
+    const xrayRes = await request(app)
+      .post("/api/xray")
+      .set("Cookie", writeCookies(doctorCookie))
+      .set("X-CSRF-Token", csrf)
+      .send({ patientId: seed.patientB.id, requestedById: seed.doctorB.id, bodyPart: "Wrist" });
+    expect(xrayRes.status).toBe(201);
+    const [basket] = await basketFor(seed.patientB.id, seed.clinicB.id);
+    expect(String(basket.total)).toBe("250.00");
+
+    // The lab row shows its OWN line (15000 cents), not the basket total
+    // (25000) — a second order on the same basket must not change what the
+    // department sees. The charge object carries amountCents and nothing else.
+    const labList = await request(app)
+      .get("/api/lab/tests?clearanceStatus=pending")
+      .set("Cookie", await cookieFor(seed.superAdminB, "lab_staff"));
+    expect(labList.status).toBe(200);
+    // List routes return the row array directly (no {data} wrapper).
+    const labRow = labList.body.find((r: any) => r.id === labRes.body.id);
+    expect(labRow.charge).toEqual({ amountCents: 15000 });
+    const xrayList = await request(app)
+      .get("/api/xray?clearanceStatus=pending")
+      .set("Cookie", await cookieFor(seed.superAdminB, "xray_staff"));
+    const xrayRow = xrayList.body.find((r: any) => r.id === xrayRes.body.id);
+    expect(xrayRow.charge).toEqual({ amountCents: 10000 });
+
+    // Department roles still cannot read invoices at all (D1 didn't widen RBAC).
+    const invoices = await request(app)
+      .get("/api/billing/invoices")
+      .set("Cookie", await cookieFor(seed.superAdminB, "lab_staff"));
+    expect(invoices.status).toBe(403);
+
+    // Unknown filter value → 400, not silently dropped.
+    const badFilter = await request(app)
+      .get("/api/lab/tests?clearanceStatus=paidish")
+      .set("Cookie", adminCookie);
+    expect(badFilter.status).toBe(400);
+
+    // Partial payment (100 of 250): basket stays pending, orders stay pending,
+    // and the department's own-line amount is unchanged — partial-payment
+    // nuance deliberately never reaches the department view.
+    const partial = await request(app)
+      .post(`/api/billing/invoices/${basket.id}/payments`)
+      .set("Cookie", writeCookies(adminCookie))
+      .set("X-CSRF-Token", csrf)
+      .send({ amount: 100, method: "cash" });
+    expect(partial.status).toBe(201);
+    const stillPending = await request(app)
+      .get("/api/lab/tests?clearanceStatus=pending")
+      .set("Cookie", adminCookie);
+    const stillRow = stillPending.body.find((r: any) => r.id === labRes.body.id);
+    expect(stillRow.clearanceStatus).toBe("pending");
+    expect(stillRow.charge).toEqual({ amountCents: 15000 });
+
+    // Settle the remainder → cleared; the "ready to process" comma filter
+    // (cleared,overridden) now returns the row, single-value filter still works.
+    const settle = await request(app)
+      .post(`/api/billing/invoices/${basket.id}/payments`)
+      .set("Cookie", writeCookies(adminCookie))
+      .set("X-CSRF-Token", csrf)
+      .send({ amount: 150, method: "cash" });
+    expect(settle.status).toBe(201);
+    const ready = await request(app)
+      .get("/api/lab/tests?clearanceStatus=cleared,overridden")
+      .set("Cookie", adminCookie);
+    expect(ready.status).toBe(200);
+    const readyRow = ready.body.find((r: any) => r.id === labRes.body.id);
+    expect(readyRow.clearanceStatus).toBe("cleared");
+    expect(readyRow.charge).toEqual({ amountCents: 15000 });
+    expect(ready.body.every((r: any) => ["cleared", "overridden"].includes(r.clearanceStatus))).toBe(true);
   });
 
   it("concurrency: two parallel order creates yield exactly one open basket", async () => {

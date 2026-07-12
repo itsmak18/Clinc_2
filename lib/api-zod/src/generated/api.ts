@@ -714,6 +714,14 @@ export const GetPatientSummaryResponse = zod.object({
       ]),
       invoiceItemId: zod.number().nullish(),
       invoiceId: zod.number().nullish(),
+      charge: zod
+        .object({
+          amountCents: zod.number(),
+        })
+        .describe(
+          "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+        )
+        .nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -783,6 +791,14 @@ export const GetPatientSummaryResponse = zod.object({
       ]),
       invoiceItemId: zod.number().nullish(),
       invoiceId: zod.number().nullish(),
+      charge: zod
+        .object({
+          amountCents: zod.number(),
+        })
+        .describe(
+          "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+        )
+        .nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       orderGroupId: zod.string().nullish(),
@@ -1490,6 +1506,14 @@ export const GetAppointmentDischargeResponse = zod.object({
       ]),
       invoiceItemId: zod.number().nullish(),
       invoiceId: zod.number().nullish(),
+      charge: zod
+        .object({
+          amountCents: zod.number(),
+        })
+        .describe(
+          "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+        )
+        .nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       orderGroupId: zod.string().nullish(),
@@ -1572,6 +1596,14 @@ export const GetAppointmentDischargeResponse = zod.object({
       ]),
       invoiceItemId: zod.number().nullish(),
       invoiceId: zod.number().nullish(),
+      charge: zod
+        .object({
+          amountCents: zod.number(),
+        })
+        .describe(
+          "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+        )
+        .nullish(),
       notes: zod.string().nullish(),
       notesAr: zod.string().nullish(),
       createdAt: zod.coerce.date(),
@@ -3036,14 +3068,22 @@ export const SendPrescriptionToPharmacyResponse = zod.object({
 /**
  * @summary List X-ray images
  */
+export const listXrayImagesQueryClearanceStatusRegExp = new RegExp(
+  "^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))\*$",
+);
+
 export const ListXrayImagesQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
   status: zod
     .enum(["requested", "in_progress", "completed", "cancelled"])
     .optional(),
-  clearanceStatus: zod
-    .enum(["pending", "cleared", "overridden", "expired"])
-    .optional(),
+  clearanceStatus: zod.coerce
+    .string()
+    .regex(listXrayImagesQueryClearanceStatusRegExp)
+    .optional()
+    .describe(
+      'Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department \"ready to process\" view).',
+    ),
 });
 
 export const ListXrayImagesResponseItem = zod.object({
@@ -3116,6 +3156,14 @@ export const ListXrayImagesResponseItem = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3212,6 +3260,14 @@ export const GetXrayRecordResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3317,6 +3373,14 @@ export const UpdateXrayRecordResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3366,14 +3430,22 @@ export const DeleteXrayImageParams = zod.object({
 /**
  * @summary List ultrasound records
  */
+export const listUltrasoundRecordsQueryClearanceStatusRegExp = new RegExp(
+  "^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))\*$",
+);
+
 export const ListUltrasoundRecordsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
   status: zod
     .enum(["requested", "in_progress", "completed", "cancelled"])
     .optional(),
-  clearanceStatus: zod
-    .enum(["pending", "cleared", "overridden", "expired"])
-    .optional(),
+  clearanceStatus: zod.coerce
+    .string()
+    .regex(listUltrasoundRecordsQueryClearanceStatusRegExp)
+    .optional()
+    .describe(
+      'Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department \"ready to process\" view).',
+    ),
 });
 
 export const ListUltrasoundRecordsResponseItem = zod.object({
@@ -3447,6 +3519,14 @@ export const ListUltrasoundRecordsResponseItem = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3547,6 +3627,14 @@ export const GetUltrasoundRecordResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3653,6 +3741,14 @@ export const UpdateUltrasoundRecordResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   createdAt: zod.coerce.date(),
@@ -3702,14 +3798,22 @@ export const DeleteUltrasoundImageParams = zod.object({
 /**
  * @summary List lab tests
  */
+export const listLabTestsQueryClearanceStatusRegExp = new RegExp(
+  "^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))\*$",
+);
+
 export const ListLabTestsQueryParams = zod.object({
   patientId: zod.coerce.number().optional(),
   status: zod
     .enum(["requested", "in_progress", "completed", "cancelled"])
     .optional(),
-  clearanceStatus: zod
-    .enum(["pending", "cleared", "overridden", "expired"])
-    .optional(),
+  clearanceStatus: zod.coerce
+    .string()
+    .regex(listLabTestsQueryClearanceStatusRegExp)
+    .optional()
+    .describe(
+      'Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department \"ready to process\" view).',
+    ),
 });
 
 export const ListLabTestsResponseItem = zod.object({
@@ -3770,6 +3874,14 @@ export const ListLabTestsResponseItem = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),
@@ -3855,6 +3967,14 @@ export const GetLabTestResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),
@@ -3937,6 +4057,14 @@ export const UpdateLabTestResponse = zod.object({
   clearanceStatus: zod.enum(["pending", "cleared", "overridden", "expired"]),
   invoiceItemId: zod.number().nullish(),
   invoiceId: zod.number().nullish(),
+  charge: zod
+    .object({
+      amountCents: zod.number(),
+    })
+    .describe(
+      "The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.",
+    )
+    .nullish(),
   notes: zod.string().nullish(),
   notesAr: zod.string().nullish(),
   orderGroupId: zod.string().nullish(),

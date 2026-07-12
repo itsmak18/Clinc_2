@@ -11,7 +11,7 @@ import { getActiveBreakGlassPatientIds } from "../compliance";
 import { auditBreakGlass } from "../../lib/break-glass-audit";
 import { NotFoundError, ForbiddenError, ValidationError, ClearanceRequiredError } from "../../services/errors";
 import { autoAdvanceVisit } from "../clinical";
-import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress } from "../billing";
+import { isClearanceGateEnabled, appendOrderCharge, removeOrderCharge, clearanceBlocksProgress, parseClearanceStatusFilter, orderChargeFromLine } from "../billing";
 import type { AuthRequest } from "../../middlewares/auth";
 
 export async function listXrays(
@@ -20,7 +20,7 @@ export async function listXrays(
 ) {
   const lim = Math.min(parseInt(params.limit ?? "50") || 50, 100);
   const conditions: any[] = [isNull(xrayRecordsTable.deletedAt), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
-  if (params.clearanceStatus) conditions.push(eq(xrayRecordsTable.clearanceStatus, params.clearanceStatus as any));
+  if (params.clearanceStatus) conditions.push(inArray(xrayRecordsTable.clearanceStatus, parseClearanceStatusFilter(params.clearanceStatus)));
 
   let breakGlassPatientIds: number[] = [];
   if (isDoctorScoped(req.user?.role)) {
@@ -57,6 +57,9 @@ export async function listXrays(
       clearanceStatus: xrayRecordsTable.clearanceStatus,
       invoiceItemId: xrayRecordsTable.invoiceItemId,
       invoiceId: invoiceItemsTable.invoiceId,
+      // Own-line price only (visibility plan D1) — folded into `charge` below.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
       notes: xrayRecordsTable.notes,
       notesAr: xrayRecordsTable.notesAr,
       createdAt: xrayRecordsTable.createdAt,
@@ -72,9 +75,13 @@ export async function listXrays(
     { breakGlassPatientIds },
   );
 
-  const nextCursor = rows.length === lim ? rows[rows.length - 1].id : null;
-  await logAudit(req, "READ_LIST", "xray", undefined, { count: rows.length });
-  return { data: rows, nextCursor };
+  const data = rows.map(({ chargeQuantity, chargeUnitPrice, ...row }) => ({
+    ...row,
+    charge: orderChargeFromLine(chargeQuantity, chargeUnitPrice),
+  }));
+  const nextCursor = data.length === lim ? data[data.length - 1].id : null;
+  await logAudit(req, "READ_LIST", "xray", undefined, { count: data.length });
+  return { data, nextCursor };
 }
 
 export async function createXray(
@@ -132,12 +139,20 @@ export async function getXray(req: AuthRequest, xrayId: number) {
     ? await getActiveBreakGlassPatientIds(req.user!.userId, req.user!.clinicId)
     : [];
 
-  const xray = await runInTenantContext(req.user!, async (tx) => {
+  const found = await runInTenantContext(req.user!, async (tx) => {
     const conditions: any[] = [eq(xrayRecordsTable.id, xrayId), eq(xrayRecordsTable.clinicId, req.user!.clinicId)];
-    const [row] = await tx.select().from(xrayRecordsTable).where(and(...conditions));
+    const [row] = await tx.select({
+      record: xrayRecordsTable,
+      // Own-line price only (visibility plan D1) — never invoice totals.
+      chargeQuantity: invoiceItemsTable.quantity,
+      chargeUnitPrice: invoiceItemsTable.unitPrice,
+    }).from(xrayRecordsTable)
+      .leftJoin(invoiceItemsTable, eq(xrayRecordsTable.invoiceItemId, invoiceItemsTable.id))
+      .where(and(...conditions));
     return row;
   }, { breakGlassPatientIds });
-  if (!xray) throw new NotFoundError("xray record", xrayId);
+  if (!found) throw new NotFoundError("xray record", xrayId);
+  const xray = { ...found.record, charge: orderChargeFromLine(found.chargeQuantity, found.chargeUnitPrice) };
 
   if (isDoc) {
     const allowed = await getDoctorPatientScope(req.user!.userId);

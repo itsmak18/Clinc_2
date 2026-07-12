@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { isClearanceLocked, canOverrideClearance } from "@/lib/clearance";
+import { isClearanceLocked, canOverrideClearance, CLEARANCE_QUEUE_TABS } from "@/lib/clearance";
 import { openPrintWindow, ultrasoundReportHtml } from "@/lib/print";
 import { usePrintLang } from "@/hooks/printLang";
 import { newOrderGroupId, countByOrderGroup } from "@/lib/ids";
@@ -65,6 +65,7 @@ export default function Ultrasound() {
   const canEdit = EDIT_ROLES.includes(user?.role ?? "");
   const [showCreate, setShowCreate] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
+  const [clearanceTab, setClearanceTab] = useState("");
   const [search, setSearch] = useState("");
   const [showArCreate, setShowArCreate] = useState(false);
   const [showArReport, setShowArReport] = useState(false);
@@ -81,7 +82,7 @@ export default function Ultrasound() {
   const [impressionAr, setImpressionAr] = useState("");
   const [reportStatus, setReportStatus] = useState("in_progress");
 
-  const filterParams = { status: filterStatus as any || undefined };
+  const filterParams = { status: filterStatus as any || undefined, clearanceStatus: clearanceTab || undefined };
   const { data: records, isLoading } = useListUltrasoundRecords(filterParams, { query: { queryKey: getListUltrasoundRecordsQueryKey(filterParams) } });
   const { data: patients } = useListPatients({ limit: 200 }, { query: { queryKey: getListPatientsQueryKey({ limit: 200 }) } });
 
@@ -194,6 +195,22 @@ export default function Ultrasound() {
             {FILTER_STATUSES.map(s => <SelectItem key={s} value={s}>{t(s as any)}</SelectItem>)}
           </SelectContent>
         </Select>
+        {/* Payment-clearance queue tabs (visibility plan): default All — the
+            guard blocks unpaid work regardless; tabs only focus the view. */}
+        <div className="flex items-center gap-1" role="tablist" aria-label={t("awaitingPayment")}>
+          {CLEARANCE_QUEUE_TABS.map(tab => (
+            <button
+              key={tab.value}
+              role="tab"
+              aria-selected={clearanceTab === tab.value}
+              className={cn("btn btn-sm h-8 text-xs px-2.5", clearanceTab === tab.value ? "btn-primary" : "btn-outline")}
+              onClick={() => setClearanceTab(tab.value)}
+              data-testid={`tab-clearance-${tab.value || "all"}`}
+            >
+              {t(tab.labelKey as any)}
+            </button>
+          ))}
+        </div>
         {openCount > 0 && (
           <span className="badge badge-sand text-xs">{openCount} {t("pending")}</span>
         )}
@@ -218,7 +235,7 @@ export default function Ultrasound() {
                 {(row.patient as any)?.dateOfBirth && <div><span className="text-[var(--ink-muted)]">{t("dateOfBirth")}: </span><span className="text-[var(--ink)]">{formatDate((row.patient as any).dateOfBirth)}</span></div>}
                 {(row.patient as any)?.gender && <div><span className="text-[var(--ink-muted)]">{t("gender")}: </span><span className="text-[var(--ink)] capitalize">{(row.patient as any).gender}</span></div>}
                 {row.requestedBy?.fullName && <div><span className="text-[var(--ink-muted)]">{t("requestedBy")}: </span><span className="text-[var(--ink)]">{row.requestedBy.fullName}</span></div>}
-                <ClearanceChip status={(row as any).clearanceStatus} />
+                <ClearanceChip status={(row as any).clearanceStatus} charge={(row as any).charge} />
                 {(row as any).clearanceStatus === "pending" && (row as any).invoiceId && canOverrideClearance(user?.role) && (
                   <button
                     className="btn btn-outline btn-sm h-6 text-xs px-2 gap-1"
@@ -363,7 +380,7 @@ export default function Ultrasound() {
             { key: "status",    header: t("status"),      render: r => (
               <div className="flex flex-col items-start gap-1">
                 <StatusBadge status={r.status} />
-                <ClearanceChip status={(r as any).clearanceStatus} />
+                <ClearanceChip status={(r as any).clearanceStatus} charge={(r as any).charge} />
               </div>
             ) },
             {

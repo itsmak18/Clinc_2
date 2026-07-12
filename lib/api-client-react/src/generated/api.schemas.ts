@@ -413,6 +413,13 @@ export const ClearanceStatus = {
   expired: "expired",
 } as const;
 
+/**
+ * The order's own charge line (quantity × unit price), in integer cents. Deliberately the ONLY billing fact exposed on department order rows — never invoice totals, basket balance, or payment history (clearance-visibility plan D1). Null on pre-gate rows.
+ */
+export interface OrderCharge {
+  amountCents: number;
+}
+
 export interface XrayRecord {
   id: number;
   patientId: number;
@@ -432,6 +439,7 @@ export interface XrayRecord {
   clearanceStatus: ClearanceStatus;
   invoiceItemId?: number | null;
   invoiceId?: number | null;
+  charge?: OrderCharge | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -461,6 +469,7 @@ export interface LabTest {
   clearanceStatus: ClearanceStatus;
   invoiceItemId?: number | null;
   invoiceId?: number | null;
+  charge?: OrderCharge | null;
   notes?: string | null;
   notesAr?: string | null;
   orderGroupId?: string | null;
@@ -801,6 +810,7 @@ export interface UltrasoundRecord {
   clearanceStatus: ClearanceStatus;
   invoiceItemId?: number | null;
   invoiceId?: number | null;
+  charge?: OrderCharge | null;
   notes?: string | null;
   notesAr?: string | null;
   createdAt: string;
@@ -2025,7 +2035,11 @@ export type SendPrescriptionToPharmacy200 = {
 export type ListXrayImagesParams = {
   patientId?: number;
   status?: ListXrayImagesStatus;
-  clearanceStatus?: ClearanceStatus;
+  /**
+   * Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department "ready to process" view).
+   * @pattern ^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$
+   */
+  clearanceStatus?: string;
 };
 
 export type ListXrayImagesStatus =
@@ -2048,7 +2062,11 @@ export type GetXrayImageFileParams = {
 export type ListUltrasoundRecordsParams = {
   patientId?: number;
   status?: ListUltrasoundRecordsStatus;
-  clearanceStatus?: ClearanceStatus;
+  /**
+   * Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department "ready to process" view).
+   * @pattern ^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$
+   */
+  clearanceStatus?: string;
 };
 
 export type ListUltrasoundRecordsStatus =
@@ -2071,7 +2089,11 @@ export type GetUltrasoundImageFileParams = {
 export type ListLabTestsParams = {
   patientId?: number;
   status?: ListLabTestsStatus;
-  clearanceStatus?: ClearanceStatus;
+  /**
+   * Single clearance status or comma-separated list (e.g. `cleared,overridden` — the department "ready to process" view).
+   * @pattern ^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$
+   */
+  clearanceStatus?: string;
 };
 
 export type ListLabTestsStatus =

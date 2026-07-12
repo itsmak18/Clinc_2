@@ -1052,8 +1052,12 @@ paths:
             enum: [requested, in_progress, completed, cancelled]
         - name: clearanceStatus
           in: query
+          description: >-
+            Single clearance status or comma-separated list (e.g.
+            `cleared,overridden` — the department "ready to process" view).
           schema:
-            $ref: "#/components/schemas/ClearanceStatus"
+            type: string
+            pattern: '^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$'
       responses:
         "200":
           description: List of X-ray records
@@ -1216,8 +1220,12 @@ paths:
             enum: [requested, in_progress, completed, cancelled]
         - name: clearanceStatus
           in: query
+          description: >-
+            Single clearance status or comma-separated list (e.g.
+            `cleared,overridden` — the department "ready to process" view).
           schema:
-            $ref: "#/components/schemas/ClearanceStatus"
+            type: string
+            pattern: '^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$'
       responses:
         "200":
           description: List of ultrasound records
@@ -1380,8 +1388,12 @@ paths:
             enum: [requested, in_progress, completed, cancelled]
         - name: clearanceStatus
           in: query
+          description: >-
+            Single clearance status or comma-separated list (e.g.
+            `cleared,overridden` — the department "ready to process" view).
           schema:
-            $ref: "#/components/schemas/ClearanceStatus"
+            type: string
+            pattern: '^(pending|cleared|overridden|expired)(,(pending|cleared|overridden|expired))*$'
       responses:
         "200":
           description: List of lab tests
@@ -4121,6 +4133,10 @@ components:
         invoiceId:
           type: integer
           nullable: true
+        charge:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/OrderCharge"
         notes:
           type: string
           nullable: true
@@ -4232,6 +4248,10 @@ components:
         invoiceId:
           type: integer
           nullable: true
+        charge:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/OrderCharge"
         notes:
           type: string
           nullable: true
@@ -4329,6 +4349,10 @@ components:
         invoiceId:
           type: integer
           nullable: true
+        charge:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/OrderCharge"
         notes:
           type: string
           nullable: true
@@ -4428,6 +4452,18 @@ components:
     ClearanceStatus:
       type: string
       enum: [pending, cleared, overridden, expired]
+
+    OrderCharge:
+      type: object
+      description: >-
+        The order's own charge line (quantity × unit price), in integer cents.
+        Deliberately the ONLY billing fact exposed on department order rows —
+        never invoice totals, basket balance, or payment history
+        (clearance-visibility plan D1). Null on pre-gate rows.
+      properties:
+        amountCents:
+          type: integer
+      required: [amountCents]
 
     ClearanceOverrideBody:
       type: object
