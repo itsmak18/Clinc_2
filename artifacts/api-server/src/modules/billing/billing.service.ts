@@ -224,26 +224,40 @@ export async function cancelInvoice(req: AuthRequest, invoiceId: number, reason:
   if (trimmedReason.length < 30) {
     throw new ValidationError("Cancellation reason must be at least 30 characters");
   }
-  const conditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId)];
-  const [invoice] = await db.select().from(invoicesTable).where(and(...conditions));
-  if (!invoice) throw new NotFoundError("invoice", invoiceId);
-  if (invoice.status !== "pending") {
-    throw new ConflictError(`Invoice is already ${invoice.status}. Cannot cancel.`);
-  }
-
-  const cancelConditions: any[] = [eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, req.user!.clinicId), eq(invoicesTable.status, "pending")];
+  const clinicId = req.user!.clinicId;
+  const invoiceWhere = and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId));
 
   // Cancel + basket-order expiry in one tx: cancelling an order basket
   // permanently blocks its linked pending orders (clearance → expired), so a
   // cancelled bill can never leave orders that later perform unpaid.
+  // Lock order (ADR-011 §11): plain read → basket advisory lock → invoice row
+  // lock. The initial read must NOT lock the row, or cancel would hold
+  // row→wait-advisory while a payment holds advisory→wait-row (deadlock).
   const { updated, expired } = await runInTenantContext(req.user!, async (tx) => {
+    let [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere);
+    if (!invoice) throw new NotFoundError("invoice", invoiceId);
+
+    if (invoice.kind === "order_basket") {
+      // Serialize against appendOrderCharge: without this, an order created
+      // mid-cancel lands its line after settleInvoiceOrders scanned the
+      // basket, stranding the order clearance='pending' on a cancelled bill
+      // until the TTL sweep. Under the lock, an append either completes
+      // first (the expiry scan below sees its line) or blocks until this tx
+      // commits and then opens a fresh basket.
+      await lockBasket(tx, clinicId, invoice.patientId);
+    }
+    [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere).for("update");
+    if (invoice.status !== "pending") {
+      throw new ConflictError(`Invoice is already ${invoice.status}. Cannot cancel.`);
+    }
+
     const [u] = await tx.update(invoicesTable)
       .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(...cancelConditions))
+      .where(and(invoiceWhere, eq(invoicesTable.status, "pending")))
       .returning();
     if (!u) throw new ConflictError("Invoice status changed by a concurrent request.");
     const ex = u.kind === "order_basket"
-      ? await settleInvoiceOrders(tx, req.user!.clinicId, invoiceId, "expired")
+      ? await settleInvoiceOrders(tx, clinicId, invoiceId, "expired")
       : null;
     return { updated: u, expired: ex };
   });
@@ -287,8 +301,13 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
 
     if (invoice.kind === "order_basket") {
       await lockBasket(tx, clinicId, invoice.patientId);
-      [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere);
     }
+    // Row lock (ADR-011 §11): serializes same-invoice writers (payInvoice /
+    // recordPayment / cancelInvoice). For a manual invoice this is the only
+    // lock — without it a payment concurrent with this one reads the same
+    // ledger sum and the ledger ends up over the total. Lock order is always
+    // advisory (basket) → row; the initial read above never locks.
+    [invoice] = await tx.select().from(invoicesTable).where(invoiceWhere).for("update");
 
     if (invoice.status !== "pending") {
       throw new ConflictError(`Invoice is already ${invoice.status}. Cannot process payment.`);
@@ -308,27 +327,40 @@ export async function payInvoice(req: AuthRequest, invoiceId: number, amountRece
       throw new ConflictError("Invoice was created too recently by the same user. Have a second staff member process payment.");
     }
 
-    if (amountReceived !== undefined && parseMoneyToCents(amountReceived) < parseMoneyToCents(String(invoice.total))) {
-      throw new ValidationError(`Amount received (${amountReceived}) is less than invoice total (${invoice.total}).`);
+    // Ledger sum runs UNDER the row lock. This full-pay path settles the
+    // OUTSTANDING BALANCE, not the face total: prior partial payments
+    // (recordPayment) must be counted, or paying here would stack the full
+    // total on top of them and the ledger — the record of truth (F-02) —
+    // would exceed the invoice.
+    const [{ paid }] = await tx
+      .select({ paid: sql<string>`coalesce(sum(${paymentsTable.amountCents}), 0)` })
+      .from(paymentsTable)
+      .where(and(eq(paymentsTable.invoiceId, invoiceId), eq(paymentsTable.clinicId, clinicId)));
+    const remainingCents = parseMoneyToCents(String(invoice.total)) - Number(paid);
+
+    if (amountReceived !== undefined && parseMoneyToCents(amountReceived) < remainingCents) {
+      throw new ValidationError(`Amount received (${amountReceived}) is less than the outstanding balance (${formatCents(remainingCents)}).`);
     }
 
-    // Flip to paid AND record the full payment in the ledger atomically, so the
-    // payments ledger (F-02) stays the source of truth. The conditional UPDATE
-    // (status='pending') still guards against a concurrent double-pay. Clearance
-    // gate: settling the invoice flips its linked orders pending→cleared in the
-    // SAME tx, so an order is never observably cleared under an unpaid invoice.
+    // Flip to paid AND record the balancing payment in the ledger atomically.
+    // The conditional UPDATE (status='pending') still guards against a
+    // concurrent double-pay. Clearance gate: settling the invoice flips its
+    // linked orders pending→cleared in the SAME tx, so an order is never
+    // observably cleared under an unpaid invoice.
     const [u] = await tx.update(invoicesTable)
       .set({ status: "paid", paidAt: sql`now()`, updatedAt: sql`now()` })
       .where(and(invoiceWhere, eq(invoicesTable.status, "pending")))
       .returning();
     if (!u) throw new ConflictError("Invoice was already paid by a concurrent request.");
-    await tx.insert(paymentsTable).values({
-      clinicId,
-      invoiceId,
-      amountCents: parseMoneyToCents(String(u.total)),
-      method: "cash",
-      receivedById: req.user!.userId,
-    });
+    if (remainingCents > 0) {
+      await tx.insert(paymentsTable).values({
+        clinicId,
+        invoiceId,
+        amountCents: remainingCents,
+        method: "cash",
+        receivedById: req.user!.userId,
+      });
+    }
     // Only baskets carry linked orders — manual invoices skip the settle scan.
     const s = u.kind === "order_basket"
       ? await settleInvoiceOrders(tx, clinicId, invoiceId)

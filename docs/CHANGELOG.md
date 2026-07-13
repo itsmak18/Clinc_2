@@ -1,5 +1,17 @@
 # Changelog
 
+## Invoice writer serialization — external-audit race fixes (ADR-011 §11, ADR-013) (2026-07-12)
+
+An external audit of the clearance/billing workflow claimed four defects; every claim was re-verified in code before acting — **3 confirmed, 1 refuted**:
+
+- **CONFIRMED — `cancelInvoice` was not a basket writer.** No `lockBasket`, so an order created concurrently with a basket cancel landed its charge line after the expiry scan and sat `clearance='pending'` on a *cancelled* invoice — unpayable for up to 48h until the TTL sweep. Fix: cancel now follows the §11 sequence (plain read → basket advisory lock → row `FOR UPDATE` → conditional update). Cancel-after-append expiring the fresh order is intended and documented (a cancelled bill expires its orders; re-ordering opens a fresh basket).
+- **CONFIRMED — manual invoices had zero payment serialization.** The advisory lock is basket-keyed, so on `kind='manual'` two concurrent `recordPayment`s read the same ledger `SUM`, both validated, and the append-only ledger exceeded the invoice total. Fix: all three invoice writers (`payInvoice`/`recordPayment`/`cancelInvoice`) re-read the invoice `FOR UPDATE` after the (basket-only) advisory lock; every validation incl. the ledger `SUM` runs under the row lock. Lock order invariantly advisory → row (initial read never locks — the inverse order deadlocks). The race loser fails with the documented overpayment 400, never a lock-timeout 500.
+- **Bonus fix surfaced by the test design:** `payInvoice` used to stack the FULL invoice total onto the ledger regardless of prior partial payments (overpaid ledger even sequentially). It now settles the outstanding balance (`total − SUM(ledger)`) under the row lock and validates `amountReceived` against it.
+- **CONFIRMED — patient summary has no ultrasound history** (backend projection + spec + UI, bigger than the audit's frontend-only claim) — scheduled as Round 2, separate PR.
+- **REFUTED — "/orders is orphaned navigation."** The nav item exists (doctor-pinned), the route is embedded in DoctorConsult; doctor-only is deliberate scoping. No change.
+
+Tests: new `billing-concurrency.integration-db.test.ts` (3/3, real Postgres) with **red-run proof** — all three scenarios were first observed failing on pre-fix code (`[201, 201]` double payment; ledger `160 > 100`; stranded x-ray order on iteration 1) before being trusted green. Architecture: ADR-013 records keeping the encounter basket (Option B) as tactical, immutable-charges/checkout-materialized invoice (Option C) as the strategic direction with explicit revisit triggers.
+
 ## Clearance gate — max-effort code-review fixes (2026-07-07)
 
 `/code-review max` over the Phase A + schedule working diff surfaced 15 findings (13 confirmed, 2 refuted); all confirmed items fixed:

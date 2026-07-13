@@ -97,16 +97,23 @@ export async function recordPayment(
     if (!invoice) throw new NotFoundError("invoice", invoiceId);
 
     if (invoice.kind === "order_basket") {
-      // Serialize against appendOrderCharge and re-read: the total this
-      // payment settles against must be the total whose orders get cleared
-      // (mirrors payInvoice; without the lock a concurrently appended charge
-      // could be cleared by a ledger that never covered it).
+      // Serialize against appendOrderCharge: the total this payment settles
+      // against must be the total whose orders get cleared (mirrors
+      // payInvoice; without the lock a concurrently appended charge could be
+      // cleared by a ledger that never covered it).
       await lockBasket(tx, clinicId, invoice.patientId);
-      [invoice] = await tx
-        .select()
-        .from(invoicesTable)
-        .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)));
     }
+    // Row lock (ADR-011 §11): serializes same-invoice writers (payInvoice /
+    // recordPayment / cancelInvoice). For a manual invoice this is the only
+    // lock — without it two concurrent payments read the same ledger sum,
+    // both validate against it, and the ledger ends up over the total. The
+    // SUM below MUST stay after this lock. Lock order is always advisory
+    // (basket) → row; the initial read above never locks.
+    [invoice] = await tx
+      .select()
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.clinicId, clinicId)))
+      .for("update");
     if (invoice.status === "cancelled") {
       throw new ConflictError("Cannot record a payment against a cancelled invoice.");
     }

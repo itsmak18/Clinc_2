@@ -57,6 +57,28 @@ Hourly cron (`15 * * * *`) expires orders pending past `CLEARANCE_TTL_HOURS` (de
 
 Every basket **writer** — not just creation — serializes on the per-(clinic,patient) advisory lock (`lockBasket`): `appendOrderCharge` (via `findOrCreateBasket`) and both payment paths (`payInvoice`, `recordPayment`), which run fully in-tx and re-read the invoice under the lock before validating amounts and settling. Without this, a charge appended mid-payment was either cleared without the collected cash covering it, or stranded `pending` on an already-paid frozen invoice. Catalog `(clinic_id, code)` is UNIQUE among live rows (migration 0043) so the auto-charge price is deterministic.
 
+<!-- §10 (department visibility — own line only) lands with the feat/clearance-visibility branch. -->
+
+### 11. Invoice writer serialization (added 2026-07-12)
+
+The 2026-07-12 external audit found two holes in §9's lock coverage, both confirmed in code and reproduced by failing tests before fixing:
+
+- **`cancelInvoice` was not a basket writer.** It flipped the invoice and expired linked orders without taking `lockBasket`, so an order created concurrently landed its charge line after `settleInvoiceOrders` scanned the basket — stranding the order at `clearance_status='pending'` on a *cancelled* invoice until the TTL sweep (a 48h-stuck, unpayable order).
+- **Manual invoices had no serialization at all.** The advisory lock is keyed per (clinic, patient) basket, so on `kind='manual'` neither payment path held any lock: two concurrent payments read the same ledger `SUM`, both validated against it, and the append-only ledger exceeded the invoice total.
+
+Rule now enforced in all three invoice writers (`payInvoice`, `recordPayment`, `cancelInvoice`):
+
+1. initial in-tx read is a **plain select** (learns `kind`/`patientId`; never locks);
+2. `lockBasket` if `kind='order_basket'`;
+3. re-read the invoice **`FOR UPDATE`** (all kinds); every subsequent validation — status, ledger `SUM`, amount checks — runs under that row lock.
+
+Lock order is invariantly **advisory → row**; taking the row lock first would deadlock against a payment holding the advisory lock and waiting on the row. The losing side of a serialized payment race blocks on the row lock, re-reads a ledger that now covers the total, and fails with the documented overpayment `ValidationError` (clean 400) — never a lock timeout or serialization error.
+
+Two deliberate semantics, recorded so they are not re-reported as bugs:
+
+- **Cancel-after-append expires the fresh order.** If an order append serializes *before* a basket cancel, the cancel's expiry scan sees the new line and expires that just-created order — intended: a cancelled bill expires its orders; re-ordering opens a fresh basket. (Appends serializing *after* the cancel land on a new basket.)
+- **`payInvoice` settles the outstanding balance, not the face total.** Under the row lock it sums the ledger and records `total − paid` (nothing when the ledger already covers). Previously it stacked the full total on top of any prior partial payment — the ledger exceeded the invoice even without concurrency. `amountReceived` is validated against the outstanding balance accordingly.
+
 ## Consequences
 
 - Ordered↔paid↔performed reconciliation becomes structurally possible (every gated order carries `invoice_item_id`); the three-way exception report is Phase D.
@@ -67,3 +89,5 @@ Every basket **writer** — not just creation — serializes on the per-(clinic,
 ## Verification
 
 `clearance-gate.integration-db.test.ts` (6/6 on real Postgres): pending+auto-charge, shared basket across modalities, 3020 guard block → pay (as front_desk) → cleared → progress, front_desk 403 on manual invoices, override happy/short-reason/cross-tenant-404 with invoice-stays-pending, cancel→line-withdrawn→basket auto-cancel, TTL expiry sweep, parallel-create basket uniqueness, imaging `cancelled` writable. `clearance.service.test.ts` (6/6 unit): flag-OFF control-plane refusal + data-plane sweep + override validation. Full backend suite 590/590 unit + integration-db suite green (one pre-existing broken test file fixed en route — see MIGRATION_NOTES).
+
+§11: `billing-concurrency.integration-db.test.ts` (3/3 on real Postgres) — concurrent double payment on a manual invoice (loser must be the clean overpayment 400, ledger == total), payInvoice racing a partial recordPayment (ledger == total in both serialization orders), and a 50-iteration append-vs-cancel loop asserting no order is ever `pending` on a cancelled invoice. **Red-run proof:** all three were first observed failing on the pre-fix code (`[201, 201]` double payment; ledger 160 > 100; stranded x-ray order on iteration 1) before being trusted green.
