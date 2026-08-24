@@ -2,7 +2,7 @@
 
 > **2026-07-02 independent architecture audit (no dimension bump):** Third audit in four days,
 > independently re-derived against the live tree rather than restating the 06-29/07-01 reports — see
-> [ARCHITECTURE_AUDIT_2026-07-02.md](ARCHITECTURE_AUDIT_2026-07-02.md). Confirms the 06-29/07-01
+> [ARCHITECTURE_AUDIT_2026-07-02.md](audits/ARCHITECTURE_AUDIT_2026-07-02.md). Confirms the 06-29/07-01
 > verdicts (8.5/10 architecture, 82/100 production-readiness) with fresh evidence; corrects one thing
 > both prior audits missed — 10 cross-module service imports (`autoAdvanceVisit`,
 > `hasActiveConsent`, `getActiveBreakGlassPatientIds`) go through deep `modules/x/x.service` paths,
